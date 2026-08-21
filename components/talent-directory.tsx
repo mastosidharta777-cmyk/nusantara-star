@@ -1,0 +1,20 @@
+"use client";
+import { useMemo, useState } from "react";
+import { SlidersHorizontal, X } from "lucide-react";
+import { categories, talents } from "@/lib/data";
+import type { Locale } from "@/lib/i18n";
+import { TalentCard } from "./talent-card";
+
+type C = { eyebrow: string; title: string; body: string; count: string; filters: string; clear: string; noResults: string };
+export function TalentDirectory({ locale, copy: t }: { locale: Locale; copy: C }) {
+  const [filters, setFilters] = useState({ category: "", genre: "", city: "", budget: "" }); const [mobile, setMobile] = useState(false);
+  const results = useMemo(() => talents.filter(x => (!filters.category || x.categoryId === filters.category) && (!filters.genre || x.genre === filters.genre) && (!filters.city || x.city === filters.city) && (!filters.budget || x.budget === filters.budget)), [filters]);
+  const set = (key: keyof typeof filters, value: string) => setFilters(f => ({ ...f, [key]: value })); const clear = () => setFilters({ category: "", genre: "", city: "", budget: "" });
+  const filterFields = <>{[
+    ["category", locale === "id" ? "Kategori" : "Category", categories.map(c => [c.id, locale === "id" ? c.labelId : c.labelEn])],
+    ["genre", "Genre / Style", [...new Set(talents.map(x => x.genre))].map(x => [x,x])],
+    ["city", locale === "id" ? "Kota asal" : "Base city", [...new Set(talents.map(x => x.city))].map(x => [x,x])],
+    ["budget", locale === "id" ? "Kisaran budget" : "Budget range", [...new Set(talents.map(x => x.budget))].map(x => [x,x])],
+  ].map(([key,label,options]) => <label key={key as string} className="block border-b border-black/20 py-5"><span className="text-[10px] font-bold uppercase tracking-[.18em] text-black/45">{label as string}</span><select value={filters[key as keyof typeof filters]} onChange={e => set(key as keyof typeof filters,e.target.value)} className="mt-2 w-full bg-transparent py-1 text-base outline-none"><option value="">{locale === "id" ? "Semua" : "All"}</option>{(options as string[][]).map(([v,l]) => <option value={v} key={v}>{l}</option>)}</select></label>)}</>;
+  return <div><section className="border-b border-black/10 px-5 py-20 md:px-10 md:py-28"><div className="mx-auto max-w-[1440px]"><p className="eyebrow">{t.eyebrow}</p><h1 className="mt-5 max-w-5xl font-display text-5xl leading-[.98] md:text-8xl">{t.title}</h1><p className="mt-7 max-w-2xl leading-7 text-black/55">{t.body}</p></div></section><section className="px-5 py-12 md:px-10"><div className="mx-auto max-w-[1440px]"><div className="mb-8 flex items-center justify-between border-b border-black/20 pb-5"><p className="text-sm"><b>{results.length}</b> {t.count}</p><button onClick={() => setMobile(true)} className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider lg:hidden"><SlidersHorizontal size={16}/>{t.filters}</button></div><div className="grid gap-12 lg:grid-cols-[240px_1fr]"><aside className="hidden lg:block"><div className="flex items-center justify-between"><b className="text-sm">{t.filters}</b><button onClick={clear} className="text-xs text-ember">{t.clear}</button></div>{filterFields}</aside><div>{results.length ? <div className="grid gap-x-7 gap-y-12 sm:grid-cols-2 xl:grid-cols-3">{results.map((talent,i) => <TalentCard talent={talent} key={talent.id} priority={i < 3}/>)}</div> : <div className="flex min-h-80 items-center justify-center border border-black/20 text-black/50">{t.noResults}</div>}</div></div></div></section>{mobile && <div className="fixed inset-0 z-[60] bg-paper p-6 lg:hidden"><div className="flex items-center justify-between"><b>{t.filters}</b><button onClick={() => setMobile(false)}><X/></button></div><div className="mt-8">{filterFields}</div><div className="mt-8 grid grid-cols-2 gap-3"><button onClick={clear} className="h-12 border border-ink text-xs font-bold uppercase">{t.clear}</button><button onClick={() => setMobile(false)} className="h-12 bg-ink text-xs font-bold uppercase text-white">{results.length} {t.count}</button></div></div>}</div>;
+}

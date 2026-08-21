@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: #F7F5F0; color: #171713; }
+::selection { background: #A5422D; color: white; }
+input, select, textarea { border-radius: 0; }
+@layer utilities { .eyebrow { @apply text-[11px] font-bold uppercase tracking-[.22em] text-ember; } }
