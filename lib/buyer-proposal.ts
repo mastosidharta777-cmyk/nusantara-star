@@ -37,6 +37,11 @@ type AvailabilityRequestRow = {
   status: string;
 };
 
+type BuyerSelectionRow = {
+  talent_id: string;
+  status: string;
+};
+
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -46,21 +51,29 @@ function getServerClient() {
 
 export async function loadBuyerProposal(briefId: string) {
   const supabase = getServerClient();
-  const [{ data: brief, error: briefError }, { data: matches, error: matchError }, { data: requests, error: requestError }] = await Promise.all([
+  const [
+    { data: brief, error: briefError },
+    { data: matches, error: matchError },
+    { data: requests, error: requestError },
+    { data: selection, error: selectionError },
+  ] = await Promise.all([
     supabase.from("briefs").select("id,event_type,event_date,city,venue,audience_size,talent_category,budget_min,budget_max,status").eq("id", briefId).single(),
     supabase.from("match_results").select("talent_id,score,tier,admin_approved").eq("brief_id", briefId).eq("admin_approved", true),
     supabase.from("availability_requests").select("talent_id,status").eq("brief_id", briefId).eq("status", "confirmed"),
+    supabase.from("buyer_selections").select("talent_id,status").eq("brief_id", briefId).eq("status", "selected").maybeSingle(),
   ]);
 
   if (briefError || !brief) return null;
   if (matchError) throw new Error(matchError.message);
   if (requestError) throw new Error(requestError.message);
+  if (selectionError && selectionError.code !== "42P01") throw new Error(selectionError.message);
 
   const confirmedTalentIds = new Set(((requests ?? []) as AvailabilityRequestRow[]).map((item) => item.talent_id));
   const approvedConfirmed = ((matches ?? []) as ProposalMatchRow[]).filter((item) => confirmedTalentIds.has(item.talent_id));
+  const selectedTalentId = selection ? (selection as BuyerSelectionRow).talent_id : null;
 
   if (approvedConfirmed.length === 0) {
-    return { brief: brief as BriefRow, talents: [] as Array<TalentRow & { score: number; tier: string }> };
+    return { brief: brief as BriefRow, talents: [] as Array<TalentRow & { score: number; tier: string }>, selectedTalentId };
   }
 
   const talentIds = approvedConfirmed.map((item) => item.talent_id);
@@ -78,5 +91,5 @@ export async function loadBuyerProposal(briefId: string) {
     })
     .sort((a, b) => b.score - a.score);
 
-  return { brief: brief as BriefRow, talents: ordered };
+  return { brief: brief as BriefRow, talents: ordered, selectedTalentId };
 }
