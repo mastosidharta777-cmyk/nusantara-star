@@ -31,7 +31,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
   const detail = await loadAdminBriefDetail(id);
   if (!detail) notFound();
 
-  const { row, matches, selectedTalent, commercialTerms, booking } = detail;
+  const { row, matches, selectedTalent, commercialTerms, booking, payments } = detail;
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
@@ -118,7 +118,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
           <AdminProposalActions briefId={row.id} status={row.status} />
         ) : null}
 
-        {selectedTalent && ["buyer_selected", "terms_agreed"].includes(row.status) ? (
+        {selectedTalent && ["buyer_selected", "terms_agreed", "booked"].includes(row.status) ? (
           <AdminCommercialTermsForm
             briefId={row.id}
             talentId={selectedTalent.id}
@@ -127,8 +127,8 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
           />
         ) : null}
 
-        {selectedTalent && commercialTerms?.status === "agreed" && row.status === "terms_agreed" ? (
-          <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} />
+        {selectedTalent && commercialTerms?.status === "agreed" && ["terms_agreed", "booked"].includes(row.status) ? (
+          <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} />
         ) : null}
       </div>
     </main>
