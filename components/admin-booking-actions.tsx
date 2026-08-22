@@ -46,7 +46,7 @@ export function AdminBookingActions({
   payments: Payment[];
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"booking" | "deposit" | "paid" | null>(null);
+  const [busy, setBusy] = useState<"booking" | "deposit" | "balance" | "paid" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function post(body: Record<string, string>) {
@@ -85,6 +85,19 @@ export function AdminBookingActions({
     }
   }
 
+  async function createBalance() {
+    if (!booking) return;
+    setBusy("balance");
+    setError(null);
+    try {
+      await post({ action: "create_balance", bookingId: booking.id });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal membuat pelunasan buyer");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function markPaid(paymentId: string) {
     if (!booking) return;
     setBusy("paid");
@@ -99,6 +112,11 @@ export function AdminBookingActions({
   }
 
   const deposit = payments.find((payment) => ["buyer_deposit", "buyer_full_payment"].includes(payment.payment_type ?? "") && ["pending", "paid"].includes(payment.status));
+  const balance = payments.find((payment) => payment.payment_type === "buyer_balance" && ["pending", "paid"].includes(payment.status));
+  const paidBuyerTotal = payments
+    .filter((payment) => ["buyer_deposit", "buyer_balance", "buyer_full_payment"].includes(payment.payment_type ?? "") && payment.status === "paid")
+    .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+  const remaining = Math.max(0, Number(booking?.buyer_price ?? 0) - paidBuyerTotal);
 
   return (
     <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
@@ -125,6 +143,12 @@ export function AdminBookingActions({
 
           <div className="mt-5 border-t border-black/10 pt-5">
             <p className="text-sm font-semibold">Buyer Payment</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Sudah Dibayar</span><br />{money(paidBuyerTotal)}</div>
+              <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Sisa</span><br />{money(remaining)}</div>
+              <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Status Booking</span><br />{booking.status}</div>
+            </div>
+
             {!deposit && booking.status === "pending" ? (
               <div className="mt-3">
                 <p className="text-sm text-black/60">Locked terms: 50% saat konfirmasi. Untuk booking ini DP = {money((booking.buyer_price ?? 0) / 2)}.</p>
@@ -146,7 +170,32 @@ export function AdminBookingActions({
                     {busy === "paid" ? "Mengonfirmasi…" : "Tandai DP Sudah Dibayar"}
                   </button>
                 ) : null}
-                {deposit.status === "paid" ? <p className="mt-4 text-sm font-semibold">✓ Pembayaran tercatat. Booking confirmed.</p> : null}
+                {deposit.status === "paid" ? <p className="mt-4 text-sm font-semibold">✓ DP tercatat.</p> : null}
+              </div>
+            ) : null}
+
+            {booking.status === "confirmed" && remaining > 0 && !balance ? (
+              <div className="mt-4 border border-black/10 p-4">
+                <p className="text-sm text-black/60">Sisa pembayaran buyer: <strong>{money(remaining)}</strong>.</p>
+                <button type="button" onClick={createBalance} disabled={busy !== null} className="mt-3 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                  {busy === "balance" ? "Membuat…" : "Buat Payment Pelunasan Pending"}
+                </button>
+              </div>
+            ) : null}
+
+            {balance ? (
+              <div className="mt-4 border border-black/10 bg-[#f5f3ee] p-4">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="text-sm"><span className="text-black/45">Tipe</span><br />buyer_balance</div>
+                  <div className="text-sm"><span className="text-black/45">Jumlah</span><br />{money(balance.amount)}</div>
+                  <div className="text-sm"><span className="text-black/45">Status</span><br />{balance.status}</div>
+                </div>
+                {balance.status === "pending" && booking.status === "confirmed" ? (
+                  <button type="button" onClick={() => markPaid(balance.id)} disabled={busy !== null} className="mt-4 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                    {busy === "paid" ? "Mengonfirmasi…" : "Tandai Pelunasan Sudah Dibayar"}
+                  </button>
+                ) : null}
+                {balance.status === "paid" ? <p className="mt-4 text-sm font-semibold">✓ Buyer lunas. Booking tetap confirmed sampai acara selesai.</p> : null}
               </div>
             ) : null}
           </div>
