@@ -80,6 +80,12 @@ export function AdminTalentCommercialProfile({ talentId, policies, media }: { ta
     }
   }
 
+  async function deletePolicy(item: TalentPaymentPolicyTemplate) {
+    const confirmed = window.confirm(`Hapus tahap ${item.sequence_no}. ${typeLabel(item.milestone_type)} (${paymentValue(item)})?`);
+    if (!confirmed) return;
+    await post({ action: "delete_payment_policy", policyId: item.id });
+  }
+
   return (
     <div className="space-y-7">
       <section className="border border-black/10 bg-white p-5 md:p-6">
@@ -90,10 +96,15 @@ export function AdminTalentCommercialProfile({ talentId, policies, media }: { ta
         <div className="mt-5 space-y-2">
           {policies.length === 0 ? <p className="text-sm text-black/45">Belum ada kebijakan pembayaran.</p> : policies.map((item) => (
             <div key={item.id} className="border border-black/10 bg-[#f5f3ee] p-3 text-sm">
-              <div className="flex justify-between gap-3"><span className="font-semibold">{item.sequence_no}. {typeLabel(item.milestone_type)}</span><span>{paymentValue(item)}</span></div>
-              <p className="mt-1 text-black/55">Jatuh tempo: {dueLabel(item)}</p>
-              <p className="mt-1 text-black/45">Dapat dikembalikan: {item.refundable === true ? "Ya" : item.refundable === false ? "Tidak" : "Belum ditentukan"} · Dapat dinegosiasikan: {item.negotiable ? "Ya" : "Tidak"}</p>
-              {item.cancellation_note ? <p className="mt-1 text-black/45">{item.cancellation_note}</p> : null}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex gap-3"><span className="font-semibold">{item.sequence_no}. {typeLabel(item.milestone_type)}</span><span>{paymentValue(item)}</span></div>
+                  <p className="mt-1 text-black/55">Jatuh tempo: {dueLabel(item)}</p>
+                  <p className="mt-1 text-black/45">Dapat dikembalikan: {item.refundable === true ? "Ya" : item.refundable === false ? "Tidak" : "Belum ditentukan"} · Dapat dinegosiasikan: {item.negotiable ? "Ya" : "Tidak"}</p>
+                  {item.cancellation_note ? <p className="mt-1 text-black/45">{item.cancellation_note}</p> : null}
+                </div>
+                <button disabled={busy} onClick={() => deletePolicy(item)} className="shrink-0 border border-red-700 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-40">Hapus</button>
+              </div>
             </div>
           ))}
         </div>
