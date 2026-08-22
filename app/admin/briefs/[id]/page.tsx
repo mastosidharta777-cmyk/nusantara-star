@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AdminBookingActions } from "@/components/admin-booking-actions";
-import { AdminCommercialTermsForm } from "@/components/admin-commercial-terms-form";
+import { AdminDealSheetForm } from "@/components/admin-deal-sheet-form";
 import { AdminMatchActions } from "@/components/admin-match-actions";
 import { AdminPaymentMilestones } from "@/components/admin-payment-milestones";
 import { AdminProposalActions } from "@/components/admin-proposal-actions";
@@ -32,7 +32,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
   const detail = await loadAdminBriefDetail(id);
   if (!detail) notFound();
 
-  const { row, matches, selectedTalent, commercialTerms, booking, payments, paymentMilestones } = detail;
+  const { row, matches, selectedTalent, talentPolicyTemplates, commercialTerms, booking, payments, paymentMilestones } = detail;
   const hasBuyerSelection = Boolean(selectedTalent);
 
   return (
@@ -121,11 +121,13 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
         ) : null}
 
         {selectedTalent && ["proposal_sent", "buyer_selected", "terms_agreed", "booked"].includes(row.status) ? (
-          <AdminCommercialTermsForm
+          <AdminDealSheetForm
             briefId={row.id}
             talentId={selectedTalent.id}
             talentName={selectedTalent.name}
+            eventDate={row.event_date}
             initialTerms={commercialTerms}
+            talentPolicyTemplates={talentPolicyTemplates}
           />
         ) : null}
 
