@@ -47,7 +47,7 @@ export function AdminCommercialTermsForm({
   const [talentPaymentTerms, setTalentPaymentTerms] = useState(initialTerms?.talent_payment_terms ?? "");
   const [cancellationTerms, setCancellationTerms] = useState(initialTerms?.cancellation_terms ?? "Mengikuti terms final yang disetujui buyer dan talent/management");
   const [notes, setNotes] = useState(initialTerms?.notes ?? "");
-  const [busy, setBusy] = useState<"draft" | "agreed" | null>(null);
+  const [busy, setBusy] = useState<"draft" | "agreed" | "talent_terms" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const buyerAmount = asAmount(buyerPrice);
@@ -98,8 +98,33 @@ export function AdminCommercialTermsForm({
     }
   }
 
+  async function completeLegacyTalentTerms() {
+    setBusy("talent_terms");
+    setError(null);
+    try {
+      if (!talentPaymentTerms.trim()) throw new Error("Talent Payment Terms wajib diisi.");
+      const response = await fetch("/api/internal-demo/admin/commercial-terms", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "complete_talent_terms",
+          briefId,
+          talentId,
+          talentPaymentTerms,
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.detail ?? body?.error ?? "Gagal menyimpan Talent Payment Terms");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan Talent Payment Terms");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const locked = initialTerms?.status === "agreed" && initialTerms.buyer_price > 0 && initialTerms.talent_payable > 0;
-  const legacyMissingTalentTerms = locked && !talentPaymentTerms.trim();
+  const legacyMissingTalentTerms = locked && !initialTerms?.talent_payment_terms;
 
   return (
     <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
@@ -126,9 +151,16 @@ export function AdminCommercialTermsForm({
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <label className="text-sm font-semibold">Buyer Payment Terms<textarea disabled={locked} value={buyerPaymentTerms} onChange={(e) => setBuyerPaymentTerms(e.target.value)} rows={3} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
-        <label className="text-sm font-semibold">Talent Payment Terms<textarea disabled={locked} value={talentPaymentTerms} onChange={(e) => setTalentPaymentTerms(e.target.value)} rows={3} placeholder="Contoh: 50% DP, pelunasan H-1 sebelum perform" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
+        <label className="text-sm font-semibold">Talent Payment Terms<textarea disabled={locked && !legacyMissingTalentTerms} value={talentPaymentTerms} onChange={(e) => setTalentPaymentTerms(e.target.value)} rows={3} placeholder="Contoh: 50% DP, pelunasan H-1 sebelum perform" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
       </div>
-      {legacyMissingTalentTerms ? <p className="mt-2 text-xs font-semibold text-amber-700">Talent Payment Terms belum ditetapkan pada booking demo lama ini.</p> : null}
+      {legacyMissingTalentTerms ? (
+        <div className="mt-3 border border-amber-300 bg-amber-50 p-4">
+          <p className="text-xs font-semibold text-amber-800">Booking demo lama: Talent Payment Terms belum ditetapkan. Isi sesuai kesepakatan nyata dengan talent/management; nilai komersial lain tetap terkunci.</p>
+          <button onClick={completeLegacyTalentTerms} disabled={busy !== null} className="mt-3 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+            {busy === "talent_terms" ? "Menyimpan…" : "Simpan Talent Payment Terms"}
+          </button>
+        </div>
+      ) : null}
 
       <div className="mt-4 grid gap-4">
         <label className="text-sm font-semibold">Cancellation Terms<textarea disabled={locked} value={cancellationTerms} onChange={(e) => setCancellationTerms(e.target.value)} rows={2} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
