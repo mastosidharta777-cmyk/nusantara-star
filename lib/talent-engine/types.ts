@@ -3,6 +3,27 @@ export type AvailabilityFreshness = "fresh" | "needs_confirmation" | "stale";
 export type TalentGender = "female" | "male" | "mixed" | "unknown";
 export type MatchTier = "strong_match" | "acceptable_alternative" | "do_not_offer";
 
+export type BriefFieldName =
+  | "eventType"
+  | "eventDate"
+  | "city"
+  | "venue"
+  | "audienceSize"
+  | "talentCategory"
+  | "genreStyle"
+  | "budgetMin"
+  | "budgetMax"
+  | "performanceDurationMinutes"
+  | "eventVibe"
+  | "specialRequirements";
+
+export type BriefEvidenceStatus = "explicit" | "normalized" | "inferred_review" | "missing";
+
+export type BriefFieldEvidence = {
+  status: BriefEvidenceStatus;
+  sourceExcerpt: string | null;
+};
+
 export type AvailabilityEntry = {
   date: string; // YYYY-MM-DD
   status: AvailabilityStatus;
@@ -41,6 +62,7 @@ export type StructuredBrief = {
   eventVibe: string[];
   specialRequirements: string[];
   sourceText?: string;
+  fieldEvidence?: Partial<Record<BriefFieldName, BriefFieldEvidence>>;
 };
 
 export type MatchBreakdown = {
