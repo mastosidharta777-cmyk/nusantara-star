@@ -102,7 +102,10 @@ export async function POST(request: Request) {
     if (selectionError || !selection || selection.talent_id !== talentId) {
       return NextResponse.json({ error: "Talent is not the buyer-selected talent" }, { status: 409 });
     }
-    if (!["buyer_selected", "terms_agreed"].includes(brief.status)) {
+
+    // A persisted buyer selection is the stronger source of truth. Allow a stale
+    // proposal_sent brief to recover instead of blocking commercial terms.
+    if (!["proposal_sent", "buyer_selected", "terms_agreed"].includes(brief.status)) {
       return NextResponse.json({ error: "Brief is not ready for commercial terms" }, { status: 409 });
     }
 
