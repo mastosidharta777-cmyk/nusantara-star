@@ -29,6 +29,8 @@ export async function POST(request: Request) {
     const talentPayable = parseAmount(body?.talentPayable);
     const directCosts = parseAmount(body?.directCosts ?? 0);
     const taxesAndPaymentFees = parseAmount(body?.taxesAndPaymentFees ?? 0);
+    const buyerPaymentTerms = typeof body?.buyerPaymentTerms === "string" ? body.buyerPaymentTerms.trim() : "";
+    const talentPaymentTerms = typeof body?.talentPaymentTerms === "string" ? body.talentPaymentTerms.trim() : "";
     const status = body?.status === "agreed" ? "agreed" : "draft";
 
     if (
@@ -48,6 +50,10 @@ export async function POST(request: Request) {
 
     if (status === "agreed" && (buyerPrice <= 0 || talentPayable <= 0)) {
       return NextResponse.json({ error: "Buyer price and talent payable must be greater than zero before terms can be agreed" }, { status: 409 });
+    }
+
+    if (status === "agreed" && (!buyerPaymentTerms || !talentPaymentTerms)) {
+      return NextResponse.json({ error: "Buyer and talent payment terms must both be set before terms can be agreed" }, { status: 409 });
     }
 
     if (buyerPrice < talentPayable + directCosts + taxesAndPaymentFees) {
@@ -77,7 +83,9 @@ export async function POST(request: Request) {
         talent_payable: talentPayable,
         direct_costs: directCosts,
         taxes_and_payment_fees: taxesAndPaymentFees,
-        payment_terms: typeof body?.paymentTerms === "string" ? body.paymentTerms : null,
+        buyer_payment_terms: buyerPaymentTerms || null,
+        talent_payment_terms: talentPaymentTerms || null,
+        payment_terms: buyerPaymentTerms || null,
         cancellation_terms: typeof body?.cancellationTerms === "string" ? body.cancellationTerms : null,
         notes: typeof body?.notes === "string" ? body.notes : null,
         status,
