@@ -21,6 +21,24 @@ function isProduction() {
   return process.env.VERCEL_ENV === "production";
 }
 
+function safeError(error: unknown) {
+  const message = error instanceof Error ? error.message : "Unknown error";
+  console.error("Internal demo match failed", message);
+
+  return NextResponse.json(
+    {
+      error: "Internal demo match failed",
+      detail: message,
+      env: {
+        hasSupabaseUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
+        hasSupabaseServiceRoleKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+        vercelEnv: process.env.VERCEL_ENV ?? null,
+      },
+    },
+    { status: 500 },
+  );
+}
+
 async function runMatch(text: string) {
   const [{ brief, source }, roster] = await Promise.all([parseBriefWithAI(text), loadEngineTalents()]);
   const matches = rankTalents(roster.talents, brief, 5);
@@ -57,20 +75,24 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const url = new URL(request.url);
-  const scenario = url.searchParams.get("scenario") ?? "corporate";
+  try {
+    const url = new URL(request.url);
+    const scenario = url.searchParams.get("scenario") ?? "corporate";
 
-  if (scenario === "all") {
-    const results = [];
-    for (const [name, input] of Object.entries(scenarios)) {
-      results.push({ scenario: name, input, ...(await runMatch(input)) });
+    if (scenario === "all") {
+      const results = [];
+      for (const [name, input] of Object.entries(scenarios)) {
+        results.push({ scenario: name, input, ...(await runMatch(input)) });
+      }
+      return NextResponse.json({ selfTest: true, results });
     }
-    return NextResponse.json({ selfTest: true, results });
-  }
 
-  const text = scenarios[scenario] ?? scenarios.corporate;
-  const result = await runMatch(text);
-  return NextResponse.json({ selfTest: true, scenario, input: text, ...result });
+    const text = scenarios[scenario] ?? scenarios.corporate;
+    const result = await runMatch(text);
+    return NextResponse.json({ selfTest: true, scenario, input: text, ...result });
+  } catch (error) {
+    return safeError(error);
+  }
 }
 
 export async function POST(request: Request) {
@@ -78,12 +100,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const body = await request.json().catch(() => null);
-  const text = typeof body?.text === "string" ? body.text.trim() : "";
+  try {
+    const body = await request.json().catch(() => null);
+    const text = typeof body?.text === "string" ? body.text.trim() : "";
 
-  if (!text) {
-    return NextResponse.json({ error: "Brief text is required" }, { status: 400 });
+    if (!text) {
+      return NextResponse.json({ error: "Brief text is required" }, { status: 400 });
+    }
+
+    return NextResponse.json(await runMatch(text));
+  } catch (error) {
+    return safeError(error);
   }
-
-  return NextResponse.json(await runMatch(text));
 }
