@@ -80,7 +80,7 @@ export async function POST(request: Request) {
     if (!match) return NextResponse.json({ error: "Talent is not an eligible current match" }, { status: 409 });
 
     const now = new Date().toISOString();
-    const approved = action === "approve" || action === "request_live_confirmation";
+    const approved = action === "approve";
     const rejected = action === "reject";
 
     const { data: matchResult, error: matchError } = await supabase
@@ -98,7 +98,7 @@ export async function POST(request: Request) {
           reasons: match.reasons,
           admin_approved: approved,
           admin_rejected: rejected,
-          reviewed_at: now,
+          reviewed_at: action === "request_live_confirmation" ? null : now,
         },
         { onConflict: "brief_id,talent_id" },
       )
