@@ -1,11 +1,27 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { forwardOnlyBriefStatus } from "@/lib/brief-status";
+
 export const runtime = "nodejs";
 
 const calculationTypes = new Set(["percentage", "fixed_amount", "remaining_balance"]);
 const dueBases = new Set(["booking_date", "event_date", "event_completion", "invoice_date", "custom_date"]);
 const milestoneTypes = new Set(["booking_fee", "deposit", "balance", "full_payment", "other"]);
+
+type ParsedMilestone = {
+  milestone_type: string;
+  sequence_no: number;
+  calculation_type: "percentage" | "fixed_amount" | "remaining_balance";
+  percentage: number | null;
+  amount: number | null;
+  due_basis: string;
+  due_offset_days: number;
+  custom_due_date: string | null;
+  refundable: boolean | null;
+  cancellation_note: string | null;
+  notes: string | null;
+};
 
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -20,9 +36,9 @@ function parseAmount(value: unknown) {
   return Number.isFinite(amount) ? amount : null;
 }
 
-function parseSchedule(value: unknown) {
+function parseSchedule(value: unknown): ParsedMilestone[] | null {
   if (!Array.isArray(value)) return null;
-  const rows = [];
+  const rows: ParsedMilestone[] = [];
   for (let index = 0; index < value.length; index += 1) {
     const row = value[index] as Record<string, unknown>;
     const milestoneType = typeof row?.milestone_type === "string" ? row.milestone_type : "";
@@ -43,7 +59,7 @@ function parseSchedule(value: unknown) {
     rows.push({
       milestone_type: milestoneType,
       sequence_no: index + 1,
-      calculation_type: calculationType,
+      calculation_type: calculationType as ParsedMilestone["calculation_type"],
       percentage: calculationType === "percentage" ? percentage : null,
       amount: calculationType === "fixed_amount" ? amount : null,
       due_basis: dueBasis,
@@ -55,6 +71,36 @@ function parseSchedule(value: unknown) {
     });
   }
   return rows;
+}
+
+function validateSchedule(rows: ParsedMilestone[], total: number, requireComplete: boolean) {
+  let used = 0;
+  let remainingSeen = false;
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    if (row.calculation_type === "remaining_balance") {
+      if (remainingSeen) return "Only one remaining-balance milestone is allowed";
+      if (index !== rows.length - 1) return "Remaining-balance milestone must be the final payment stage";
+      remainingSeen = true;
+      const remainder = total - used;
+      if (remainder < 0) return "Payment schedule exceeds the deal total";
+      if (requireComplete && remainder <= 0) return "Final remaining-balance milestone must have a positive amount";
+      used = total;
+      continue;
+    }
+
+    const resolved =
+      row.calculation_type === "percentage"
+        ? Math.round(total * ((row.percentage ?? 0) / 100))
+        : row.amount ?? 0;
+    if (requireComplete && resolved <= 0) return "Every agreed payment stage must have a positive amount";
+    used += resolved;
+    if (used > total) return "Payment schedule exceeds the deal total";
+  }
+
+  if (requireComplete && used !== total) return "Agreed payment schedule must cover exactly 100% of the deal total";
+  return null;
 }
 
 export async function POST(request: Request) {
@@ -85,6 +131,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Buyer price must cover talent payable, direct costs, and taxes/payment fees" }, { status: 409 });
     }
 
+    const buyerScheduleError = validateSchedule(buyerSchedule, buyerPrice, status === "agreed");
+    if (buyerScheduleError) return NextResponse.json({ error: `Buyer schedule invalid: ${buyerScheduleError}` }, { status: 409 });
+    const talentScheduleError = validateSchedule(talentSchedule, talentPayable, status === "agreed");
+    if (talentScheduleError) return NextResponse.json({ error: `Talent schedule invalid: ${talentScheduleError}` }, { status: 409 });
+
     if (status === "agreed") {
       if (buyerPrice <= 0 || talentPayable <= 0) {
         return NextResponse.json({ error: "Buyer price and talent fee must be greater than zero before the deal can be locked" }, { status: 409 });
@@ -95,17 +146,22 @@ export async function POST(request: Request) {
     }
 
     const supabase = getServerClient();
-    const [{ data: brief, error: briefError }, { data: selection, error: selectionError }] = await Promise.all([
+    const [{ data: brief, error: briefError }, { data: selection, error: selectionError }, { data: existingTerms, error: existingTermsError }] = await Promise.all([
       supabase.from("briefs").select("id,status").eq("id", briefId).single(),
       supabase.from("buyer_selections").select("talent_id,status").eq("brief_id", briefId).eq("status", "selected").single(),
+      supabase.from("commercial_terms").select("status").eq("brief_id", briefId).maybeSingle(),
     ]);
 
     if (briefError || !brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
     if (selectionError || !selection || selection.talent_id !== talentId) {
       return NextResponse.json({ error: "Talent is not the buyer-selected talent" }, { status: 409 });
     }
-    if (!["proposal_sent", "buyer_selected", "terms_agreed"].includes(brief.status)) {
-      return NextResponse.json({ error: "Brief is not ready for a deal sheet" }, { status: 409 });
+    if (existingTermsError) throw new Error(existingTermsError.message);
+    if (existingTerms?.status === "agreed") {
+      return NextResponse.json({ error: "Deal Sheet is already locked and cannot be edited" }, { status: 409 });
+    }
+    if (!["proposal_sent", "buyer_selected"].includes(brief.status)) {
+      return NextResponse.json({ error: "Brief is not ready for an editable Deal Sheet" }, { status: 409 });
     }
 
     const now = new Date().toISOString();
@@ -134,9 +190,16 @@ export async function POST(request: Request) {
     );
     if (upsertError) throw new Error(upsertError.message);
 
-    const nextStatus = status === "agreed" ? "terms_agreed" : "buyer_selected";
-    const { error: briefUpdateError } = await supabase.from("briefs").update({ status: nextStatus }).eq("id", briefId);
-    if (briefUpdateError) throw new Error(briefUpdateError.message);
+    const proposedStatus = status === "agreed" ? "terms_agreed" : "buyer_selected";
+    const nextStatus = forwardOnlyBriefStatus(brief.status, proposedStatus);
+    if (nextStatus !== brief.status) {
+      const { error: briefUpdateError } = await supabase
+        .from("briefs")
+        .update({ status: nextStatus })
+        .eq("id", briefId)
+        .eq("status", brief.status);
+      if (briefUpdateError) throw new Error(briefUpdateError.message);
+    }
 
     return NextResponse.json({ ok: true, briefId, talentId, status, briefStatus: nextStatus });
   } catch (error) {
