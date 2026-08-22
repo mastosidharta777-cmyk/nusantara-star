@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { BuyerSelectTalent } from "@/components/buyer-select-talent";
 import { isLocale } from "@/lib/i18n";
 import { loadBuyerProposal } from "@/lib/buyer-proposal";
 
@@ -41,7 +42,7 @@ export default async function ProposalPage({ params }: { params: Promise<{ local
   if (!proposal) notFound();
 
   const isId = locale === "id";
-  const { brief, talents } = proposal;
+  const { brief, talents, selectedTalentId } = proposal;
 
   return (
     <div className="bg-[#f5f3ee] text-[#171713]">
@@ -106,6 +107,12 @@ export default async function ProposalPage({ params }: { params: Promise<{ local
                       {money(talent.budget_min, locale)} – {money(talent.budget_max, locale)}
                     </p>
                   </div>
+                  <BuyerSelectTalent
+                    briefId={brief.id}
+                    talentId={talent.id}
+                    locale={locale}
+                    selected={selectedTalentId === talent.id}
+                  />
                 </div>
               </article>
             ))}
@@ -113,9 +120,13 @@ export default async function ProposalPage({ params }: { params: Promise<{ local
         )}
 
         <div className="mt-8 border border-black/10 bg-white p-5 text-sm leading-6 text-black/55 md:p-6">
-          {isId
-            ? "Daftar Pilihan ini bukan konfirmasi booking final. Ketersediaan, fee final, rider, dan detail penampilan akan dikunci setelah buyer memilih talent dan proses komersial disepakati."
-            : "This shortlist is not a final booking confirmation. Availability, final fee, rider, and performance details are locked after the buyer selects a talent and commercial terms are agreed."}
+          {selectedTalentId
+            ? isId
+              ? "Talent sudah dipilih. Tim Nusantara Star akan melanjutkan ke finalisasi fee, terms, dan proses booking."
+              : "Talent selected. The Nusantara Star team will proceed with final fee, terms, and booking coordination."
+            : isId
+              ? "Daftar Pilihan ini bukan konfirmasi booking final. Ketersediaan, fee final, rider, dan detail penampilan akan dikunci setelah buyer memilih talent dan proses komersial disepakati."
+              : "This shortlist is not a final booking confirmation. Availability, final fee, rider, and performance details are locked after the buyer selects a talent and commercial terms are agreed."}
         </div>
       </section>
     </div>
