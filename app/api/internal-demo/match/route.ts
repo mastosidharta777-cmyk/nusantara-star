@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { persistBrief } from "@/lib/brief-persistence";
+import { persistMatchSnapshot } from "@/lib/match-persistence";
 import { parseBriefWithAI } from "@/lib/talent-engine/ai-brief";
 import { rankTalents } from "@/lib/talent-engine/matching";
 import { loadEngineTalents } from "@/lib/talent-engine/supabase-talents";
@@ -112,8 +113,14 @@ export async function POST(request: Request) {
 
     const result = await runMatch(text);
     const persisted = await persistBrief(result.brief);
+    const snapshot = await persistMatchSnapshot(persisted.id, result.matches);
 
-    return NextResponse.json({ ...result, briefId: persisted.id, persisted: true });
+    return NextResponse.json({
+      ...result,
+      briefId: persisted.id,
+      persisted: true,
+      matchSnapshot: snapshot,
+    });
   } catch (error) {
     return safeError(error);
   }
