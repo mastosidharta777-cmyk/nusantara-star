@@ -6,15 +6,6 @@ import { loadAvailabilityResponseDetail } from "@/lib/availability-response-deta
 
 export const dynamic = "force-dynamic";
 
-function money(value: number | null) {
-  if (value == null) return "—";
-  return new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
 export default async function TalentConfirmationPage({ params }: { params: Promise<{ id: string }> }) {
   if (process.env.VERCEL_ENV === "production") notFound();
 
@@ -54,10 +45,6 @@ export default async function TalentConfirmationPage({ params }: { params: Promi
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Category</p>
               <p className="mt-2 font-semibold">{brief.talent_category ?? "—"}</p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Buyer Budget</p>
-              <p className="mt-2 font-semibold">{money(brief.budget_min)} – {money(brief.budget_max)}</p>
             </div>
           </div>
 
