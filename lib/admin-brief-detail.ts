@@ -39,6 +39,20 @@ type BuyerSelection = {
   status: string;
 };
 
+export type DealMilestone = {
+  milestone_type: string;
+  sequence_no: number;
+  calculation_type: "percentage" | "fixed_amount" | "remaining_balance";
+  percentage: number | null;
+  amount: number | null;
+  due_basis: "booking_date" | "event_date" | "event_completion" | "invoice_date" | "custom_date";
+  due_offset_days: number;
+  custom_due_date?: string | null;
+  refundable: boolean | null;
+  cancellation_note: string | null;
+  notes?: string | null;
+};
+
 type CommercialTerms = {
   buyer_price: number;
   talent_payable: number;
@@ -47,9 +61,18 @@ type CommercialTerms = {
   payment_terms: string | null;
   buyer_payment_terms: string | null;
   talent_payment_terms: string | null;
+  buyer_payment_schedule: DealMilestone[];
+  talent_payment_schedule: DealMilestone[];
   cancellation_terms: string | null;
+  rider_notes: string | null;
+  special_conditions: string | null;
   notes: string | null;
   status: string;
+};
+
+type TalentPolicyTemplate = DealMilestone & {
+  id: string;
+  negotiable: boolean;
 };
 
 type BookingRecord = {
@@ -114,7 +137,7 @@ export async function loadAdminBriefDetail(id: string) {
     supabase.from("buyer_selections").select("talent_id,status").eq("brief_id", id).eq("status", "selected").maybeSingle(),
     supabase
       .from("commercial_terms")
-      .select("buyer_price,talent_payable,direct_costs,taxes_and_payment_fees,payment_terms,buyer_payment_terms,talent_payment_terms,cancellation_terms,notes,status")
+      .select("buyer_price,talent_payable,direct_costs,taxes_and_payment_fees,payment_terms,buyer_payment_terms,talent_payment_terms,buyer_payment_schedule,talent_payment_schedule,cancellation_terms,rider_notes,special_conditions,notes,status")
       .eq("brief_id", id)
       .maybeSingle(),
     supabase
@@ -181,10 +204,23 @@ export async function loadAdminBriefDetail(id: string) {
   const buyerSelection = (buyerSelectionResult.data ?? null) as BuyerSelection | null;
   const selectedTalent = buyerSelection ? roster.talents.find((talent) => talent.id === buyerSelection.talent_id) ?? null : null;
 
+  let talentPolicyTemplates: TalentPolicyTemplate[] = [];
+  if (selectedTalent) {
+    const { data: policyData, error: policyError } = await supabase
+      .from("talent_payment_policy_templates")
+      .select("id,milestone_type,sequence_no,calculation_type,percentage,amount,due_basis,due_offset_days,refundable,cancellation_note,negotiable,notes")
+      .eq("talent_id", selectedTalent.id)
+      .eq("is_active", true)
+      .order("sequence_no", { ascending: true });
+    if (policyError) throw new Error(policyError.message);
+    talentPolicyTemplates = (policyData ?? []) as TalentPolicyTemplate[];
+  }
+
   return {
     row,
     brief,
     selectedTalent,
+    talentPolicyTemplates,
     commercialTerms: (commercialTermsResult.data ?? null) as CommercialTerms | null,
     booking,
     payments,
