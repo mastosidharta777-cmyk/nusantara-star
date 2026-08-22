@@ -124,7 +124,7 @@ export function AdminCommercialTermsForm({
   }
 
   const locked = initialTerms?.status === "agreed" && initialTerms.buyer_price > 0 && initialTerms.talent_payable > 0;
-  const legacyMissingTalentTerms = locked && !initialTerms?.talent_payment_terms;
+  const missingTalentTerms = locked && !initialTerms?.talent_payment_terms;
 
   return (
     <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
@@ -151,11 +151,11 @@ export function AdminCommercialTermsForm({
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <label className="text-sm font-semibold">Buyer Payment Terms<textarea disabled={locked} value={buyerPaymentTerms} onChange={(e) => setBuyerPaymentTerms(e.target.value)} rows={3} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
-        <label className="text-sm font-semibold">Talent Payment Terms<textarea disabled={locked && !legacyMissingTalentTerms} value={talentPaymentTerms} onChange={(e) => setTalentPaymentTerms(e.target.value)} rows={3} placeholder="Contoh: 50% DP, pelunasan H-1 sebelum perform" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
+        <label className="text-sm font-semibold">Talent Payment Terms<textarea disabled={locked && !missingTalentTerms} value={talentPaymentTerms} onChange={(e) => setTalentPaymentTerms(e.target.value)} rows={3} placeholder="Contoh: 50% DP, pelunasan H-1 sebelum perform" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
       </div>
-      {legacyMissingTalentTerms ? (
+      {missingTalentTerms ? (
         <div className="mt-3 border border-amber-300 bg-amber-50 p-4">
-          <p className="text-xs font-semibold text-amber-800">Booking demo lama: Talent Payment Terms belum ditetapkan. Isi sesuai kesepakatan nyata dengan talent/management; nilai komersial lain tetap terkunci.</p>
+          <p className="text-xs font-semibold text-amber-800">Talent Payment Terms belum ditetapkan. Isi sesuai kesepakatan dengan talent/management; nilai komersial lain tetap terkunci.</p>
           <button onClick={completeLegacyTalentTerms} disabled={busy !== null} className="mt-3 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
             {busy === "talent_terms" ? "Menyimpan…" : "Simpan Talent Payment Terms"}
           </button>
