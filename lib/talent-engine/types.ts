@@ -1,6 +1,7 @@
 export type AvailabilityStatus = "available" | "tentative" | "booked" | "unavailable";
 export type AvailabilityFreshness = "fresh" | "needs_confirmation" | "stale";
 export type TalentGender = "female" | "male" | "mixed" | "unknown";
+export type MatchTier = "strong_match" | "acceptable_alternative" | "do_not_offer";
 
 export type AvailabilityEntry = {
   date: string; // YYYY-MM-DD
@@ -55,6 +56,7 @@ export type MatchBreakdown = {
 export type TalentMatch = {
   talent: EngineTalent;
   score: number;
+  tier: MatchTier;
   breakdown: MatchBreakdown;
   availabilityStatus: AvailabilityStatus | "unknown";
   freshness: AvailabilityFreshness;
