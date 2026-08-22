@@ -42,7 +42,7 @@ export function AdminCommercialTermsForm({
   const [directCosts, setDirectCosts] = useState(String(initialTerms?.direct_costs ?? 0));
   const [taxFees, setTaxFees] = useState(String(initialTerms?.taxes_and_payment_fees ?? 0));
   const [buyerPaymentTerms, setBuyerPaymentTerms] = useState(
-    initialTerms?.buyer_payment_terms ?? initialTerms?.payment_terms ?? "50% saat konfirmasi, pelunasan sebelum hari acara",
+    initialTerms?.buyer_payment_terms ?? initialTerms?.payment_terms ?? "",
   );
   const [talentPaymentTerms, setTalentPaymentTerms] = useState(initialTerms?.talent_payment_terms ?? "");
   const [cancellationTerms, setCancellationTerms] = useState(initialTerms?.cancellation_terms ?? "Mengikuti terms final yang disetujui buyer dan talent/management");
@@ -150,8 +150,8 @@ export function AdminCommercialTermsForm({
       </div>
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <label className="text-sm font-semibold">Buyer Payment Terms<textarea disabled={locked} value={buyerPaymentTerms} onChange={(e) => setBuyerPaymentTerms(e.target.value)} rows={3} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
-        <label className="text-sm font-semibold">Talent Payment Terms<textarea disabled={locked && !missingTalentTerms} value={talentPaymentTerms} onChange={(e) => setTalentPaymentTerms(e.target.value)} rows={3} placeholder="Contoh: 50% DP, pelunasan H-1 sebelum perform" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
+        <label className="text-sm font-semibold">Buyer Payment Terms<textarea disabled={locked} value={buyerPaymentTerms} onChange={(e) => setBuyerPaymentTerms(e.target.value)} rows={3} placeholder="Isi sesuai kesepakatan pembayaran dengan buyer" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
+        <label className="text-sm font-semibold">Talent Payment Terms<textarea disabled={locked && !missingTalentTerms} value={talentPaymentTerms} onChange={(e) => setTalentPaymentTerms(e.target.value)} rows={3} placeholder="Isi sesuai kebijakan dan kesepakatan talent/management" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
       </div>
       {missingTalentTerms ? (
         <div className="mt-3 border border-amber-300 bg-amber-50 p-4">
