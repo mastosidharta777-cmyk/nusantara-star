@@ -10,6 +10,12 @@ function getServerClient() {
   return createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
+function parseAmount(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const amount = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(amount) ? amount : null;
+}
+
 export async function POST(request: Request) {
   if (process.env.VERCEL_ENV === "production") {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -19,14 +25,29 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null);
     const briefId = typeof body?.briefId === "string" ? body.briefId : "";
     const talentId = typeof body?.talentId === "string" ? body.talentId : "";
-    const buyerPrice = Number(body?.buyerPrice);
-    const talentPayable = Number(body?.talentPayable);
-    const directCosts = Number(body?.directCosts ?? 0);
-    const taxesAndPaymentFees = Number(body?.taxesAndPaymentFees ?? 0);
+    const buyerPrice = parseAmount(body?.buyerPrice);
+    const talentPayable = parseAmount(body?.talentPayable);
+    const directCosts = parseAmount(body?.directCosts ?? 0);
+    const taxesAndPaymentFees = parseAmount(body?.taxesAndPaymentFees ?? 0);
     const status = body?.status === "agreed" ? "agreed" : "draft";
 
-    if (!briefId || !talentId || !Number.isFinite(buyerPrice) || !Number.isFinite(talentPayable) || buyerPrice < 0 || talentPayable < 0 || directCosts < 0 || taxesAndPaymentFees < 0) {
+    if (
+      !briefId ||
+      !talentId ||
+      buyerPrice === null ||
+      talentPayable === null ||
+      directCosts === null ||
+      taxesAndPaymentFees === null ||
+      buyerPrice < 0 ||
+      talentPayable < 0 ||
+      directCosts < 0 ||
+      taxesAndPaymentFees < 0
+    ) {
       return NextResponse.json({ error: "Invalid commercial terms payload" }, { status: 400 });
+    }
+
+    if (status === "agreed" && (buyerPrice <= 0 || talentPayable <= 0)) {
+      return NextResponse.json({ error: "Buyer price and talent payable must be greater than zero before terms can be agreed" }, { status: 409 });
     }
 
     if (buyerPrice < talentPayable + directCosts + taxesAndPaymentFees) {
