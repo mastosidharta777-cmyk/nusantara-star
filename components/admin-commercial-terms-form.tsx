@@ -155,7 +155,7 @@ export function AdminCommercialTermsForm({
       </div>
       {missingTalentTerms ? (
         <div className="mt-3 border border-amber-300 bg-amber-50 p-4">
-          <p className="text-xs font-semibold text-amber-800">Talent Payment Terms belum ditetapkan. Isi sesuai kesepakatan dengan talent/management; nilai komersial lain tetap terkunci.</p>
+          <p className="text-xs font-semibold text-amber-800">Aturan pembayaran ke talent belum diisi. Masukkan sesuai kesepakatan dengan talent/management.</p>
           <button onClick={completeLegacyTalentTerms} disabled={busy !== null} className="mt-3 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
             {busy === "talent_terms" ? "Menyimpan…" : "Simpan Talent Payment Terms"}
           </button>
