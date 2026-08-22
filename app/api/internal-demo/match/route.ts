@@ -16,6 +16,7 @@ const scenarios: Record<string, string> = {
   booked: "Corporate event 12 September 2026 di Jakarta, butuh band pop alternative premium, budget 30-50 juta.",
   stale: "Private event 18 September 2026 di Jakarta, butuh DJ commercial energetic, budget maksimal 25 juta.",
   tightBudget: "Wedding 18 September 2026 di Jakarta, butuh acoustic duo pop elegan, budget maksimal 7 juta.",
+  singerBudget: "Corporate event 29 September 2026 di Jakarta, butuh singer, budget maksimal 10 juta.",
 };
 
 function isProduction() {
