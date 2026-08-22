@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null);
     const action = body?.action;
     const bookingId = typeof body?.bookingId === "string" ? body.bookingId : "";
-    if (!bookingId || !["create_deposit", "mark_paid"].includes(action)) {
+    if (!bookingId || !["create_deposit", "create_balance", "mark_paid"].includes(action)) {
       return NextResponse.json({ error: "Invalid payment action" }, { status: 400 });
     }
 
@@ -32,10 +32,10 @@ export async function POST(request: Request) {
 
     if (bookingError || !booking) return NextResponse.json({ error: "Booking not found" }, { status: 404 });
     if (!booking.brief_id) return NextResponse.json({ error: "Booking has no brief" }, { status: 409 });
+    if (!booking.buyer_price || booking.buyer_price <= 0) return NextResponse.json({ error: "Booking buyer price is invalid" }, { status: 409 });
 
     if (action === "create_deposit") {
       if (booking.status !== "pending") return NextResponse.json({ error: "Booking is not pending" }, { status: 409 });
-      if (!booking.buyer_price || booking.buyer_price <= 0) return NextResponse.json({ error: "Booking buyer price is invalid" }, { status: 409 });
 
       const { data: terms, error: termsError } = await supabase
         .from("commercial_terms")
@@ -65,12 +65,7 @@ export async function POST(request: Request) {
       const amount = Math.floor(booking.buyer_price / 2);
       const { data: payment, error: insertError } = await supabase
         .from("payments")
-        .insert({
-          booking_id: bookingId,
-          payment_type: "buyer_deposit",
-          amount,
-          status: "pending",
-        })
+        .insert({ booking_id: bookingId, payment_type: "buyer_deposit", amount, status: "pending" })
         .select("id,status,payment_type,amount")
         .single();
       if (insertError) throw new Error(insertError.message);
@@ -78,9 +73,44 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, payment });
     }
 
+    if (action === "create_balance") {
+      if (booking.status !== "confirmed") return NextResponse.json({ error: "Booking is not confirmed" }, { status: 409 });
+
+      const { data: existingBalance, error: balanceError } = await supabase
+        .from("payments")
+        .select("id,status,payment_type,amount")
+        .eq("booking_id", bookingId)
+        .eq("payment_type", "buyer_balance")
+        .in("status", ["pending", "paid"])
+        .limit(1)
+        .maybeSingle();
+      if (balanceError) throw new Error(balanceError.message);
+      if (existingBalance) return NextResponse.json({ ok: true, payment: existingBalance, reused: true });
+
+      const { data: paidRows, error: paidRowsError } = await supabase
+        .from("payments")
+        .select("payment_type,amount,status")
+        .eq("booking_id", bookingId)
+        .in("payment_type", ["buyer_deposit", "buyer_balance", "buyer_full_payment"])
+        .eq("status", "paid");
+      if (paidRowsError) throw new Error(paidRowsError.message);
+
+      const paidTotal = (paidRows ?? []).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+      const remaining = booking.buyer_price - paidTotal;
+      if (remaining <= 0) return NextResponse.json({ error: "Buyer payment is already fully paid" }, { status: 409 });
+
+      const { data: payment, error: insertError } = await supabase
+        .from("payments")
+        .insert({ booking_id: bookingId, payment_type: "buyer_balance", amount: remaining, status: "pending" })
+        .select("id,status,payment_type,amount")
+        .single();
+      if (insertError) throw new Error(insertError.message);
+
+      return NextResponse.json({ ok: true, payment, remaining });
+    }
+
     const paymentId = typeof body?.paymentId === "string" ? body.paymentId : "";
     if (!paymentId) return NextResponse.json({ error: "Payment ID is required" }, { status: 400 });
-    if (booking.status !== "pending") return NextResponse.json({ error: "Booking is not pending" }, { status: 409 });
 
     const { data: payment, error: paymentError } = await supabase
       .from("payments")
@@ -89,12 +119,28 @@ export async function POST(request: Request) {
       .single();
     if (paymentError || !payment) return NextResponse.json({ error: "Payment not found" }, { status: 404 });
     if (payment.booking_id !== bookingId) return NextResponse.json({ error: "Payment does not belong to booking" }, { status: 409 });
-    if (!["buyer_deposit", "buyer_full_payment"].includes(payment.payment_type)) {
-      return NextResponse.json({ error: "Payment type cannot confirm booking" }, { status: 409 });
+    if (!["buyer_deposit", "buyer_balance", "buyer_full_payment"].includes(payment.payment_type)) {
+      return NextResponse.json({ error: "Unsupported buyer payment type" }, { status: 409 });
     }
     if (payment.status !== "pending") return NextResponse.json({ error: "Payment is not pending" }, { status: 409 });
 
     const now = new Date().toISOString();
+
+    if (payment.payment_type === "buyer_balance") {
+      if (booking.status !== "confirmed") return NextResponse.json({ error: "Booking is not confirmed" }, { status: 409 });
+
+      const { error: paidError } = await supabase
+        .from("payments")
+        .update({ status: "paid", paid_at: now })
+        .eq("id", paymentId)
+        .eq("status", "pending");
+      if (paidError) throw new Error(paidError.message);
+
+      return NextResponse.json({ ok: true, paymentStatus: "paid", bookingStatus: "confirmed", briefStatus: "booked" });
+    }
+
+    if (booking.status !== "pending") return NextResponse.json({ error: "Booking is not pending" }, { status: 409 });
+
     const { error: paidError } = await supabase
       .from("payments")
       .update({ status: "paid", paid_at: now })
