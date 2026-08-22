@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { persistBrief } from "@/lib/brief-persistence";
 import { parseBriefWithAI } from "@/lib/talent-engine/ai-brief";
 import { rankTalents } from "@/lib/talent-engine/matching";
 import { loadEngineTalents } from "@/lib/talent-engine/supabase-talents";
@@ -108,7 +109,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Brief text is required" }, { status: 400 });
     }
 
-    return NextResponse.json(await runMatch(text));
+    const result = await runMatch(text);
+    const persisted = await persistBrief(result.brief);
+
+    return NextResponse.json({ ...result, briefId: persisted.id, persisted: true });
   } catch (error) {
     return safeError(error);
   }
