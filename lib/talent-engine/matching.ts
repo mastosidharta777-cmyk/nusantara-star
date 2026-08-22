@@ -42,14 +42,17 @@ function budgetScore(talent: EngineTalent, brief: StructuredBrief) {
 }
 
 function categoryGenreScore(talent: EngineTalent, brief: StructuredBrief) {
-  let score = 50;
   const requested = canonicalCategory(brief.talentCategory);
   const actual = canonicalCategory(talent.category);
-  if (requested) score = requested === actual ? 100 : 0;
-  if (brief.genreStyle.length > 0 && intersects(talent.genres, brief.genreStyle)) {
-    score = Math.max(score, requested === actual ? 100 : 35);
-  }
-  return score;
+  const categoryMatched = !requested || requested === actual;
+  const hasGenreRequest = brief.genreStyle.length > 0;
+  const genreMatched = hasGenreRequest && intersects(talent.genres, brief.genreStyle);
+
+  if (!categoryMatched) return 0;
+  if (!requested && !hasGenreRequest) return 70;
+  if (categoryMatched && !hasGenreRequest) return 90;
+  if (categoryMatched && genreMatched) return 100;
+  return 60;
 }
 
 function eventFitScore(talent: EngineTalent, brief: StructuredBrief) {
