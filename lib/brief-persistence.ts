@@ -24,9 +24,17 @@ export async function persistBrief(brief: StructuredBrief) {
       event_type: brief.eventType,
       event_date: brief.eventDate,
       city: brief.city,
+      venue: brief.venue,
+      audience_size: brief.audienceSize,
       talent_category: brief.talentCategory,
+      genre_style: brief.genreStyle,
       budget_min: brief.budgetMin,
       budget_max: brief.budgetMax,
+      performance_duration_minutes: brief.performanceDurationMinutes,
+      event_vibe: brief.eventVibe,
+      special_requirements: brief.specialRequirements,
+      source_text: brief.sourceText ?? null,
+      field_evidence: brief.fieldEvidence ?? {},
       status: "new",
     })
     .select("id")
