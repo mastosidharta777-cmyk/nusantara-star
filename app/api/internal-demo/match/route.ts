@@ -7,6 +7,10 @@ import { rankTalents } from "@/lib/talent-engine/matching";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  if (process.env.VERCEL_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const body = await request.json().catch(() => null);
   const text = typeof body?.text === "string" ? body.text.trim() : "";
 
