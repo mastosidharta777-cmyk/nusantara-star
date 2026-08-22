@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AdminMatchActions } from "@/components/admin-match-actions";
+import { AdminProposalActions } from "@/components/admin-proposal-actions";
 import { loadAdminBriefDetail } from "@/lib/admin-brief-detail";
 
 export const dynamic = "force-dynamic";
@@ -110,6 +111,10 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
             </div>
           )}
         </section>
+
+        {["shortlisted", "proposal_sent"].includes(row.status) ? (
+          <AdminProposalActions briefId={row.id} status={row.status} />
+        ) : null}
       </div>
     </main>
   );
