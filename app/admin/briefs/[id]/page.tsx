@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AdminBookingActions } from "@/components/admin-booking-actions";
 import { AdminCommercialTermsForm } from "@/components/admin-commercial-terms-form";
 import { AdminMatchActions } from "@/components/admin-match-actions";
 import { AdminProposalActions } from "@/components/admin-proposal-actions";
@@ -30,7 +31,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
   const detail = await loadAdminBriefDetail(id);
   if (!detail) notFound();
 
-  const { row, matches, selectedTalent, commercialTerms } = detail;
+  const { row, matches, selectedTalent, commercialTerms, booking } = detail;
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
@@ -124,6 +125,10 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
             talentName={selectedTalent.name}
             initialTerms={commercialTerms}
           />
+        ) : null}
+
+        {selectedTalent && commercialTerms?.status === "agreed" && row.status === "terms_agreed" ? (
+          <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} />
         ) : null}
       </div>
     </main>
