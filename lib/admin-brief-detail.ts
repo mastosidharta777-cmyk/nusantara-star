@@ -29,6 +29,7 @@ type PersistedMatch = {
 };
 
 type AvailabilityRequest = {
+  id: string;
   talent_id: string;
   status: string;
 };
@@ -53,7 +54,7 @@ export async function loadAdminBriefDetail(id: string) {
       .eq("id", id)
       .single(),
     supabase.from("match_results").select("talent_id,admin_approved,admin_rejected").eq("brief_id", id),
-    supabase.from("availability_requests").select("talent_id,status").eq("brief_id", id),
+    supabase.from("availability_requests").select("id,talent_id,status").eq("brief_id", id),
   ]);
 
   if (error || !data) return null;
@@ -82,7 +83,7 @@ export async function loadAdminBriefDetail(id: string) {
     ((persistedMatchesResult.data ?? []) as PersistedMatch[]).map((item) => [item.talent_id, item]),
   );
   const requestMap = new Map(
-    ((availabilityRequestsResult.data ?? []) as AvailabilityRequest[]).map((item) => [item.talent_id, item.status]),
+    ((availabilityRequestsResult.data ?? []) as AvailabilityRequest[]).map((item) => [item.talent_id, item]),
   );
 
   return {
@@ -90,11 +91,13 @@ export async function loadAdminBriefDetail(id: string) {
     brief,
     matches: matches.map((match) => {
       const persisted = persistedMap.get(match.talent.id);
+      const request = requestMap.get(match.talent.id);
       const decision = persisted?.admin_approved ? "approved" : persisted?.admin_rejected ? "rejected" : "pending";
       return {
         ...match,
         decision: decision as "approved" | "rejected" | "pending",
-        availabilityRequestStatus: requestMap.get(match.talent.id) ?? null,
+        availabilityRequestId: request?.id ?? null,
+        availabilityRequestStatus: request?.status ?? null,
       };
     }),
   };
