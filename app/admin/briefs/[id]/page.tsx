@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AdminMatchActions } from "@/components/admin-match-actions";
 import { loadAdminBriefDetail } from "@/lib/admin-brief-detail";
 
 export const dynamic = "force-dynamic";
@@ -96,17 +97,17 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
                   </div>
 
                   <p className="mt-4 text-sm leading-6 text-black/60">{match.reasons.join(" · ")}</p>
+
+                  <AdminMatchActions
+                    briefId={row.id}
+                    talentId={match.talent.id}
+                    decision={match.decision}
+                    availabilityRequestStatus={match.availabilityRequestStatus}
+                  />
                 </article>
               ))}
             </div>
           )}
-        </section>
-
-        <section className="mt-7 border border-dashed border-black/20 bg-white/50 p-5">
-          <p className="text-sm font-semibold">Next action layer</p>
-          <p className="mt-2 text-sm leading-6 text-black/55">
-            Approve / Reject / Request Live Confirmation belum diaktifkan sampai status constraint dan persistence action di database divalidasi.
-          </p>
         </section>
       </div>
     </main>
