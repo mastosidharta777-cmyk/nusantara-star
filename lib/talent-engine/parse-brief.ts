@@ -53,9 +53,8 @@ function parseDate(text: string) {
     juli: "07", agustus: "08", september: "09", oktober: "10", november: "11", desember: "12",
   };
   const natural = text.toLowerCase().match(/\b(\d{1,2})\s+(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)(?:\s+(20\d{2}))?/);
-  if (!natural) return null;
-  const year = natural[3] ?? "2026";
-  return `${year}-${months[natural[2]]}-${natural[1].padStart(2, "0")}`;
+  if (!natural || !natural[3]) return null;
+  return `${natural[3]}-${months[natural[2]]}-${natural[1].padStart(2, "0")}`;
 }
 
 function parseAudience(text: string) {
