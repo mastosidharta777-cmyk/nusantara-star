@@ -55,12 +55,12 @@ export async function POST(request: Request) {
       const { error: calendarError } = await supabase.from("talent_availability").upsert(
         {
           talent_id: availabilityRequest.talent_id,
-          date: brief.event_date,
+          event_date: brief.event_date,
           status: calendarStatus,
           notes: `Live confirmation response for brief ${availabilityRequest.brief_id}`,
           updated_at: now,
         },
-        { onConflict: "talent_id,date" },
+        { onConflict: "talent_id,event_date" },
       );
       if (calendarError) throw new Error(calendarError.message);
 
