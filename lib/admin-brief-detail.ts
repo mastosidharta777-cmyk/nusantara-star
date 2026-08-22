@@ -2,7 +2,13 @@ import { createClient } from "@supabase/supabase-js";
 
 import { rankTalents } from "@/lib/talent-engine/matching";
 import { loadEngineTalents } from "@/lib/talent-engine/supabase-talents";
-import type { StructuredBrief } from "@/lib/talent-engine/types";
+import type {
+  AvailabilityFreshness,
+  AvailabilityStatus,
+  MatchBreakdown,
+  MatchTier,
+  StructuredBrief,
+} from "@/lib/talent-engine/types";
 
 type BriefRow = {
   id: string;
@@ -18,12 +24,23 @@ type BriefRow = {
   performance_duration_minutes: number | null;
   event_vibe: string[] | null;
   special_requirements: string[] | null;
+  source_text: string | null;
+  field_evidence: Record<string, unknown> | null;
   status: string;
   created_at: string;
 };
 
 type PersistedMatch = {
   talent_id: string;
+  score: number;
+  tier: string;
+  availability_status: string;
+  availability_freshness: string;
+  requires_live_confirmation: boolean;
+  score_breakdown: MatchBreakdown | null;
+  reasons: string[] | null;
+  engine_version: string | null;
+  generated_at: string | null;
   admin_approved: boolean;
   admin_rejected: boolean;
 };
@@ -129,10 +146,13 @@ export async function loadAdminBriefDetail(id: string) {
   const [{ data, error }, persistedMatchesResult, availabilityRequestsResult, buyerSelectionResult, commercialTermsResult, bookingResult] = await Promise.all([
     supabase
       .from("briefs")
-      .select("id,event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,status,created_at")
+      .select("id,event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,source_text,field_evidence,status,created_at")
       .eq("id", id)
       .single(),
-    supabase.from("match_results").select("talent_id,admin_approved,admin_rejected").eq("brief_id", id),
+    supabase
+      .from("match_results")
+      .select("talent_id,score,tier,availability_status,availability_freshness,requires_live_confirmation,score_breakdown,reasons,engine_version,generated_at,admin_approved,admin_rejected")
+      .eq("brief_id", id),
     supabase.from("availability_requests").select("id,talent_id,status").eq("brief_id", id),
     supabase.from("buyer_selections").select("talent_id,status").eq("brief_id", id).eq("status", "selected").maybeSingle(),
     supabase
@@ -191,13 +211,36 @@ export async function loadAdminBriefDetail(id: string) {
     performanceDurationMinutes: row.performance_duration_minutes,
     eventVibe: row.event_vibe ?? [],
     specialRequirements: row.special_requirements ?? [],
+    sourceText: row.source_text ?? undefined,
+    fieldEvidence: (row.field_evidence ?? undefined) as StructuredBrief["fieldEvidence"],
   };
 
   const roster = await loadEngineTalents();
-  const matches = rankTalents(roster.talents, brief, 5);
-  const persistedMap = new Map(
-    ((persistedMatchesResult.data ?? []) as PersistedMatch[]).map((item) => [item.talent_id, item]),
-  );
+  const persistedRows = (persistedMatchesResult.data ?? []) as PersistedMatch[];
+  const frozenRows = persistedRows.filter((item) => Boolean(item.engine_version && item.generated_at));
+  const usesPersistedSnapshot = frozenRows.length > 0;
+
+  const matches = usesPersistedSnapshot
+    ? frozenRows.flatMap((item) => {
+        const talent = roster.talents.find((candidate) => candidate.id === item.talent_id);
+        if (!talent || !item.score_breakdown) return [];
+        return [
+          {
+            talent,
+            score: item.score,
+            tier: item.tier as MatchTier,
+            breakdown: item.score_breakdown,
+            availabilityStatus: item.availability_status as AvailabilityStatus | "unknown",
+            freshness: item.availability_freshness as AvailabilityFreshness,
+            requiresLiveConfirmation: item.requires_live_confirmation,
+            reasons: item.reasons ?? [],
+            blockedReasons: [] as string[],
+          },
+        ];
+      })
+    : rankTalents(roster.talents, brief, 5);
+
+  const persistedMap = new Map(persistedRows.map((item) => [item.talent_id, item]));
   const requestMap = new Map(
     ((availabilityRequestsResult.data ?? []) as AvailabilityRequest[]).map((item) => [item.talent_id, item]),
   );
@@ -216,6 +259,11 @@ export async function loadAdminBriefDetail(id: string) {
     talentPolicyTemplates = (policyData ?? []) as TalentPolicyTemplate[];
   }
 
+  const generatedAt = usesPersistedSnapshot
+    ? frozenRows.map((item) => item.generated_at).filter(Boolean).sort().at(-1) ?? null
+    : null;
+  const engineVersion = usesPersistedSnapshot ? frozenRows.find((item) => item.engine_version)?.engine_version ?? null : null;
+
   return {
     row,
     brief,
@@ -225,6 +273,11 @@ export async function loadAdminBriefDetail(id: string) {
     booking,
     payments,
     paymentMilestones,
+    matchSnapshot: {
+      source: usesPersistedSnapshot ? ("persisted" as const) : ("legacy_live_fallback" as const),
+      engineVersion,
+      generatedAt,
+    },
     matches: matches.map((match) => {
       const persisted = persistedMap.get(match.talent.id);
       const request = requestMap.get(match.talent.id);
