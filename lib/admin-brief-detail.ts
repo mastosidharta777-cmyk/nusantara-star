@@ -45,6 +45,8 @@ type CommercialTerms = {
   direct_costs: number;
   taxes_and_payment_fees: number;
   payment_terms: string | null;
+  buyer_payment_terms: string | null;
+  talent_payment_terms: string | null;
   cancellation_terms: string | null;
   notes: string | null;
   status: string;
@@ -96,7 +98,7 @@ export async function loadAdminBriefDetail(id: string) {
     supabase.from("buyer_selections").select("talent_id,status").eq("brief_id", id).eq("status", "selected").maybeSingle(),
     supabase
       .from("commercial_terms")
-      .select("buyer_price,talent_payable,direct_costs,taxes_and_payment_fees,payment_terms,cancellation_terms,notes,status")
+      .select("buyer_price,talent_payable,direct_costs,taxes_and_payment_fees,payment_terms,buyer_payment_terms,talent_payment_terms,cancellation_terms,notes,status")
       .eq("brief_id", id)
       .maybeSingle(),
     supabase
