@@ -36,19 +36,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Availability request not found" }, { status: 404 });
     }
 
-    const now = new Date().toISOString();
-    const { error: updateError } = await supabase
-      .from("availability_requests")
-      .update({ status, responded_at: now })
-      .eq("id", requestId);
-    if (updateError) throw new Error(updateError.message);
-
     const { data: brief, error: briefError } = await supabase
       .from("briefs")
       .select("id,event_date")
       .eq("id", availabilityRequest.brief_id)
       .single();
     if (briefError || !brief) throw new Error(briefError?.message ?? "Brief not found");
+
+    const now = new Date().toISOString();
 
     if (brief.event_date && status !== "no_response") {
       const calendarStatus = status === "confirmed" ? "available" : status;
@@ -76,6 +71,12 @@ export async function POST(request: Request) {
       .update({ status: "availability_check" })
       .eq("id", availabilityRequest.brief_id);
     if (briefStatusError) throw new Error(briefStatusError.message);
+
+    const { error: updateError } = await supabase
+      .from("availability_requests")
+      .update({ status, responded_at: now })
+      .eq("id", requestId);
+    if (updateError) throw new Error(updateError.message);
 
     return NextResponse.json({
       ok: true,
