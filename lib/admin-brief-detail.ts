@@ -61,6 +61,17 @@ type BookingRecord = {
   direct_cost: number | null;
 };
 
+type PaymentRecord = {
+  id: string;
+  payment_type: string | null;
+  amount: number;
+  provider: string | null;
+  provider_reference: string | null;
+  status: string;
+  paid_at: string | null;
+  created_at: string;
+};
+
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -102,6 +113,18 @@ export async function loadAdminBriefDetail(id: string) {
   if (commercialTermsResult.error) throw new Error(commercialTermsResult.error.message);
   if (bookingResult.error) throw new Error(bookingResult.error.message);
 
+  const booking = (bookingResult.data ?? null) as BookingRecord | null;
+  let payments: PaymentRecord[] = [];
+  if (booking) {
+    const paymentResult = await supabase
+      .from("payments")
+      .select("id,payment_type,amount,provider,provider_reference,status,paid_at,created_at")
+      .eq("booking_id", booking.id)
+      .order("created_at", { ascending: true });
+    if (paymentResult.error) throw new Error(paymentResult.error.message);
+    payments = (paymentResult.data ?? []) as PaymentRecord[];
+  }
+
   const row = data as BriefRow;
   const brief: StructuredBrief = {
     eventType: row.event_type,
@@ -134,7 +157,8 @@ export async function loadAdminBriefDetail(id: string) {
     brief,
     selectedTalent,
     commercialTerms: (commercialTermsResult.data ?? null) as CommercialTerms | null,
-    booking: (bookingResult.data ?? null) as BookingRecord | null,
+    booking,
+    payments,
     matches: matches.map((match) => {
       const persisted = persistedMap.get(match.talent.id);
       const request = requestMap.get(match.talent.id);
