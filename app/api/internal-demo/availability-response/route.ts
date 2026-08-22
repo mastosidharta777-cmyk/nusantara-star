@@ -66,17 +66,32 @@ export async function POST(request: Request) {
       if (talentFreshnessError) throw new Error(talentFreshnessError.message);
     }
 
-    const { error: briefStatusError } = await supabase
-      .from("briefs")
-      .update({ status: "availability_check" })
-      .eq("id", availabilityRequest.brief_id);
-    if (briefStatusError) throw new Error(briefStatusError.message);
-
     const { error: updateError } = await supabase
       .from("availability_requests")
       .update({ status, responded_at: now })
       .eq("id", requestId);
     if (updateError) throw new Error(updateError.message);
+
+    let nextBriefStatus = "availability_check";
+    if (status === "confirmed") {
+      const { data: matchResult, error: matchError } = await supabase
+        .from("match_results")
+        .select("admin_approved,admin_rejected")
+        .eq("brief_id", availabilityRequest.brief_id)
+        .eq("talent_id", availabilityRequest.talent_id)
+        .maybeSingle();
+      if (matchError) throw new Error(matchError.message);
+
+      if (matchResult?.admin_approved === true && matchResult?.admin_rejected !== true) {
+        nextBriefStatus = "shortlisted";
+      }
+    }
+
+    const { error: briefStatusError } = await supabase
+      .from("briefs")
+      .update({ status: nextBriefStatus })
+      .eq("id", availabilityRequest.brief_id);
+    if (briefStatusError) throw new Error(briefStatusError.message);
 
     return NextResponse.json({
       ok: true,
@@ -84,6 +99,7 @@ export async function POST(request: Request) {
       briefId: availabilityRequest.brief_id,
       talentId: availabilityRequest.talent_id,
       status,
+      briefStatus: nextBriefStatus,
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
