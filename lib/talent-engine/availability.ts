@@ -37,7 +37,9 @@ export function availabilityConfidence(talent: EngineTalent, eventDate: string |
     score,
     freshness,
     status,
-    requiresLiveConfirmation: freshness !== "fresh" || status !== "available",
+    // Calendar availability is only a pre-filter. Every candidate must be
+    // reconfirmed live with the talent/manager before a buyer-facing shortlist is final.
+    requiresLiveConfirmation: true,
     hardBlocked: false,
   };
 }
