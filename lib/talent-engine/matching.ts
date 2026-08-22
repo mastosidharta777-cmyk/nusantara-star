@@ -1,5 +1,5 @@
 import { availabilityConfidence } from "./availability";
-import type { EngineTalent, MatchBreakdown, StructuredBrief, TalentMatch } from "./types";
+import type { EngineTalent, MatchBreakdown, MatchTier, StructuredBrief, TalentMatch } from "./types";
 
 function normalize(value: string) {
   return value.trim().toLowerCase();
@@ -119,6 +119,30 @@ function audienceVibeScore(talent: EngineTalent, brief: StructuredBrief) {
   return flexibleIntersects(talent.audienceTags, tags) ? 100 : 60;
 }
 
+function matchTier(score: number, breakdown: MatchBreakdown): MatchTier {
+  if (
+    score >= 90 &&
+    breakdown.budget >= 65 &&
+    breakdown.categoryGenre >= 80 &&
+    breakdown.eventFit >= 55 &&
+    breakdown.location >= 85 &&
+    breakdown.availability >= 60
+  ) {
+    return "strong_match";
+  }
+
+  if (
+    score >= 78 &&
+    breakdown.budget >= 65 &&
+    breakdown.categoryGenre >= 80 &&
+    breakdown.availability >= 30
+  ) {
+    return "acceptable_alternative";
+  }
+
+  return "do_not_offer";
+}
+
 export function scoreTalent(talent: EngineTalent, brief: StructuredBrief, now = new Date()): TalentMatch {
   const availability = availabilityConfidence(talent, brief.eventDate, now);
   const blockedReasons: string[] = [];
@@ -149,7 +173,7 @@ export function scoreTalent(talent: EngineTalent, brief: StructuredBrief, now = 
     audienceVibe: audienceVibeScore(talent, brief),
   };
 
-  const score = Math.round(
+  const rawScore = Math.round(
     breakdown.availability * 0.25 +
       breakdown.budget * 0.2 +
       breakdown.categoryGenre * 0.2 +
@@ -158,6 +182,8 @@ export function scoreTalent(talent: EngineTalent, brief: StructuredBrief, now = 
       breakdown.reliability * 0.1 +
       breakdown.audienceVibe * 0.05,
   );
+  const score = blockedReasons.length > 0 ? 0 : rawScore;
+  const tier: MatchTier = blockedReasons.length > 0 ? "do_not_offer" : matchTier(score, breakdown);
 
   if (breakdown.budget >= 90) reasons.push("budget sesuai");
   if (breakdown.categoryGenre >= 90) reasons.push("kategori/genre sesuai");
@@ -166,10 +192,12 @@ export function scoreTalent(talent: EngineTalent, brief: StructuredBrief, now = 
   if (talent.reliabilityScore >= 85) reasons.push("reliability tinggi");
   if (availability.freshness !== "fresh") reasons.push("availability perlu dikonfirmasi ulang");
   if (!availability.hardBlocked) reasons.push("live confirmation wajib sebelum shortlist final");
+  if (tier === "acceptable_alternative") reasons.push("alternatif layak, bukan exact match");
 
   return {
     talent,
-    score: blockedReasons.length > 0 ? 0 : score,
+    score,
+    tier,
     breakdown,
     availabilityStatus: availability.status,
     freshness: availability.freshness,
@@ -182,7 +210,10 @@ export function scoreTalent(talent: EngineTalent, brief: StructuredBrief, now = 
 export function rankTalents(talents: EngineTalent[], brief: StructuredBrief, limit = 5, now = new Date()) {
   return talents
     .map((talent) => scoreTalent(talent, brief, now))
-    .filter((match) => match.blockedReasons.length === 0)
-    .sort((a, b) => b.score - a.score)
+    .filter((match) => match.blockedReasons.length === 0 && match.tier !== "do_not_offer")
+    .sort((a, b) => {
+      if (a.tier !== b.tier) return a.tier === "strong_match" ? -1 : 1;
+      return b.score - a.score;
+    })
     .slice(0, limit);
 }
