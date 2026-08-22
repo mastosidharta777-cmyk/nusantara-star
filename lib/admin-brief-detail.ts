@@ -74,6 +74,22 @@ type PaymentRecord = {
   created_at: string;
 };
 
+type PaymentMilestone = {
+  id: string;
+  party: "buyer" | "talent";
+  milestone_type: string;
+  sequence_no: number;
+  calculation_type: string;
+  percentage: number | null;
+  amount: number | null;
+  due_basis: string;
+  due_offset_days: number;
+  custom_due_date: string | null;
+  refundable: boolean | null;
+  cancellation_note: string | null;
+  status: string;
+};
+
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -117,14 +133,25 @@ export async function loadAdminBriefDetail(id: string) {
 
   const booking = (bookingResult.data ?? null) as BookingRecord | null;
   let payments: PaymentRecord[] = [];
+  let paymentMilestones: PaymentMilestone[] = [];
   if (booking) {
-    const paymentResult = await supabase
-      .from("payments")
-      .select("id,payment_type,amount,provider,provider_reference,status,paid_at,created_at")
-      .eq("booking_id", booking.id)
-      .order("created_at", { ascending: true });
+    const [paymentResult, milestoneResult] = await Promise.all([
+      supabase
+        .from("payments")
+        .select("id,payment_type,amount,provider,provider_reference,status,paid_at,created_at")
+        .eq("booking_id", booking.id)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("payment_milestones")
+        .select("id,party,milestone_type,sequence_no,calculation_type,percentage,amount,due_basis,due_offset_days,custom_due_date,refundable,cancellation_note,status")
+        .eq("booking_id", booking.id)
+        .order("party", { ascending: true })
+        .order("sequence_no", { ascending: true }),
+    ]);
     if (paymentResult.error) throw new Error(paymentResult.error.message);
+    if (milestoneResult.error) throw new Error(milestoneResult.error.message);
     payments = (paymentResult.data ?? []) as PaymentRecord[];
+    paymentMilestones = (milestoneResult.data ?? []) as PaymentMilestone[];
   }
 
   const row = data as BriefRow;
@@ -161,6 +188,7 @@ export async function loadAdminBriefDetail(id: string) {
     commercialTerms: (commercialTermsResult.data ?? null) as CommercialTerms | null,
     booking,
     payments,
+    paymentMilestones,
     matches: matches.map((match) => {
       const persisted = persistedMap.get(match.talent.id);
       const request = requestMap.get(match.talent.id);
