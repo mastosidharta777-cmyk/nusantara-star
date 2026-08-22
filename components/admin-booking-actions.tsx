@@ -14,6 +14,17 @@ type Booking = {
   direct_cost: number | null;
 } | null;
 
+type Payment = {
+  id: string;
+  payment_type: string | null;
+  amount: number;
+  provider: string | null;
+  provider_reference: string | null;
+  status: string;
+  paid_at: string | null;
+  created_at: string;
+};
+
 function money(value: number | null) {
   if (value == null) return "—";
   return new Intl.NumberFormat("id-ID", {
@@ -23,29 +34,71 @@ function money(value: number | null) {
   }).format(value);
 }
 
-export function AdminBookingActions({ briefId, talentName, booking }: { briefId: string; talentName: string; booking: Booking }) {
+export function AdminBookingActions({
+  briefId,
+  talentName,
+  booking,
+  payments,
+}: {
+  briefId: string;
+  talentName: string;
+  booking: Booking;
+  payments: Payment[];
+}) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"booking" | "deposit" | "paid" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  async function post(body: Record<string, string>) {
+    const response = await fetch(body.action === "create_booking" ? "/api/internal-demo/admin/booking" : "/api/internal-demo/admin/payment", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body.action === "create_booking" ? { briefId } : body),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(result?.detail ?? result?.error ?? "Aksi gagal");
+    router.refresh();
+  }
+
   async function createPendingBooking() {
-    setBusy(true);
+    setBusy("booking");
     setError(null);
     try {
-      const response = await fetch("/api/internal-demo/admin/booking", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ briefId }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.detail ?? body?.error ?? "Gagal membuat booking");
-      router.refresh();
+      await post({ action: "create_booking" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal membuat booking");
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
+
+  async function createDeposit() {
+    if (!booking) return;
+    setBusy("deposit");
+    setError(null);
+    try {
+      await post({ action: "create_deposit", bookingId: booking.id });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal membuat payment DP");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function markPaid(paymentId: string) {
+    if (!booking) return;
+    setBusy("paid");
+    setError(null);
+    try {
+      await post({ action: "mark_paid", bookingId: booking.id, paymentId });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal mengonfirmasi pembayaran");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const deposit = payments.find((payment) => ["buyer_deposit", "buyer_full_payment"].includes(payment.payment_type ?? "") && ["pending", "paid"].includes(payment.status));
 
   return (
     <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
@@ -62,22 +115,52 @@ export function AdminBookingActions({ briefId, talentName, booking }: { briefId:
       </div>
 
       {booking ? (
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Booking ID</span><br /><span className="break-all">{booking.id}</span></div>
-          <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Tanggal</span><br />{booking.event_date}</div>
-          <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Harga Buyer</span><br />{money(booking.buyer_price)}</div>
-          <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Talent Payable</span><br />{money(booking.talent_payable)}</div>
-        </div>
+        <>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Booking ID</span><br /><span className="break-all">{booking.id}</span></div>
+            <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Tanggal</span><br />{booking.event_date}</div>
+            <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Harga Buyer</span><br />{money(booking.buyer_price)}</div>
+            <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Talent Payable</span><br />{money(booking.talent_payable)}</div>
+          </div>
+
+          <div className="mt-5 border-t border-black/10 pt-5">
+            <p className="text-sm font-semibold">Buyer Payment</p>
+            {!deposit && booking.status === "pending" ? (
+              <div className="mt-3">
+                <p className="text-sm text-black/60">Locked terms: 50% saat konfirmasi. Untuk booking ini DP = {money((booking.buyer_price ?? 0) / 2)}.</p>
+                <button type="button" onClick={createDeposit} disabled={busy !== null} className="mt-3 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                  {busy === "deposit" ? "Membuat…" : "Buat Payment DP Pending"}
+                </button>
+              </div>
+            ) : null}
+
+            {deposit ? (
+              <div className="mt-3 border border-black/10 bg-[#f5f3ee] p-4">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="text-sm"><span className="text-black/45">Tipe</span><br />{deposit.payment_type}</div>
+                  <div className="text-sm"><span className="text-black/45">Jumlah</span><br />{money(deposit.amount)}</div>
+                  <div className="text-sm"><span className="text-black/45">Status</span><br />{deposit.status}</div>
+                </div>
+                {deposit.status === "pending" && booking.status === "pending" ? (
+                  <button type="button" onClick={() => markPaid(deposit.id)} disabled={busy !== null} className="mt-4 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                    {busy === "paid" ? "Mengonfirmasi…" : "Tandai DP Sudah Dibayar"}
+                  </button>
+                ) : null}
+                {deposit.status === "paid" ? <p className="mt-4 text-sm font-semibold">✓ Pembayaran tercatat. Booking confirmed.</p> : null}
+              </div>
+            ) : null}
+          </div>
+        </>
       ) : (
         <div className="mt-5">
           <p className="text-sm leading-6 text-black/60">Status awal akan <strong>pending</strong>. Ini belum berarti booking confirmed dan belum memicu invoice atau pembayaran.</p>
           <button
             type="button"
             onClick={createPendingBooking}
-            disabled={busy}
+            disabled={busy !== null}
             className="mt-4 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
           >
-            {busy ? "Membuat…" : "Buat Booking Pending"}
+            {busy === "booking" ? "Membuat…" : "Buat Booking Pending"}
           </button>
         </div>
       )}
