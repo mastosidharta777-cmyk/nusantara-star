@@ -50,6 +50,17 @@ type CommercialTerms = {
   status: string;
 };
 
+type BookingRecord = {
+  id: string;
+  status: string;
+  event_date: string;
+  venue: string | null;
+  city: string | null;
+  buyer_price: number | null;
+  talent_payable: number | null;
+  direct_cost: number | null;
+};
+
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -63,7 +74,7 @@ function getServerClient() {
 
 export async function loadAdminBriefDetail(id: string) {
   const supabase = getServerClient();
-  const [{ data, error }, persistedMatchesResult, availabilityRequestsResult, buyerSelectionResult, commercialTermsResult] = await Promise.all([
+  const [{ data, error }, persistedMatchesResult, availabilityRequestsResult, buyerSelectionResult, commercialTermsResult, bookingResult] = await Promise.all([
     supabase
       .from("briefs")
       .select("id,event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,status,created_at")
@@ -77,6 +88,11 @@ export async function loadAdminBriefDetail(id: string) {
       .select("buyer_price,talent_payable,direct_costs,taxes_and_payment_fees,payment_terms,cancellation_terms,notes,status")
       .eq("brief_id", id)
       .maybeSingle(),
+    supabase
+      .from("bookings")
+      .select("id,status,event_date,venue,city,buyer_price,talent_payable,direct_cost")
+      .eq("brief_id", id)
+      .maybeSingle(),
   ]);
 
   if (error || !data) return null;
@@ -84,6 +100,7 @@ export async function loadAdminBriefDetail(id: string) {
   if (availabilityRequestsResult.error) throw new Error(availabilityRequestsResult.error.message);
   if (buyerSelectionResult.error) throw new Error(buyerSelectionResult.error.message);
   if (commercialTermsResult.error) throw new Error(commercialTermsResult.error.message);
+  if (bookingResult.error) throw new Error(bookingResult.error.message);
 
   const row = data as BriefRow;
   const brief: StructuredBrief = {
@@ -117,6 +134,7 @@ export async function loadAdminBriefDetail(id: string) {
     brief,
     selectedTalent,
     commercialTerms: (commercialTermsResult.data ?? null) as CommercialTerms | null,
+    booking: (bookingResult.data ?? null) as BookingRecord | null,
     matches: matches.map((match) => {
       const persisted = persistedMap.get(match.talent.id);
       const request = requestMap.get(match.talent.id);
