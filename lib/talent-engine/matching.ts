@@ -26,15 +26,47 @@ function requestedGender(brief: StructuredBrief): "female" | "male" | null {
   return null;
 }
 
-function intersects(a: string[], b: string[]) {
-  const bSet = new Set(b.map(normalize));
-  return a.some((item) => bSet.has(normalize(item)));
+function tokenSet(values: string[]) {
+  return new Set(
+    values
+      .flatMap((value) => normalize(value).split(/[^a-z0-9&]+/i))
+      .map((value) => value.trim())
+      .filter((value) => value.length > 1),
+  );
+}
+
+function genreCoverage(talentGenres: string[], requestedGenres: string[]) {
+  if (requestedGenres.length === 0) return null;
+  const talentTokens = tokenSet(talentGenres);
+  const requestedTokens = [...tokenSet(requestedGenres)];
+  if (requestedTokens.length === 0) return null;
+  const matched = requestedTokens.filter((token) => talentTokens.has(token)).length;
+  return matched / requestedTokens.length;
+}
+
+function flexibleIntersects(a: string[], b: string[]) {
+  const aTokens = tokenSet(a);
+  const bTokens = tokenSet(b);
+  return [...bTokens].some((token) => aTokens.has(token));
 }
 
 function budgetScore(talent: EngineTalent, brief: StructuredBrief) {
   if (brief.budgetMin == null && brief.budgetMax == null) return 70;
-  const min = brief.budgetMin ?? brief.budgetMax ?? 0;
-  const max = brief.budgetMax ?? brief.budgetMin ?? Number.MAX_SAFE_INTEGER;
+
+  if (brief.budgetMin == null && brief.budgetMax != null) {
+    if (talent.budgetMin <= brief.budgetMax) return 100;
+    if (talent.budgetMin <= brief.budgetMax * 1.1) return 65;
+    return 20;
+  }
+
+  if (brief.budgetMax == null && brief.budgetMin != null) {
+    if (talent.budgetMax >= brief.budgetMin) return 100;
+    if (talent.budgetMax >= brief.budgetMin * 0.9) return 65;
+    return 20;
+  }
+
+  const min = brief.budgetMin ?? 0;
+  const max = brief.budgetMax ?? Number.MAX_SAFE_INTEGER;
   const overlap = Math.max(0, Math.min(talent.budgetMax, max) - Math.max(talent.budgetMin, min));
   if (overlap > 0) return 100;
   if (talent.budgetMin <= max * 1.1 && talent.budgetMax >= min * 0.9) return 65;
@@ -45,22 +77,29 @@ function categoryGenreScore(talent: EngineTalent, brief: StructuredBrief) {
   const requested = canonicalCategory(brief.talentCategory);
   const actual = canonicalCategory(talent.category);
   const categoryMatched = !requested || requested === actual;
-  const hasGenreRequest = brief.genreStyle.length > 0;
-  const genreMatched = hasGenreRequest && intersects(talent.genres, brief.genreStyle);
+  const coverage = genreCoverage(talent.genres, brief.genreStyle);
 
   if (!categoryMatched) return 0;
-  if (!requested && !hasGenreRequest) return 70;
-  if (categoryMatched && !hasGenreRequest) return 90;
-  if (categoryMatched && genreMatched) return 100;
+  if (!requested && coverage == null) return 70;
+  if (coverage == null) return 90;
+  if (coverage >= 0.75) return 100;
+  if (coverage >= 0.4) return 80;
   return 60;
 }
 
 function eventFitScore(talent: EngineTalent, brief: StructuredBrief) {
-  if (!brief.eventType) return 70;
-  const target = normalize(brief.eventType);
+  const context = normalize([brief.eventType ?? "", brief.venue ?? "", brief.sourceText ?? ""].join(" "));
+  if (!context.trim()) return 70;
+
   return talent.eventTypes.some((type) => {
     const candidate = normalize(type);
-    return candidate === target || target.includes(candidate) || candidate.includes(target);
+    if (candidate === context || context.includes(candidate) || candidate.includes(context)) return true;
+    if (candidate === "hotel" && /(hotel|lounge|resort)/.test(context)) return true;
+    if (candidate === "corporate" && /(corporate|perusahaan|gala dinner)/.test(context)) return true;
+    if (candidate === "private event" && /(private event|private party|acara privat)/.test(context)) return true;
+    if (candidate === "cultural event" && /(cultural|culture|budaya|tradisional)/.test(context)) return true;
+    if (candidate === "brand activation" && /(brand activation|activation|aktivasi)/.test(context)) return true;
+    return false;
   })
     ? 100
     : 55;
@@ -77,7 +116,7 @@ function locationScore(talent: EngineTalent, brief: StructuredBrief) {
 function audienceVibeScore(talent: EngineTalent, brief: StructuredBrief) {
   const tags = [...brief.eventVibe, ...brief.genreStyle];
   if (tags.length === 0) return 70;
-  return intersects(talent.audienceTags, tags) ? 100 : 60;
+  return flexibleIntersects(talent.audienceTags, tags) ? 100 : 60;
 }
 
 export function scoreTalent(talent: EngineTalent, brief: StructuredBrief, now = new Date()): TalentMatch {
@@ -126,6 +165,7 @@ export function scoreTalent(talent: EngineTalent, brief: StructuredBrief, now = 
   if (breakdown.eventFit >= 90) reasons.push("cocok untuk jenis acara");
   if (talent.reliabilityScore >= 85) reasons.push("reliability tinggi");
   if (availability.freshness !== "fresh") reasons.push("availability perlu dikonfirmasi ulang");
+  if (!availability.hardBlocked) reasons.push("live confirmation wajib sebelum shortlist final");
 
   return {
     talent,
