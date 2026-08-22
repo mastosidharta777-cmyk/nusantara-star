@@ -14,6 +14,15 @@ type InitialTerms = {
   status: string;
 } | null;
 
+function digitsOnly(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function asAmount(value: string) {
+  const digits = digitsOnly(value);
+  return digits ? Number(digits) : 0;
+}
+
 export function AdminCommercialTermsForm({
   briefId,
   talentId,
@@ -36,28 +45,34 @@ export function AdminCommercialTermsForm({
   const [busy, setBusy] = useState<"draft" | "agreed" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const contribution = useMemo(() => {
-    const buyer = Number(buyerPrice || 0);
-    const talent = Number(talentPayable || 0);
-    const costs = Number(directCosts || 0);
-    const fees = Number(taxFees || 0);
-    return buyer - talent - costs - fees;
-  }, [buyerPrice, talentPayable, directCosts, taxFees]);
+  const buyerAmount = asAmount(buyerPrice);
+  const talentAmount = asAmount(talentPayable);
+  const directAmount = asAmount(directCosts);
+  const taxAmount = asAmount(taxFees);
+
+  const contribution = useMemo(
+    () => buyerAmount - talentAmount - directAmount - taxAmount,
+    [buyerAmount, talentAmount, directAmount, taxAmount],
+  );
 
   async function save(status: "draft" | "agreed") {
     setBusy(status);
     setError(null);
     try {
+      if (status === "agreed" && (buyerAmount <= 0 || talentAmount <= 0)) {
+        throw new Error("Harga buyer dan pembayaran talent wajib lebih dari Rp0 sebelum terms dikunci.");
+      }
+
       const response = await fetch("/api/internal-demo/admin/commercial-terms", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           briefId,
           talentId,
-          buyerPrice: Number(buyerPrice),
-          talentPayable: Number(talentPayable),
-          directCosts: Number(directCosts || 0),
-          taxesAndPaymentFees: Number(taxFees || 0),
+          buyerPrice: buyerAmount,
+          talentPayable: talentAmount,
+          directCosts: directAmount,
+          taxesAndPaymentFees: taxAmount,
           paymentTerms,
           cancellationTerms,
           notes,
@@ -74,7 +89,7 @@ export function AdminCommercialTermsForm({
     }
   }
 
-  const locked = initialTerms?.status === "agreed";
+  const locked = initialTerms?.status === "agreed" && initialTerms.buyer_price > 0 && initialTerms.talent_payable > 0;
 
   return (
     <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
@@ -83,7 +98,7 @@ export function AdminCommercialTermsForm({
           <p className="text-sm font-semibold">Final Fee & Commercial Terms</p>
           <p className="mt-1 text-xs text-black/45">Talent terpilih: {talentName}. Internal only; belum merupakan booking final.</p>
         </div>
-        {locked ? <span className="w-fit bg-black px-3 py-2 text-xs font-semibold text-white">✓ Terms Disepakati</span> : null}
+        {locked ? <span className="w-fit bg-black px-3 py-2 text-xs font-semibold text-white">✓ Terms Disepakati</span> : initialTerms?.status === "agreed" ? <span className="w-fit border border-red-300 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">Perlu Koreksi Nilai</span> : null}
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
