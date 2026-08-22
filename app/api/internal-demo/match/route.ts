@@ -40,6 +40,7 @@ async function runMatch(text: string) {
         reliabilityScore: match.talent.reliabilityScore,
       },
       score: match.score,
+      tier: match.tier,
       breakdown: match.breakdown,
       availabilityStatus: match.availabilityStatus,
       freshness: match.freshness,
