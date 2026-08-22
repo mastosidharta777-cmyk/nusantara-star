@@ -52,8 +52,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No approved and confirmed talent in the shortlist" }, { status: 409 });
     }
 
-    const { error: updateError } = await supabase.from("briefs").update({ status: "proposal_sent" }).eq("id", briefId);
+    // Guard against a stale/racing request downgrading a brief that has already advanced.
+    const { data: updatedRows, error: updateError } = await supabase
+      .from("briefs")
+      .update({ status: "proposal_sent" })
+      .eq("id", briefId)
+      .in("status", ["shortlisted", "proposal_sent"])
+      .select("id,status");
     if (updateError) throw new Error(updateError.message);
+    if (!updatedRows?.length) {
+      return NextResponse.json({ error: "Brief already advanced beyond proposal stage" }, { status: 409 });
+    }
 
     return NextResponse.json({ ok: true, briefId, status: "proposal_sent", readyTalentCount: readyCount });
   } catch (error) {
