@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AdminCommercialTermsForm } from "@/components/admin-commercial-terms-form";
 import { AdminMatchActions } from "@/components/admin-match-actions";
 import { AdminProposalActions } from "@/components/admin-proposal-actions";
 import { loadAdminBriefDetail } from "@/lib/admin-brief-detail";
@@ -29,7 +30,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
   const detail = await loadAdminBriefDetail(id);
   if (!detail) notFound();
 
-  const { row, matches } = detail;
+  const { row, matches, selectedTalent, commercialTerms } = detail;
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
@@ -114,6 +115,15 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
 
         {["shortlisted", "proposal_sent"].includes(row.status) ? (
           <AdminProposalActions briefId={row.id} status={row.status} />
+        ) : null}
+
+        {selectedTalent && ["buyer_selected", "terms_agreed"].includes(row.status) ? (
+          <AdminCommercialTermsForm
+            briefId={row.id}
+            talentId={selectedTalent.id}
+            talentName={selectedTalent.name}
+            initialTerms={commercialTerms}
+          />
         ) : null}
       </div>
     </main>
