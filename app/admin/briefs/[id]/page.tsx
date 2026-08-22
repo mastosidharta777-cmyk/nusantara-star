@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { AdminBookingActions } from "@/components/admin-booking-actions";
 import { AdminCommercialTermsForm } from "@/components/admin-commercial-terms-form";
 import { AdminMatchActions } from "@/components/admin-match-actions";
+import { AdminPaymentMilestones } from "@/components/admin-payment-milestones";
 import { AdminProposalActions } from "@/components/admin-proposal-actions";
 import { loadAdminBriefDetail } from "@/lib/admin-brief-detail";
 
@@ -31,7 +32,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
   const detail = await loadAdminBriefDetail(id);
   if (!detail) notFound();
 
-  const { row, matches, selectedTalent, commercialTerms, booking, payments } = detail;
+  const { row, matches, selectedTalent, commercialTerms, booking, payments, paymentMilestones } = detail;
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
@@ -129,6 +130,10 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
 
         {selectedTalent && commercialTerms?.status === "agreed" && ["terms_agreed", "booked"].includes(row.status) ? (
           <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} />
+        ) : null}
+
+        {booking && commercialTerms?.status === "agreed" ? (
+          <AdminPaymentMilestones bookingId={booking.id} milestones={paymentMilestones} />
         ) : null}
       </div>
     </main>
