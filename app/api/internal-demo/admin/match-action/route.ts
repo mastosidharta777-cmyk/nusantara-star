@@ -79,6 +79,22 @@ export async function POST(request: Request) {
     const match = rankTalents(roster.talents, toBrief(briefData as BriefRow), 30).find((item) => item.talent.id === talentId);
     if (!match) return NextResponse.json({ error: "Talent is not an eligible current match" }, { status: 409 });
 
+    let availabilityStatus: string | null = null;
+    if (action === "approve") {
+      const { data: availabilityRequest, error: availabilityError } = await supabase
+        .from("availability_requests")
+        .select("status")
+        .eq("brief_id", briefId)
+        .eq("talent_id", talentId)
+        .maybeSingle();
+      if (availabilityError) throw new Error(availabilityError.message);
+
+      availabilityStatus = availabilityRequest?.status ?? null;
+      if (availabilityStatus === "unavailable") {
+        return NextResponse.json({ error: "Cannot approve a talent confirmed as unavailable" }, { status: 409 });
+      }
+    }
+
     const now = new Date().toISOString();
     const matchPayload: Record<string, unknown> = {
       brief_id: briefId,
@@ -129,19 +145,7 @@ export async function POST(request: Request) {
     if (action === "request_live_confirmation") {
       nextBriefStatus = "availability_check";
     } else if (action === "approve") {
-      const { data: availabilityRequest, error: availabilityError } = await supabase
-        .from("availability_requests")
-        .select("status")
-        .eq("brief_id", briefId)
-        .eq("talent_id", talentId)
-        .maybeSingle();
-      if (availabilityError) throw new Error(availabilityError.message);
-
-      if (availabilityRequest?.status === "unavailable") {
-        return NextResponse.json({ error: "Cannot approve a talent confirmed as unavailable" }, { status: 409 });
-      }
-
-      nextBriefStatus = availabilityRequest?.status === "confirmed" ? "shortlisted" : "matching";
+      nextBriefStatus = availabilityStatus === "confirmed" ? "shortlisted" : "matching";
     }
 
     const { error: briefUpdateError } = await supabase.from("briefs").update({ status: nextBriefStatus }).eq("id", briefId);
