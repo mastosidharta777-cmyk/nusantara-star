@@ -25,6 +25,39 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null);
     const briefId = typeof body?.briefId === "string" ? body.briefId : "";
     const talentId = typeof body?.talentId === "string" ? body.talentId : "";
+    const supabase = getServerClient();
+
+    if (body?.action === "complete_talent_terms") {
+      const talentPaymentTerms = typeof body?.talentPaymentTerms === "string" ? body.talentPaymentTerms.trim() : "";
+      if (!briefId || !talentId || !talentPaymentTerms) {
+        return NextResponse.json({ error: "Talent payment terms are required" }, { status: 400 });
+      }
+
+      const [{ data: brief, error: briefError }, { data: terms, error: termsError }] = await Promise.all([
+        supabase.from("briefs").select("id,status").eq("id", briefId).single(),
+        supabase.from("commercial_terms").select("talent_id,status,talent_payment_terms").eq("brief_id", briefId).single(),
+      ]);
+      if (briefError || !brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
+      if (termsError || !terms || terms.talent_id !== talentId || terms.status !== "agreed") {
+        return NextResponse.json({ error: "Agreed commercial terms not found for selected talent" }, { status: 409 });
+      }
+      if (!["terms_agreed", "booked"].includes(brief.status)) {
+        return NextResponse.json({ error: "Brief is not eligible for legacy talent terms completion" }, { status: 409 });
+      }
+      if (terms.talent_payment_terms) {
+        return NextResponse.json({ ok: true, reused: true, talentPaymentTerms: terms.talent_payment_terms });
+      }
+
+      const { error: updateError } = await supabase
+        .from("commercial_terms")
+        .update({ talent_payment_terms: talentPaymentTerms, updated_at: new Date().toISOString() })
+        .eq("brief_id", briefId)
+        .is("talent_payment_terms", null);
+      if (updateError) throw new Error(updateError.message);
+
+      return NextResponse.json({ ok: true, talentPaymentTerms });
+    }
+
     const buyerPrice = parseAmount(body?.buyerPrice);
     const talentPayable = parseAmount(body?.talentPayable);
     const directCosts = parseAmount(body?.directCosts ?? 0);
@@ -60,7 +93,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Buyer price must cover talent payable, direct costs, and taxes/payment fees" }, { status: 409 });
     }
 
-    const supabase = getServerClient();
     const [{ data: brief, error: briefError }, { data: selection, error: selectionError }] = await Promise.all([
       supabase.from("briefs").select("id,status").eq("id", briefId).single(),
       supabase.from("buyer_selections").select("talent_id,status").eq("brief_id", briefId).eq("status", "selected").single(),
