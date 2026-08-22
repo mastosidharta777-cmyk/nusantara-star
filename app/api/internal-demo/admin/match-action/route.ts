@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { forwardOnlyBriefStatus } from "@/lib/brief-status";
+import { MATCH_ENGINE_VERSION } from "@/lib/match-persistence";
 import { rankTalents } from "@/lib/talent-engine/matching";
 import { loadEngineTalents } from "@/lib/talent-engine/supabase-talents";
 import type { StructuredBrief } from "@/lib/talent-engine/types";
@@ -23,6 +25,7 @@ type BriefRow = {
   performance_duration_minutes: number | null;
   event_vibe: string[] | null;
   special_requirements: string[] | null;
+  status: string;
 };
 
 function isProduction() {
@@ -67,17 +70,27 @@ export async function POST(request: Request) {
     }
 
     const supabase = getServerClient();
-    const { data: briefData, error: briefError } = await supabase
-      .from("briefs")
-      .select("id,event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements")
-      .eq("id", briefId)
-      .single();
+    const [{ data: briefData, error: briefError }, { data: existingMatch, error: existingMatchError }] = await Promise.all([
+      supabase
+        .from("briefs")
+        .select("id,event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,status")
+        .eq("id", briefId)
+        .single(),
+      supabase
+        .from("match_results")
+        .select("id,score,tier,availability_status,availability_freshness,requires_live_confirmation,score_breakdown,reasons,engine_version,generated_at")
+        .eq("brief_id", briefId)
+        .eq("talent_id", talentId)
+        .maybeSingle(),
+    ]);
 
     if (briefError || !briefData) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
+    if (existingMatchError) throw new Error(existingMatchError.message);
 
-    const roster = await loadEngineTalents();
-    const match = rankTalents(roster.talents, toBrief(briefData as BriefRow), 30).find((item) => item.talent.id === talentId);
-    if (!match) return NextResponse.json({ error: "Talent is not an eligible current match" }, { status: 409 });
+    const brief = briefData as BriefRow;
+    if (["proposal_sent", "buyer_selected", "terms_agreed", "booked", "closed", "cancelled"].includes(brief.status)) {
+      return NextResponse.json({ error: "Matching review is locked after proposal stage" }, { status: 409 });
+    }
 
     let availabilityStatus: string | null = null;
     if (action === "approve") {
@@ -96,42 +109,74 @@ export async function POST(request: Request) {
     }
 
     const now = new Date().toISOString();
-    const matchPayload: Record<string, unknown> = {
-      brief_id: briefId,
-      talent_id: talentId,
-      score: match.score,
-      tier: match.tier,
-      availability_status: match.availabilityStatus,
-      availability_freshness: match.freshness,
-      requires_live_confirmation: match.requiresLiveConfirmation,
-      score_breakdown: match.breakdown,
-      reasons: match.reasons,
-    };
+    let matchResultId = existingMatch?.id ? String(existingMatch.id) : "";
 
-    if (action === "approve") {
-      matchPayload.admin_approved = true;
-      matchPayload.admin_rejected = false;
-      matchPayload.reviewed_at = now;
-    } else if (action === "reject") {
-      matchPayload.admin_approved = false;
-      matchPayload.admin_rejected = true;
-      matchPayload.reviewed_at = now;
+    if (existingMatch?.id) {
+      const patch: Record<string, unknown> = {
+        engine_version: existingMatch.engine_version ?? MATCH_ENGINE_VERSION,
+        generated_at: existingMatch.generated_at ?? now,
+      };
+      if (action === "approve") {
+        patch.admin_approved = true;
+        patch.admin_rejected = false;
+        patch.reviewed_at = now;
+      } else if (action === "reject") {
+        patch.admin_approved = false;
+        patch.admin_rejected = true;
+        patch.reviewed_at = now;
+      }
+
+      const { data: updatedMatch, error: updateMatchError } = await supabase
+        .from("match_results")
+        .update(patch)
+        .eq("id", existingMatch.id)
+        .select("id")
+        .single();
+      if (updateMatchError || !updatedMatch?.id) throw new Error(updateMatchError?.message ?? "Failed to update match result");
+      matchResultId = String(updatedMatch.id);
+    } else {
+      const roster = await loadEngineTalents();
+      const match = rankTalents(roster.talents, toBrief(brief), 30).find((item) => item.talent.id === talentId);
+      if (!match) return NextResponse.json({ error: "Talent is not an eligible current match" }, { status: 409 });
+
+      const matchPayload: Record<string, unknown> = {
+        brief_id: briefId,
+        talent_id: talentId,
+        score: match.score,
+        tier: match.tier,
+        availability_status: match.availabilityStatus,
+        availability_freshness: match.freshness,
+        requires_live_confirmation: match.requiresLiveConfirmation,
+        score_breakdown: match.breakdown,
+        reasons: match.reasons,
+        engine_version: MATCH_ENGINE_VERSION,
+        generated_at: now,
+      };
+      if (action === "approve") {
+        matchPayload.admin_approved = true;
+        matchPayload.admin_rejected = false;
+        matchPayload.reviewed_at = now;
+      } else if (action === "reject") {
+        matchPayload.admin_approved = false;
+        matchPayload.admin_rejected = true;
+        matchPayload.reviewed_at = now;
+      }
+
+      const { data: insertedMatch, error: insertMatchError } = await supabase
+        .from("match_results")
+        .upsert(matchPayload, { onConflict: "brief_id,talent_id" })
+        .select("id")
+        .single();
+      if (insertMatchError || !insertedMatch?.id) throw new Error(insertMatchError?.message ?? "Failed to persist match result");
+      matchResultId = String(insertedMatch.id);
     }
-
-    const { data: matchResult, error: matchError } = await supabase
-      .from("match_results")
-      .upsert(matchPayload, { onConflict: "brief_id,talent_id" })
-      .select("id")
-      .single();
-
-    if (matchError || !matchResult?.id) throw new Error(matchError?.message ?? "Failed to persist match result");
 
     if (action === "request_live_confirmation") {
       const { error: requestError } = await supabase.from("availability_requests").upsert(
         {
           brief_id: briefId,
           talent_id: talentId,
-          match_result_id: matchResult.id,
+          match_result_id: matchResultId,
           status: "pending",
           requested_at: now,
           responded_at: null,
@@ -141,22 +186,27 @@ export async function POST(request: Request) {
       if (requestError) throw new Error(requestError.message);
     }
 
-    let nextBriefStatus = "reviewing";
-    if (action === "request_live_confirmation") {
-      nextBriefStatus = "availability_check";
-    } else if (action === "approve") {
-      nextBriefStatus = availabilityStatus === "confirmed" ? "shortlisted" : "matching";
-    }
+    const proposedStatus =
+      action === "request_live_confirmation"
+        ? "availability_check"
+        : action === "approve"
+          ? availabilityStatus === "confirmed"
+            ? "shortlisted"
+            : "matching"
+          : "reviewing";
+    const nextBriefStatus = forwardOnlyBriefStatus(brief.status, proposedStatus);
 
-    const { error: briefUpdateError } = await supabase.from("briefs").update({ status: nextBriefStatus }).eq("id", briefId);
-    if (briefUpdateError) throw new Error(briefUpdateError.message);
+    if (nextBriefStatus !== brief.status) {
+      const { error: briefUpdateError } = await supabase.from("briefs").update({ status: nextBriefStatus }).eq("id", briefId).eq("status", brief.status);
+      if (briefUpdateError) throw new Error(briefUpdateError.message);
+    }
 
     return NextResponse.json({
       ok: true,
       action,
       briefId,
       talentId,
-      matchResultId: matchResult.id,
+      matchResultId,
       briefStatus: nextBriefStatus,
     });
   } catch (error) {
