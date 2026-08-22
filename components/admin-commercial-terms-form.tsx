@@ -9,6 +9,8 @@ type InitialTerms = {
   direct_costs: number;
   taxes_and_payment_fees: number;
   payment_terms: string | null;
+  buyer_payment_terms: string | null;
+  talent_payment_terms: string | null;
   cancellation_terms: string | null;
   notes: string | null;
   status: string;
@@ -39,7 +41,10 @@ export function AdminCommercialTermsForm({
   const [talentPayable, setTalentPayable] = useState(String(initialTerms?.talent_payable ?? ""));
   const [directCosts, setDirectCosts] = useState(String(initialTerms?.direct_costs ?? 0));
   const [taxFees, setTaxFees] = useState(String(initialTerms?.taxes_and_payment_fees ?? 0));
-  const [paymentTerms, setPaymentTerms] = useState(initialTerms?.payment_terms ?? "50% saat konfirmasi, pelunasan sebelum hari acara");
+  const [buyerPaymentTerms, setBuyerPaymentTerms] = useState(
+    initialTerms?.buyer_payment_terms ?? initialTerms?.payment_terms ?? "50% saat konfirmasi, pelunasan sebelum hari acara",
+  );
+  const [talentPaymentTerms, setTalentPaymentTerms] = useState(initialTerms?.talent_payment_terms ?? "");
   const [cancellationTerms, setCancellationTerms] = useState(initialTerms?.cancellation_terms ?? "Mengikuti terms final yang disetujui buyer dan talent/management");
   const [notes, setNotes] = useState(initialTerms?.notes ?? "");
   const [busy, setBusy] = useState<"draft" | "agreed" | null>(null);
@@ -62,6 +67,9 @@ export function AdminCommercialTermsForm({
       if (status === "agreed" && (buyerAmount <= 0 || talentAmount <= 0)) {
         throw new Error("Harga buyer dan pembayaran talent wajib lebih dari Rp0 sebelum terms dikunci.");
       }
+      if (status === "agreed" && (!buyerPaymentTerms.trim() || !talentPaymentTerms.trim())) {
+        throw new Error("Buyer Payment Terms dan Talent Payment Terms wajib ditetapkan sebelum terms dikunci.");
+      }
 
       const response = await fetch("/api/internal-demo/admin/commercial-terms", {
         method: "POST",
@@ -73,7 +81,8 @@ export function AdminCommercialTermsForm({
           talentPayable: talentAmount,
           directCosts: directAmount,
           taxesAndPaymentFees: taxAmount,
-          paymentTerms,
+          buyerPaymentTerms,
+          talentPaymentTerms,
           cancellationTerms,
           notes,
           status,
@@ -90,13 +99,14 @@ export function AdminCommercialTermsForm({
   }
 
   const locked = initialTerms?.status === "agreed" && initialTerms.buyer_price > 0 && initialTerms.talent_payable > 0;
+  const legacyMissingTalentTerms = locked && !talentPaymentTerms.trim();
 
   return (
     <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="text-sm font-semibold">Final Fee & Commercial Terms</p>
-          <p className="mt-1 text-xs text-black/45">Talent terpilih: {talentName}. Internal only; belum merupakan booking final.</p>
+          <p className="mt-1 text-xs text-black/45">Talent terpilih: {talentName}. Buyer terms dan talent terms dicatat terpisah.</p>
         </div>
         {locked ? <span className="w-fit bg-black px-3 py-2 text-xs font-semibold text-white">✓ Terms Disepakati</span> : initialTerms?.status === "agreed" ? <span className="w-fit border border-red-300 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">Perlu Koreksi Nilai</span> : null}
       </div>
@@ -114,8 +124,13 @@ export function AdminCommercialTermsForm({
         <p className="mt-1 text-xs text-black/45">Harga buyer − talent payable − biaya langsung − pajak/payment fee.</p>
       </div>
 
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <label className="text-sm font-semibold">Buyer Payment Terms<textarea disabled={locked} value={buyerPaymentTerms} onChange={(e) => setBuyerPaymentTerms(e.target.value)} rows={3} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
+        <label className="text-sm font-semibold">Talent Payment Terms<textarea disabled={locked} value={talentPaymentTerms} onChange={(e) => setTalentPaymentTerms(e.target.value)} rows={3} placeholder="Contoh: 50% DP, pelunasan H-1 sebelum perform" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
+      </div>
+      {legacyMissingTalentTerms ? <p className="mt-2 text-xs font-semibold text-amber-700">Talent Payment Terms belum ditetapkan pada booking demo lama ini.</p> : null}
+
       <div className="mt-4 grid gap-4">
-        <label className="text-sm font-semibold">Payment Terms<textarea disabled={locked} value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} rows={2} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
         <label className="text-sm font-semibold">Cancellation Terms<textarea disabled={locked} value={cancellationTerms} onChange={(e) => setCancellationTerms(e.target.value)} rows={2} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
         <label className="text-sm font-semibold">Catatan Internal<textarea disabled={locked} value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /></label>
       </div>
