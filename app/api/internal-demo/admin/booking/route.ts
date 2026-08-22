@@ -66,6 +66,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Agreed commercial values are invalid" }, { status: 409 });
     }
 
+    const { data: talentPolicies, error: policyError } = await supabase
+      .from("talent_payment_policy_templates")
+      .select("milestone_type,sequence_no,calculation_type,percentage,amount,due_basis,due_offset_days,refundable,cancellation_note,notes")
+      .eq("talent_id", selection.talent_id)
+      .eq("is_active", true)
+      .order("sequence_no", { ascending: true });
+
+    if (policyError) {
+      return NextResponse.json({ error: "Talent payment policy could not be loaded", detail: policyError.message }, { status: 500 });
+    }
+
     const { data: booking, error: insertError } = await supabase
       .from("bookings")
       .insert({
@@ -90,7 +101,40 @@ export async function POST(request: Request) {
       throw new Error(insertError.message);
     }
 
-    return NextResponse.json({ ok: true, existing: false, bookingId: booking.id, status: booking.status });
+    if ((talentPolicies ?? []).length > 0) {
+      const milestones = (talentPolicies ?? []).map((policy) => ({
+        booking_id: booking.id,
+        party: "talent",
+        milestone_type: policy.milestone_type,
+        sequence_no: policy.sequence_no,
+        calculation_type: policy.calculation_type,
+        percentage: policy.percentage,
+        amount: policy.amount,
+        due_basis: policy.due_basis,
+        due_offset_days: policy.due_offset_days,
+        custom_due_date: null,
+        refundable: policy.refundable,
+        cancellation_note: policy.cancellation_note,
+        status: "planned",
+        notes: policy.notes,
+      }));
+
+      const { error: milestoneError } = await supabase.from("payment_milestones").insert(milestones);
+      if (milestoneError) {
+        // Preview V1 compensation: avoid leaving a new booking without its agreed talent schedule.
+        await supabase.from("bookings").delete().eq("id", booking.id).eq("status", "pending");
+        throw new Error(`Talent payment schedule could not be created: ${milestoneError.message}`);
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      existing: false,
+      bookingId: booking.id,
+      status: booking.status,
+      talentSchedulePrefilled: (talentPolicies ?? []).length > 0,
+      talentMilestoneCount: (talentPolicies ?? []).length,
+    });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     console.error("Booking creation failed", detail);
