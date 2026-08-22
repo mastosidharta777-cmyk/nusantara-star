@@ -28,6 +28,20 @@ export async function POST(request: Request) {
   if (talentError) return NextResponse.json({ error: "Gagal memeriksa talent", detail: talentError.message }, { status: 500 });
   if (!talent) return NextResponse.json({ error: "Talent tidak ditemukan" }, { status: 404 });
 
+  if (action === "delete_payment_policy") {
+    const policyId = typeof body.policyId === "string" ? body.policyId : "";
+    if (!policyId) return NextResponse.json({ error: "Kebijakan pembayaran tidak valid" }, { status: 400 });
+
+    const { error } = await supabase
+      .from("talent_payment_policy_templates")
+      .delete()
+      .eq("id", policyId)
+      .eq("talent_id", talentId);
+
+    if (error) return NextResponse.json({ error: "Gagal menghapus kebijakan pembayaran", detail: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
   if (action === "add_payment_policy") {
     const milestoneTypes = ["booking_fee", "deposit", "balance", "full_payment", "other"];
     const calculationTypes = ["percentage", "fixed_amount", "remaining_balance"];
