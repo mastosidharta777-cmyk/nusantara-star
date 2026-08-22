@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -7,10 +8,17 @@ type Props = {
   briefId: string;
   talentId: string;
   decision: "approved" | "rejected" | "pending";
+  availabilityRequestId: string | null;
   availabilityRequestStatus: string | null;
 };
 
-export function AdminMatchActions({ briefId, talentId, decision, availabilityRequestStatus }: Props) {
+export function AdminMatchActions({
+  briefId,
+  talentId,
+  decision,
+  availabilityRequestId,
+  availabilityRequestStatus,
+}: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +42,8 @@ export function AdminMatchActions({ briefId, talentId, decision, availabilityReq
     }
   }
 
+  const confirmed = availabilityRequestStatus === "confirmed";
+
   return (
     <div className="mt-5 border-t border-black/10 pt-4">
       <div className="flex flex-wrap gap-2">
@@ -43,7 +53,15 @@ export function AdminMatchActions({ briefId, talentId, decision, availabilityReq
           disabled={busy !== null}
           className="border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
         >
-          {busy === "approve" ? "Saving…" : decision === "approved" ? "Approved" : "Approve"}
+          {busy === "approve"
+            ? "Saving…"
+            : decision === "approved"
+              ? confirmed
+                ? "Approved for Shortlist"
+                : "Approved"
+              : confirmed
+                ? "Approve & Shortlist"
+                : "Approve"}
         </button>
         <button
           type="button"
@@ -63,9 +81,21 @@ export function AdminMatchActions({ briefId, talentId, decision, availabilityReq
             ? "Sending…"
             : availabilityRequestStatus === "pending"
               ? "Live Confirmation Pending"
-              : "Request Live Confirmation"}
+              : availabilityRequestStatus
+                ? `Live Confirmation: ${availabilityRequestStatus}`
+                : "Request Live Confirmation"}
         </button>
       </div>
+
+      {availabilityRequestId ? (
+        <Link
+          href={`/talent-confirmation/${availabilityRequestId}`}
+          className="mt-3 inline-block text-xs font-semibold underline underline-offset-4"
+        >
+          Open Manager Response Preview →
+        </Link>
+      ) : null}
+
       <p className="mt-2 text-xs text-black/45">
         Decision: {decision} · Availability request: {availabilityRequestStatus ?? "none"}
       </p>
