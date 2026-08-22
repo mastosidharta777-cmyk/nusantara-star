@@ -28,6 +28,8 @@ export function AdminProposalActions({ briefId, status }: { briefId: string; sta
     }
   }
 
+  const sent = status === "proposal_sent";
+
   return (
     <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
       <p className="text-sm font-semibold">Buyer Proposal / Daftar Pilihan</p>
@@ -42,12 +44,17 @@ export function AdminProposalActions({ briefId, status }: { briefId: string; sta
         <button
           type="button"
           onClick={markSent}
-          disabled={busy || status === "proposal_sent"}
-          className="border border-black/20 bg-[#f5f3ee] px-4 py-2 text-sm font-semibold disabled:opacity-40"
+          disabled={busy || sent}
+          className={
+            sent
+              ? "cursor-default border border-black bg-black px-4 py-2 text-sm font-semibold text-white"
+              : "border border-black/20 bg-[#f5f3ee] px-4 py-2 text-sm font-semibold disabled:opacity-40"
+          }
         >
-          {status === "proposal_sent" ? "Proposal Sudah Dikirim" : busy ? "Menyimpan…" : "Tandai Proposal Dikirim"}
+          {sent ? "✓ Proposal Sudah Dikirim" : busy ? "Menyimpan…" : "Tandai Proposal Dikirim"}
         </button>
       </div>
+      {sent ? <p className="mt-2 text-xs font-semibold text-black/55">Status: Proposal Dikirim</p> : null}
       {error ? <p className="mt-2 text-xs font-semibold text-red-700">{error}</p> : null}
     </section>
   );
