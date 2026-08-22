@@ -33,6 +33,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
   if (!detail) notFound();
 
   const { row, matches, selectedTalent, commercialTerms, booking, payments, paymentMilestones } = detail;
+  const hasBuyerSelection = Boolean(selectedTalent);
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
@@ -115,11 +116,11 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
           )}
         </section>
 
-        {["shortlisted", "proposal_sent"].includes(row.status) ? (
+        {!hasBuyerSelection && ["shortlisted", "proposal_sent"].includes(row.status) ? (
           <AdminProposalActions briefId={row.id} status={row.status} />
         ) : null}
 
-        {selectedTalent && ["buyer_selected", "terms_agreed", "booked"].includes(row.status) ? (
+        {selectedTalent && ["proposal_sent", "buyer_selected", "terms_agreed", "booked"].includes(row.status) ? (
           <AdminCommercialTermsForm
             briefId={row.id}
             talentId={selectedTalent.id}
