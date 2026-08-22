@@ -1,5 +1,6 @@
 export type AvailabilityStatus = "available" | "tentative" | "booked" | "unavailable";
 export type AvailabilityFreshness = "fresh" | "needs_confirmation" | "stale";
+export type TalentGender = "female" | "male" | "mixed" | "unknown";
 
 export type AvailabilityEntry = {
   date: string; // YYYY-MM-DD
@@ -10,6 +11,7 @@ export type EngineTalent = {
   id: string;
   name: string;
   category: string;
+  gender?: TalentGender;
   genres: string[];
   baseCity: string;
   serviceCities: string[];
