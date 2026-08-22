@@ -14,6 +14,23 @@ function money(value: number | null, locale: "id" | "en") {
   }).format(value);
 }
 
+function categoryLabel(value: string | null, locale: "id" | "en") {
+  if (!value) return "—";
+  const normalized = value.trim().toLowerCase();
+  const labels: Record<string, { id: string; en: string }> = {
+    penyanyi: { id: "Penyanyi", en: "Singer" },
+    singer: { id: "Penyanyi", en: "Singer" },
+    band: { id: "Band", en: "Band" },
+    "mc / host": { id: "MC / Host", en: "MC / Host" },
+    "mc/host": { id: "MC / Host", en: "MC / Host" },
+    dj: { id: "DJ", en: "DJ" },
+    "traditional & cultural": { id: "Tradisional & Budaya", en: "Traditional & Cultural" },
+    "acoustic/duo/trio": { id: "Akustik / Duo / Trio", en: "Acoustic / Duo / Trio" },
+    "specialty performer": { id: "Performer Spesial", en: "Specialty Performer" },
+  };
+  return labels[normalized]?.[locale] ?? value;
+}
+
 export default async function ProposalPage({ params }: { params: Promise<{ locale: string; id: string }> }) {
   if (process.env.VERCEL_ENV === "production") notFound();
 
@@ -44,7 +61,7 @@ export default async function ProposalPage({ params }: { params: Promise<{ local
             [isId ? "Acara" : "Event", brief.event_type ?? "—"],
             [isId ? "Tanggal" : "Date", brief.event_date ?? "—"],
             [isId ? "Kota" : "City", brief.city ?? "—"],
-            [isId ? "Kategori" : "Category", brief.talent_category ?? "—"],
+            [isId ? "Kategori" : "Category", categoryLabel(brief.talent_category, locale)],
             [isId ? "Anggaran Maks." : "Max Budget", money(brief.budget_max, locale)],
           ].map(([label, value]) => (
             <div key={label} className="border border-black/10 bg-white p-4">
@@ -72,12 +89,14 @@ export default async function ProposalPage({ params }: { params: Promise<{ local
                 ) : null}
                 <div className="p-5 md:p-6">
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">
-                    {talent.category} · {talent.base_city ?? "Indonesia"}
+                    {categoryLabel(talent.category, locale)} · {talent.base_city ?? "Indonesia"}
                   </p>
                   <h2 className="mt-2 text-3xl font-semibold tracking-[-0.03em]">{talent.name}</h2>
                   {talent.genres?.length ? <p className="mt-2 text-sm text-black/55">{talent.genres.join(" · ")}</p> : null}
                   <p className="mt-5 text-sm leading-6 text-black/60">
-                    {talent.bio || (isId ? "Profil lengkap tersedia melalui tim Nusantara Star." : "Full profile available through the Nusantara Star team.")}
+                    {isId
+                      ? talent.bio || "Profil lengkap tersedia melalui tim Nusantara Star."
+                      : "Full profile available through the Nusantara Star team."}
                   </p>
                   <div className="mt-5 border-t border-black/10 pt-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">
