@@ -39,16 +39,16 @@ export async function POST(request: Request) {
 
       const { data: terms, error: termsError } = await supabase
         .from("commercial_terms")
-        .select("status,payment_terms")
+        .select("status,buyer_payment_terms,payment_terms")
         .eq("brief_id", booking.brief_id)
         .single();
       if (termsError || !terms || terms.status !== "agreed") {
         return NextResponse.json({ error: "Commercial terms are not agreed" }, { status: 409 });
       }
 
-      const paymentTerms = (terms.payment_terms ?? "").toLowerCase();
+      const paymentTerms = (terms.buyer_payment_terms ?? terms.payment_terms ?? "").toLowerCase();
       if (!paymentTerms.includes("50%")) {
-        return NextResponse.json({ error: "Preview DP flow currently requires 50% payment terms" }, { status: 409 });
+        return NextResponse.json({ error: "Preview DP flow currently requires 50% buyer payment terms" }, { status: 409 });
       }
 
       const { data: existing, error: existingError } = await supabase
