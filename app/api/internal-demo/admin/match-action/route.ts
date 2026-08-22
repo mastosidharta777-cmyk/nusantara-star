@@ -80,28 +80,31 @@ export async function POST(request: Request) {
     if (!match) return NextResponse.json({ error: "Talent is not an eligible current match" }, { status: 409 });
 
     const now = new Date().toISOString();
-    const approved = action === "approve";
-    const rejected = action === "reject";
+    const matchPayload: Record<string, unknown> = {
+      brief_id: briefId,
+      talent_id: talentId,
+      score: match.score,
+      tier: match.tier,
+      availability_status: match.availabilityStatus,
+      availability_freshness: match.freshness,
+      requires_live_confirmation: match.requiresLiveConfirmation,
+      score_breakdown: match.breakdown,
+      reasons: match.reasons,
+    };
+
+    if (action === "approve") {
+      matchPayload.admin_approved = true;
+      matchPayload.admin_rejected = false;
+      matchPayload.reviewed_at = now;
+    } else if (action === "reject") {
+      matchPayload.admin_approved = false;
+      matchPayload.admin_rejected = true;
+      matchPayload.reviewed_at = now;
+    }
 
     const { data: matchResult, error: matchError } = await supabase
       .from("match_results")
-      .upsert(
-        {
-          brief_id: briefId,
-          talent_id: talentId,
-          score: match.score,
-          tier: match.tier,
-          availability_status: match.availabilityStatus,
-          availability_freshness: match.freshness,
-          requires_live_confirmation: match.requiresLiveConfirmation,
-          score_breakdown: match.breakdown,
-          reasons: match.reasons,
-          admin_approved: approved,
-          admin_rejected: rejected,
-          reviewed_at: action === "request_live_confirmation" ? null : now,
-        },
-        { onConflict: "brief_id,talent_id" },
-      )
+      .upsert(matchPayload, { onConflict: "brief_id,talent_id" })
       .select("id")
       .single();
 
@@ -122,7 +125,25 @@ export async function POST(request: Request) {
       if (requestError) throw new Error(requestError.message);
     }
 
-    const nextBriefStatus = action === "request_live_confirmation" ? "availability_check" : action === "approve" ? "matching" : "reviewing";
+    let nextBriefStatus = "reviewing";
+    if (action === "request_live_confirmation") {
+      nextBriefStatus = "availability_check";
+    } else if (action === "approve") {
+      const { data: availabilityRequest, error: availabilityError } = await supabase
+        .from("availability_requests")
+        .select("status")
+        .eq("brief_id", briefId)
+        .eq("talent_id", talentId)
+        .maybeSingle();
+      if (availabilityError) throw new Error(availabilityError.message);
+
+      if (availabilityRequest?.status === "unavailable") {
+        return NextResponse.json({ error: "Cannot approve a talent confirmed as unavailable" }, { status: 409 });
+      }
+
+      nextBriefStatus = availabilityRequest?.status === "confirmed" ? "shortlisted" : "matching";
+    }
+
     const { error: briefUpdateError } = await supabase.from("briefs").update({ status: nextBriefStatus }).eq("id", briefId);
     if (briefUpdateError) throw new Error(briefUpdateError.message);
 
