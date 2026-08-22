@@ -131,12 +131,24 @@ function matchTier(score: number, breakdown: MatchBreakdown): MatchTier {
     return "strong_match";
   }
 
-  if (
+  const standardAlternative =
     score >= 78 &&
     breakdown.budget >= 65 &&
     breakdown.categoryGenre >= 80 &&
-    breakdown.availability >= 30
-  ) {
+    breakdown.availability >= 30;
+
+  // If category and budget are exact, location is workable, and the calendar is
+  // merely unknown (not booked/unavailable), keep a viable candidate visible as
+  // an acceptable alternative rather than suppressing the shortlist entirely.
+  const exactBudgetAlternative =
+    score >= 74 &&
+    breakdown.budget >= 90 &&
+    breakdown.categoryGenre >= 90 &&
+    breakdown.eventFit >= 55 &&
+    breakdown.location >= 85 &&
+    breakdown.availability >= 30;
+
+  if (standardAlternative || exactBudgetAlternative) {
     return "acceptable_alternative";
   }
 
