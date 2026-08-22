@@ -5,6 +5,27 @@ function normalize(value: string) {
   return value.trim().toLowerCase();
 }
 
+function canonicalCategory(value: string | null | undefined) {
+  if (!value) return null;
+  const v = normalize(value);
+  if (/(singer|penyanyi|vocalist|vokalis)/.test(v)) return "singer";
+  if (/(band|group)/.test(v)) return "band";
+  if (/(mc|host|master of ceremony)/.test(v)) return "mc";
+  if (/\bdj\b|disc jockey/.test(v)) return "dj";
+  if (/(traditional|tradisional|cultural|budaya)/.test(v)) return "traditional";
+  if (/(acoustic|duo|trio)/.test(v)) return "acoustic";
+  if (/(speaker|pembicara)/.test(v)) return "speaker";
+  if (/(special performer|specialty performer)/.test(v)) return "special performer";
+  return v;
+}
+
+function requestedGender(brief: StructuredBrief): "female" | "male" | null {
+  const text = normalize([brief.talentCategory ?? "", brief.sourceText ?? "", ...brief.specialRequirements].join(" "));
+  if (/(female|woman|women|perempuan|wanita)/.test(text)) return "female";
+  if (/(male|man|men|laki-laki|pria)/.test(text)) return "male";
+  return null;
+}
+
 function intersects(a: string[], b: string[]) {
   const bSet = new Set(b.map(normalize));
   return a.some((item) => bSet.has(normalize(item)));
@@ -22,18 +43,24 @@ function budgetScore(talent: EngineTalent, brief: StructuredBrief) {
 
 function categoryGenreScore(talent: EngineTalent, brief: StructuredBrief) {
   let score = 50;
-  if (brief.talentCategory) {
-    score = normalize(talent.category) === normalize(brief.talentCategory) ? 100 : 25;
-  }
+  const requested = canonicalCategory(brief.talentCategory);
+  const actual = canonicalCategory(talent.category);
+  if (requested) score = requested === actual ? 100 : 0;
   if (brief.genreStyle.length > 0 && intersects(talent.genres, brief.genreStyle)) {
-    score = Math.max(score, 90);
+    score = Math.max(score, requested === actual ? 100 : 35);
   }
   return score;
 }
 
 function eventFitScore(talent: EngineTalent, brief: StructuredBrief) {
   if (!brief.eventType) return 70;
-  return talent.eventTypes.map(normalize).includes(normalize(brief.eventType)) ? 100 : 55;
+  const target = normalize(brief.eventType);
+  return talent.eventTypes.some((type) => {
+    const candidate = normalize(type);
+    return candidate === target || target.includes(candidate) || candidate.includes(target);
+  })
+    ? 100
+    : 55;
 }
 
 function locationScore(talent: EngineTalent, brief: StructuredBrief) {
@@ -57,6 +84,17 @@ export function scoreTalent(talent: EngineTalent, brief: StructuredBrief, now = 
 
   if (availability.hardBlocked) {
     blockedReasons.push(`Tidak tersedia pada ${brief.eventDate ?? "tanggal acara"}`);
+  }
+
+  const requestedCategory = canonicalCategory(brief.talentCategory);
+  const talentCategory = canonicalCategory(talent.category);
+  if (requestedCategory && requestedCategory !== talentCategory) {
+    blockedReasons.push(`Kategori tidak sesuai: meminta ${brief.talentCategory}`);
+  }
+
+  const gender = requestedGender(brief);
+  if (gender && talent.gender && talent.gender !== "unknown" && talent.gender !== "mixed" && talent.gender !== gender) {
+    blockedReasons.push(`Gender talent tidak sesuai: meminta ${gender}`);
   }
 
   const breakdown: MatchBreakdown = {
@@ -88,7 +126,7 @@ export function scoreTalent(talent: EngineTalent, brief: StructuredBrief, now = 
 
   return {
     talent,
-    score: availability.hardBlocked ? 0 : score,
+    score: blockedReasons.length > 0 ? 0 : score,
     breakdown,
     availabilityStatus: availability.status,
     freshness: availability.freshness,
