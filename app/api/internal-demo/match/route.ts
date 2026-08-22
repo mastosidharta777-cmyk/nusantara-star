@@ -12,6 +12,9 @@ const scenarios: Record<string, string> = {
   activation: "Brand activation 25 September 2026 di Bandung, audience muda, butuh MC energetic, budget 10-15 juta.",
   hotel: "Hotel lounge event 18 September 2026 di Jakarta, butuh acoustic duo jazz pop yang hangat dan elegan, budget 8-15 juta.",
   cultural: "Acara budaya perusahaan 12 September 2026 di Jakarta, butuh pertunjukan tradisional kontemporer Indonesia, budget 20-40 juta.",
+  booked: "Corporate event 12 September 2026 di Jakarta, butuh band pop alternative premium, budget 30-50 juta.",
+  stale: "Private event 18 September 2026 di Jakarta, butuh DJ commercial energetic, budget maksimal 25 juta.",
+  tightBudget: "Wedding 18 September 2026 di Jakarta, butuh acoustic duo pop elegan, budget maksimal 7 juta.",
 };
 
 function isProduction() {
@@ -53,6 +56,15 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const scenario = url.searchParams.get("scenario") ?? "corporate";
+
+  if (scenario === "all") {
+    const results = [];
+    for (const [name, input] of Object.entries(scenarios)) {
+      results.push({ scenario: name, input, ...(await runMatch(input)) });
+    }
+    return NextResponse.json({ selfTest: true, rosterSize: demoTalents.length, results });
+  }
+
   const text = scenarios[scenario] ?? scenarios.corporate;
   const result = await runMatch(text);
   return NextResponse.json({ selfTest: true, scenario, input: text, ...result });
