@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { forwardOnlyBriefStatus } from "@/lib/brief-status";
+
 export const runtime = "nodejs";
 
 type ResponseStatus = "confirmed" | "tentative" | "unavailable" | "no_response";
@@ -38,7 +40,7 @@ export async function POST(request: Request) {
 
     const { data: brief, error: briefError } = await supabase
       .from("briefs")
-      .select("id,event_date")
+      .select("id,event_date,status")
       .eq("id", availabilityRequest.brief_id)
       .single();
     if (briefError || !brief) throw new Error(briefError?.message ?? "Brief not found");
@@ -72,7 +74,7 @@ export async function POST(request: Request) {
       .eq("id", requestId);
     if (updateError) throw new Error(updateError.message);
 
-    let nextBriefStatus = "availability_check";
+    let proposedBriefStatus = "availability_check";
     if (status === "confirmed") {
       const { data: matchResult, error: matchError } = await supabase
         .from("match_results")
@@ -83,15 +85,19 @@ export async function POST(request: Request) {
       if (matchError) throw new Error(matchError.message);
 
       if (matchResult?.admin_approved === true && matchResult?.admin_rejected !== true) {
-        nextBriefStatus = "shortlisted";
+        proposedBriefStatus = "shortlisted";
       }
     }
 
-    const { error: briefStatusError } = await supabase
-      .from("briefs")
-      .update({ status: nextBriefStatus })
-      .eq("id", availabilityRequest.brief_id);
-    if (briefStatusError) throw new Error(briefStatusError.message);
+    const nextBriefStatus = forwardOnlyBriefStatus(brief.status, proposedBriefStatus);
+    if (nextBriefStatus !== brief.status) {
+      const { error: briefStatusError } = await supabase
+        .from("briefs")
+        .update({ status: nextBriefStatus })
+        .eq("id", availabilityRequest.brief_id)
+        .eq("status", brief.status);
+      if (briefStatusError) throw new Error(briefStatusError.message);
+    }
 
     return NextResponse.json({
       ok: true,
