@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-type ResponseStatus = "confirmed" | "tentative" | "unavailable" | "no_response";
+type ResponseStatus = "confirmed" | "tentative" | "unavailable";
 
 type Props = {
   requestId: string;
@@ -38,7 +38,6 @@ export function AvailabilityResponseActions({ requestId, currentStatus }: Props)
     ["confirmed", "Confirmed"],
     ["tentative", "Tentative"],
     ["unavailable", "Unavailable"],
-    ["no_response", "No Response"],
   ];
 
   return (
@@ -53,7 +52,7 @@ export function AvailabilityResponseActions({ requestId, currentStatus }: Props)
             onClick={() => respond(status)}
             disabled={busy !== null}
             className={
-              status === "confirmed"
+              currentStatus === status
                 ? "border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
                 : "border border-black/20 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-40"
             }
