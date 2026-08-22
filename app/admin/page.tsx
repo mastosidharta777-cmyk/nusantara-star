@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { loadAdminDashboardData } from "@/lib/admin-data";
@@ -86,6 +87,7 @@ export default async function AdminPage() {
                     <th className="px-5 py-3 font-semibold">Talent</th>
                     <th className="px-5 py-3 font-semibold">Budget</th>
                     <th className="px-5 py-3 font-semibold">Status</th>
+                    <th className="px-5 py-3 font-semibold">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -102,6 +104,11 @@ export default async function AdminPage() {
                         <span className="border border-black/10 px-2 py-1 text-xs font-semibold uppercase tracking-[0.08em]">
                           {brief.status}
                         </span>
+                      </td>
+                      <td className="px-5 py-4">
+                        <Link href={`/admin/briefs/${brief.id}`} className="font-semibold underline underline-offset-4">
+                          Open Brief
+                        </Link>
                       </td>
                     </tr>
                   ))}
