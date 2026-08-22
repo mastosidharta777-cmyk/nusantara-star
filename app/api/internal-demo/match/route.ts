@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { parseBriefWithAI } from "@/lib/talent-engine/ai-brief";
-import { demoTalents } from "@/lib/talent-engine/demo-talents";
 import { rankTalents } from "@/lib/talent-engine/matching";
+import { loadEngineTalents } from "@/lib/talent-engine/supabase-talents";
 
 export const runtime = "nodejs";
 
@@ -22,11 +22,13 @@ function isProduction() {
 }
 
 async function runMatch(text: string) {
-  const { brief, source } = await parseBriefWithAI(text);
-  const matches = rankTalents(demoTalents, brief, 5);
+  const [{ brief, source }, roster] = await Promise.all([parseBriefWithAI(text), loadEngineTalents()]);
+  const matches = rankTalents(roster.talents, brief, 5);
 
   return {
     source,
+    rosterSource: roster.source,
+    rosterSize: roster.talents.length,
     brief,
     matches: matches.map((match) => ({
       talent: {
@@ -63,7 +65,7 @@ export async function GET(request: Request) {
     for (const [name, input] of Object.entries(scenarios)) {
       results.push({ scenario: name, input, ...(await runMatch(input)) });
     }
-    return NextResponse.json({ selfTest: true, rosterSize: demoTalents.length, results });
+    return NextResponse.json({ selfTest: true, results });
   }
 
   const text = scenarios[scenario] ?? scenarios.corporate;
