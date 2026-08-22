@@ -102,6 +102,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
                     briefId={row.id}
                     talentId={match.talent.id}
                     decision={match.decision}
+                    availabilityRequestId={match.availabilityRequestId}
                     availabilityRequestStatus={match.availabilityRequestStatus}
                   />
                 </article>
