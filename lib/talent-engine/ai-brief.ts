@@ -36,30 +36,20 @@ const briefSchema = {
   ],
 } as const;
 
-function extractResponseText(payload: any): string | null {
-  if (typeof payload?.output_text === "string") return payload.output_text;
-  for (const item of payload?.output ?? []) {
-    for (const content of item?.content ?? []) {
-      if (content?.type === "output_text" && typeof content?.text === "string") return content.text;
-    }
-  }
-  return null;
-}
-
 export async function parseBriefWithAI(text: string): Promise<{ brief: StructuredBrief; source: "ai" | "fallback" }> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return { brief: parseBriefText(text), source: "fallback" };
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL ?? "gpt-5.6",
-        input: [
+        model: process.env.GROQ_MODEL ?? "openai/gpt-oss-20b",
+        messages: [
           {
             role: "system",
             content:
@@ -67,27 +57,28 @@ export async function parseBriefWithAI(text: string): Promise<{ brief: Structure
           },
           { role: "user", content: text },
         ],
-        text: {
-          format: {
-            type: "json_schema",
+        response_format: {
+          type: "json_schema",
+          json_schema: {
             name: "nusantara_star_event_brief",
             strict: true,
             schema: briefSchema,
           },
         },
+        temperature: 0,
       }),
       cache: "no-store",
     });
 
-    if (!response.ok) throw new Error(`OpenAI request failed: ${response.status}`);
+    if (!response.ok) throw new Error(`Groq request failed: ${response.status}`);
     const payload = await response.json();
-    const outputText = extractResponseText(payload);
-    if (!outputText) throw new Error("No structured output returned");
+    const outputText = payload?.choices?.[0]?.message?.content;
+    if (typeof outputText !== "string" || !outputText) throw new Error("No structured output returned");
 
     const brief = JSON.parse(outputText) as StructuredBrief;
     return { brief: { ...brief, sourceText: text }, source: "ai" };
   } catch (error) {
-    console.error("AI brief parsing failed, using deterministic fallback", error);
+    console.error("Groq brief parsing failed, using deterministic fallback", error);
     return { brief: parseBriefText(text), source: "fallback" };
   }
 }
