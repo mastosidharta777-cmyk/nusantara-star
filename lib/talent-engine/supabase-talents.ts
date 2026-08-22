@@ -1,6 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 
-import { demoTalents } from "./demo-talents";
 import type { AvailabilityStatus, EngineTalent, TalentGender } from "./types";
 
 type TalentRow = {
@@ -47,11 +46,11 @@ function normalizeGender(value: string | null): TalentGender {
 
 export async function loadEngineTalents(): Promise<{
   talents: EngineTalent[];
-  source: "supabase" | "demo_fallback";
+  source: "supabase";
 }> {
   const supabase = getServerClient();
   if (!supabase) {
-    return { talents: demoTalents, source: "demo_fallback" };
+    throw new Error("Supabase server environment is not configured");
   }
 
   const [{ data: talentData, error: talentError }, { data: availabilityData, error: availabilityError }] = await Promise.all([
@@ -65,11 +64,9 @@ export async function loadEngineTalents(): Promise<{
   ]);
 
   if (talentError || availabilityError || !talentData) {
-    console.error("Supabase talent load failed", {
-      talentError: talentError?.message,
-      availabilityError: availabilityError?.message,
-    });
-    return { talents: demoTalents, source: "demo_fallback" };
+    throw new Error(
+      `Supabase talent load failed: ${talentError?.message ?? availabilityError?.message ?? "unknown error"}`,
+    );
   }
 
   const availabilityByTalent = new Map<string, AvailabilityRow[]>();
