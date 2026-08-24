@@ -1,11 +1,10 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const search = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,6 +22,7 @@ export default function AdminLoginPage() {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.error ?? "Login gagal");
+      const search = new URLSearchParams(window.location.search);
       const next = search.get("next");
       router.replace(next && next.startsWith("/admin") ? next : "/admin");
       router.refresh();
