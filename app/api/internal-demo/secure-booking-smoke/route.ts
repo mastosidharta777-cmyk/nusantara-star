@@ -69,8 +69,16 @@ export async function GET(request: Request) {
     if (briefError || !brief) throw new Error(briefError?.message ?? "Brief insert failed");
     briefId = brief.id;
 
+    const { data: requestRow, error: requestError } = await supabase.from("availability_requests").insert({
+      brief_id: briefId,
+      talent_id: talentId,
+      status: "confirmed",
+      responded_at: now,
+    }).select("id").single();
+    if (requestError || !requestRow) throw new Error(requestError?.message ?? "Availability request insert failed");
+
     const { data: offer, error: offerError } = await supabase.from("talent_offers").insert({
-      availability_request_id: (await supabase.from("availability_requests").insert({ brief_id: briefId, talent_id: talentId, status: "confirmed", responded_at: now }).select("id").single()).data?.id,
+      availability_request_id: requestRow.id,
       brief_id: briefId,
       talent_id: talentId,
       status: "confirmed",
@@ -156,7 +164,7 @@ export async function GET(request: Request) {
     if (!paid.response.ok) throw new Error(`Payment confirmation failed: ${JSON.stringify(paid.json)}`);
 
     const secure = await post(origin, "/api/internal-demo/admin/booking", { briefId, action: "secure_booking" });
-    if (!secure.response.ok || secure.json?.status !== "secured") throw new Error(`Secure booking failed: ${JSON.stringify(secure.json)}`);
+    if (!secure.response.ok || secure.json?.bookingStatus !== "secured") throw new Error(`Secure booking failed: ${JSON.stringify(secure.json)}`);
 
     const { data: finalBooking, error: finalError } = await supabase.from("bookings").select("status,buyer_terms_accepted_at,financial_security_type,financial_security_status,secured_at").eq("id", bookingId).single();
     if (finalError || !finalBooking) throw new Error(finalError?.message ?? "Final booking read failed");
