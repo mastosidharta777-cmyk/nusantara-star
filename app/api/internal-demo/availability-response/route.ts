@@ -14,6 +14,10 @@ function getServerClient() {
   return createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
+function nullableText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 export async function POST(request: Request) {
   if (process.env.VERCEL_ENV === "production") {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -25,6 +29,23 @@ export async function POST(request: Request) {
     const status = body?.status as ResponseStatus | undefined;
     if (!requestId || !["confirmed", "tentative", "unavailable", "no_response"].includes(status ?? "")) {
       return NextResponse.json({ error: "Invalid response payload" }, { status: 400 });
+    }
+
+    const rawFee = body?.eventFee;
+    const eventFee = rawFee === null || rawFee === undefined || rawFee === "" ? null : Number(rawFee);
+    if (eventFee !== null && (!Number.isFinite(eventFee) || eventFee < 0)) {
+      return NextResponse.json({ error: "Invalid event fee" }, { status: 400 });
+    }
+    if (status === "confirmed" && (!eventFee || eventFee <= 0)) {
+      return NextResponse.json({ error: "Confirmed offer requires an event fee" }, { status: 409 });
+    }
+
+    let quoteValidUntil: string | null = null;
+    if (body?.quoteValidUntil) {
+      const parsed = new Date(String(body.quoteValidUntil));
+      if (Number.isNaN(parsed.getTime())) return NextResponse.json({ error: "Invalid quote validity" }, { status: 400 });
+      if (parsed.getTime() <= Date.now()) return NextResponse.json({ error: "Quote validity must be in the future" }, { status: 409 });
+      quoteValidUntil = parsed.toISOString();
     }
 
     const supabase = getServerClient();
@@ -74,6 +95,31 @@ export async function POST(request: Request) {
       .eq("id", requestId);
     if (updateError) throw new Error(updateError.message);
 
+    if (status !== "no_response") {
+      const offerStatus = status === "unavailable" ? "unavailable" : availabilityRequest.status === "pending" ? "confirmed" : "changed";
+      const { error: offerError } = await supabase.from("talent_offers").upsert(
+        {
+          availability_request_id: requestId,
+          brief_id: availabilityRequest.brief_id,
+          talent_id: availabilityRequest.talent_id,
+          status: offerStatus,
+          availability_status: status,
+          event_fee: status === "unavailable" ? null : eventFee,
+          currency: "IDR",
+          included_costs: nullableText(body?.includedCosts),
+          excluded_costs: nullableText(body?.excludedCosts),
+          payment_terms: nullableText(body?.paymentTerms),
+          rider_exceptions: nullableText(body?.riderExceptions),
+          quote_valid_until: status === "unavailable" ? null : quoteValidUntil,
+          confirmation_source: "manager_portal",
+          confirmed_at: now,
+          updated_at: now,
+        },
+        { onConflict: "availability_request_id" },
+      );
+      if (offerError) throw new Error(`Talent offer persistence failed: ${offerError.message}`);
+    }
+
     let proposedBriefStatus = "availability_check";
     if (status === "confirmed") {
       const { data: matchResult, error: matchError } = await supabase
@@ -105,6 +151,7 @@ export async function POST(request: Request) {
       briefId: availabilityRequest.brief_id,
       talentId: availabilityRequest.talent_id,
       status,
+      talentOffer: status !== "no_response",
       briefStatus: nextBriefStatus,
     });
   } catch (error) {
