@@ -138,11 +138,36 @@ export async function GET() {
       .single();
     if (requestError || !requestRow?.id) throw new Error(`Availability request insert failed: ${requestError?.message ?? "missing id"}`);
 
+    const respondedAt = new Date().toISOString();
     const { error: responseError } = await supabase
       .from("availability_requests")
-      .update({ status: "confirmed", responded_at: new Date().toISOString() })
+      .update({ status: "confirmed", responded_at: respondedAt })
       .eq("id", requestRow.id);
     if (responseError) throw new Error(`Availability confirmation failed: ${responseError.message}`);
+
+    const quoteValidUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: offer, error: offerError } = await supabase
+      .from("talent_offers")
+      .insert({
+        availability_request_id: requestRow.id,
+        brief_id: briefId,
+        talent_id: talentId,
+        status: "confirmed",
+        availability_status: "confirmed",
+        event_fee: 12500000,
+        currency: "IDR",
+        included_costs: "Performance fee",
+        excluded_costs: "Transport outside Jakarta",
+        payment_terms: "Payment schedule subject to deal approval",
+        rider_exceptions: "None for smoke test",
+        quote_valid_until: quoteValidUntil,
+        confirmation_source: "manager_portal",
+        confirmed_at: respondedAt,
+        updated_at: respondedAt,
+      })
+      .select("id,status,availability_status,event_fee,currency,quote_valid_until,confirmation_source")
+      .single();
+    if (offerError || !offer) throw new Error(`Talent offer insert failed: ${offerError?.message ?? "missing row"}`);
 
     const { data: confirmedRequest, error: confirmReadError } = await supabase
       .from("availability_requests")
@@ -152,6 +177,15 @@ export async function GET() {
     if (confirmReadError || confirmedRequest?.status !== "confirmed") {
       throw new Error(`Availability confirmation read failed: ${confirmReadError?.message ?? "unexpected status"}`);
     }
+
+    const offerSnapshotValid =
+      offer.status === "confirmed" &&
+      offer.availability_status === "confirmed" &&
+      Number(offer.event_fee) === 12500000 &&
+      offer.currency === "IDR" &&
+      offer.confirmation_source === "manager_portal" &&
+      Boolean(offer.quote_valid_until);
+    if (!offerSnapshotValid) throw new Error("Talent offer snapshot validation failed");
 
     return NextResponse.json({
       ok: true,
@@ -164,11 +198,21 @@ export async function GET() {
         frozenMatchSnapshot: Boolean(persistedMatch.engine_version && persistedMatch.generated_at),
         availabilityRequest: true,
         liveConfirmation: true,
+        talentOfferSnapshot: true,
+        eventSpecificFee: Number(offer.event_fee) === 12500000,
+        offerValidity: Boolean(offer.quote_valid_until),
       },
       match: {
         score: smokeMatch.score,
         tier: smokeMatch.tier,
         engineVersion: snapshot.engineVersion,
+      },
+      offer: {
+        status: offer.status,
+        availabilityStatus: offer.availability_status,
+        eventFee: Number(offer.event_fee),
+        currency: offer.currency,
+        confirmationSource: offer.confirmation_source,
       },
       cleanup: "automatic",
     });
