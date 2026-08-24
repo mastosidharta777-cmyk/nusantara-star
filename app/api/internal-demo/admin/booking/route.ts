@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-import { requiredInitialBuyerSecurity, type BuyerMilestone } from "@/lib/secure-booking";
-
 export const runtime = "nodejs";
 
 function getServerClient() {
@@ -13,8 +11,6 @@ function getServerClient() {
 }
 
 export async function POST(request: Request) {
-  if (process.env.VERCEL_ENV === "production") return NextResponse.json({ error: "Not found" }, { status: 404 });
-
   try {
     const body = await request.json().catch(() => null);
     const briefId = typeof body?.briefId === "string" ? body.briefId : "";
@@ -112,57 +108,44 @@ export async function POST(request: Request) {
       if (dealError || !deal) return NextResponse.json({ error: "Deal not found" }, { status: 404 });
       if (securityType === "approved_po_credit" && !reference) return NextResponse.json({ error: "PO/credit reference is required" }, { status: 409 });
       if (securityType === "authorized_exception" && deal.exception_status !== "approved") return NextResponse.json({ error: "Commercial exception is not approved" }, { status: 409 });
-      const { error } = await supabase.from("bookings").update({ financial_security_type: securityType, financial_security_status: "satisfied", financial_security_reference: reference || "approved_exception", updated_at: new Date().toISOString() }).eq("id", existing.id);
+      const { error } = await supabase.from("bookings").update({ financial_security_type: securityType, financial_security_status: "satisfied", financial_security_reference: reference || "approved_exception", updated_at: new Date().toISOString() }).eq("id", existing.id).eq("status", "pending_security");
       if (error) throw new Error(error.message);
       return NextResponse.json({ ok: true, securityType, securityStatus: "satisfied" });
     }
 
     if (action !== "secure_booking") return NextResponse.json({ error: "Invalid booking action" }, { status: 400 });
 
-    const [{ data: booking, error: bookingError }, { data: deal, error: dealError }, { data: offer, error: offerError }, { data: milestones, error: milestoneError }, { data: payments, error: paymentError }] = await Promise.all([
-      supabase.from("bookings").select("*").eq("id", existing.id).single(),
-      supabase.from("deals").select("status,funding_gap_status,exception_status,talent_terms_status,buyer_terms_status,talent_offer_id").eq("id", existing.deal_id).single(),
-      supabase.from("talent_offers").select("status,availability_status,quote_valid_until").eq("id", existing.deal_id ? (await supabase.from("deals").select("talent_offer_id").eq("id", existing.deal_id).single()).data?.talent_offer_id : "").maybeSingle(),
-      supabase.from("payment_milestones").select("sequence_no,calculation_type,percentage,amount").eq("booking_id", existing.id).eq("party", "buyer").order("sequence_no"),
-      supabase.from("payments").select("amount,status").eq("booking_id", existing.id).eq("status", "paid"),
-    ]);
-    if (bookingError || !booking) return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+    const { data: deal, error: dealError } = await supabase
+      .from("deals")
+      .select("status,funding_gap_status,talent_terms_status,buyer_terms_status,talent_offer_id")
+      .eq("id", existing.deal_id)
+      .single();
     if (dealError || !deal) return NextResponse.json({ error: "Deal not found" }, { status: 404 });
-    if (offerError || !offer) return NextResponse.json({ error: "Talent offer not found" }, { status: 404 });
-    if (milestoneError) throw new Error(milestoneError.message);
-    if (paymentError) throw new Error(paymentError.message);
-
-    const nowMs = Date.now();
     if (deal.status !== "locked") return NextResponse.json({ error: "Deal is not locked" }, { status: 409 });
     if (deal.talent_terms_status !== "confirmed") return NextResponse.json({ error: "Talent terms are unresolved" }, { status: 409 });
-    if (!booking.buyer_terms_accepted_at || deal.buyer_terms_status !== "accepted") return NextResponse.json({ error: "Buyer terms are not accepted" }, { status: 409 });
-    if (offer.status !== "confirmed" || offer.availability_status !== "confirmed" || (offer.quote_valid_until && new Date(offer.quote_valid_until).getTime() <= nowMs)) return NextResponse.json({ error: "Talent offer requires reconfirmation" }, { status: 409 });
-    if (deal.funding_gap_status !== "safe" && deal.exception_status !== "approved") return NextResponse.json({ error: "Funding gap is unresolved" }, { status: 409 });
+    if (!existing.buyer_terms_accepted_at || deal.buyer_terms_status !== "accepted") return NextResponse.json({ error: "Buyer terms are not accepted" }, { status: 409 });
+    if (deal.funding_gap_status !== "safe") return NextResponse.json({ error: "Funding gap is unresolved" }, { status: 409 });
 
-    let securityType = booking.financial_security_type as string | null;
-    let securitySatisfied = booking.financial_security_status === "satisfied";
-    const paidTotal = (payments ?? []).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
-    const buyerPrice = Number(booking.buyer_price ?? 0);
-    if (!securitySatisfied && paidTotal >= buyerPrice && buyerPrice > 0) {
-      securityType = "full_payment_received";
-      securitySatisfied = true;
+    const { data: offer, error: offerError } = await supabase
+      .from("talent_offers")
+      .select("status,availability_status,quote_valid_until")
+      .eq("id", deal.talent_offer_id)
+      .single();
+    if (offerError || !offer) return NextResponse.json({ error: "Talent offer not found" }, { status: 404 });
+    if (offer.status !== "confirmed" || offer.availability_status !== "confirmed" || (offer.quote_valid_until && new Date(offer.quote_valid_until).getTime() <= Date.now())) {
+      return NextResponse.json({ error: "Talent offer requires reconfirmation" }, { status: 409 });
     }
-    if (!securitySatisfied && buyerPrice > 0) {
-      const required = requiredInitialBuyerSecurity((milestones ?? []) as BuyerMilestone[], buyerPrice);
-      if (required > 0 && paidTotal >= required) {
-        securityType = "deposit_received";
-        securitySatisfied = true;
-      }
-    }
-    if (!securitySatisfied || !securityType) return NextResponse.json({ error: "Financial security condition is not satisfied" }, { status: 409 });
 
-    const now = new Date().toISOString();
-    const { error: secureError } = await supabase.from("bookings").update({ status: "secured", financial_security_type: securityType, financial_security_status: "satisfied", secured_at: now, updated_at: now }).eq("id", booking.id).eq("status", "pending_security");
-    if (secureError) throw new Error(secureError.message);
-    const { error: briefError } = await supabase.from("briefs").update({ status: "booked" }).eq("id", briefId).eq("status", "terms_agreed");
-    if (briefError) throw new Error(briefError.message);
-
-    return NextResponse.json({ ok: true, bookingStatus: "secured", financialSecurityType: securityType, paidBuyerTotal: paidTotal });
+    const { data: result, error: rpcError } = await supabase.rpc("ns_secure_booking_v1", { p_booking_id: existing.id });
+    if (rpcError) return NextResponse.json({ error: "Booking could not be secured", detail: rpcError.message }, { status: 409 });
+    const row = Array.isArray(result) ? result[0] : result;
+    return NextResponse.json({
+      ok: true,
+      bookingStatus: row?.booking_status ?? "secured",
+      financialSecurityType: row?.financial_security_type ?? existing.financial_security_type,
+      paidBuyerTotal: Number(row?.paid_buyer_total ?? 0),
+      source: "ns_secure_booking_v1",
+    });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     console.error("Secure booking action failed", detail);

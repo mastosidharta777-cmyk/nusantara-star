@@ -101,10 +101,7 @@ function validateSchedule(rows: ParsedMilestone[], total: number, requireComplet
       continue;
     }
 
-    const resolved =
-      row.calculation_type === "percentage"
-        ? Math.round(total * ((row.percentage ?? 0) / 100))
-        : row.amount ?? 0;
+    const resolved = row.calculation_type === "percentage" ? Math.round(total * ((row.percentage ?? 0) / 100)) : row.amount ?? 0;
     if (requireComplete && resolved <= 0) return "Every agreed payment stage must have a positive amount";
     used += resolved;
     if (used > total) return "Payment schedule exceeds the deal total";
@@ -115,10 +112,6 @@ function validateSchedule(rows: ParsedMilestone[], total: number, requireComplet
 }
 
 export async function POST(request: Request) {
-  if (process.env.VERCEL_ENV === "production") {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
   try {
     const body = await request.json().catch(() => null);
     const briefId = typeof body?.briefId === "string" ? body.briefId : "";
@@ -131,16 +124,11 @@ export async function POST(request: Request) {
     const talentSchedule = parseSchedule(body?.talentPaymentSchedule);
     const status = body?.status === "agreed" ? "agreed" : "draft";
 
-    if (
-      !briefId || !talentId || buyerPrice === null || talentPayable === null || directCosts === null || taxesAndPaymentFees === null ||
-      buyerPrice < 0 || talentPayable < 0 || directCosts < 0 || taxesAndPaymentFees < 0 || !buyerSchedule || !talentSchedule
-    ) {
+    if (!briefId || !talentId || buyerPrice === null || talentPayable === null || directCosts === null || taxesAndPaymentFees === null || buyerPrice < 0 || talentPayable < 0 || directCosts < 0 || taxesAndPaymentFees < 0 || !buyerSchedule || !talentSchedule) {
       return NextResponse.json({ error: "Invalid deal sheet payload" }, { status: 400 });
     }
 
-    if (buyerPrice < talentPayable + directCosts + taxesAndPaymentFees) {
-      return NextResponse.json({ error: "Buyer price must cover talent payable, direct costs, and taxes/payment fees" }, { status: 409 });
-    }
+    if (buyerPrice < talentPayable + directCosts + taxesAndPaymentFees) return NextResponse.json({ error: "Buyer price must cover talent payable, direct costs, and taxes/payment fees" }, { status: 409 });
 
     const buyerScheduleError = validateSchedule(buyerSchedule, buyerPrice, status === "agreed");
     if (buyerScheduleError) return NextResponse.json({ error: `Buyer schedule invalid: ${buyerScheduleError}` }, { status: 409 });
@@ -148,12 +136,8 @@ export async function POST(request: Request) {
     if (talentScheduleError) return NextResponse.json({ error: `Talent schedule invalid: ${talentScheduleError}` }, { status: 409 });
 
     if (status === "agreed") {
-      if (buyerPrice <= 0 || talentPayable <= 0) {
-        return NextResponse.json({ error: "Buyer price and talent fee must be greater than zero before the deal can be locked" }, { status: 409 });
-      }
-      if (buyerSchedule.length === 0 || talentSchedule.length === 0) {
-        return NextResponse.json({ error: "Buyer and talent payment schedules must both be defined before the deal can be locked" }, { status: 409 });
-      }
+      if (buyerPrice <= 0 || talentPayable <= 0) return NextResponse.json({ error: "Buyer price and talent fee must be greater than zero before the deal can be locked" }, { status: 409 });
+      if (buyerSchedule.length === 0 || talentSchedule.length === 0) return NextResponse.json({ error: "Buyer and talent payment schedules must both be defined before the deal can be locked" }, { status: 409 });
     }
 
     const supabase = getServerClient();
@@ -164,51 +148,38 @@ export async function POST(request: Request) {
     ]);
 
     if (briefError || !brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
-    if (selectionError || !selection || selection.talent_id !== talentId) {
-      return NextResponse.json({ error: "Talent is not the buyer-selected talent" }, { status: 409 });
-    }
+    if (selectionError || !selection || selection.talent_id !== talentId) return NextResponse.json({ error: "Talent is not the buyer-selected talent" }, { status: 409 });
     if (existingTermsError) throw new Error(existingTermsError.message);
-    if (existingTerms?.status === "agreed") {
-      return NextResponse.json({ error: "Deal Sheet is already locked and cannot be edited" }, { status: 409 });
-    }
-    if (!["proposal_sent", "buyer_selected"].includes(brief.status)) {
-      return NextResponse.json({ error: "Brief is not ready for an editable Deal Sheet" }, { status: 409 });
-    }
+    if (existingTerms?.status === "agreed") return NextResponse.json({ error: "Deal Sheet is already locked and cannot be edited" }, { status: 409 });
+    if (!["proposal_sent", "buyer_selected"].includes(brief.status)) return NextResponse.json({ error: "Brief is not ready for an editable Deal Sheet" }, { status: 409 });
 
     const now = new Date().toISOString();
-    const { error: upsertError } = await supabase.from("commercial_terms").upsert(
-      {
-        brief_id: briefId,
-        talent_id: talentId,
-        buyer_price: buyerPrice,
-        talent_payable: talentPayable,
-        direct_costs: directCosts,
-        taxes_and_payment_fees: taxesAndPaymentFees,
-        buyer_payment_schedule: buyerSchedule,
-        talent_payment_schedule: talentSchedule,
-        buyer_payment_terms: null,
-        talent_payment_terms: null,
-        payment_terms: null,
-        cancellation_terms: typeof body?.cancellationTerms === "string" ? body.cancellationTerms : null,
-        rider_notes: typeof body?.riderNotes === "string" ? body.riderNotes : null,
-        special_conditions: typeof body?.specialConditions === "string" ? body.specialConditions : null,
-        notes: typeof body?.notes === "string" ? body.notes : null,
-        status,
-        agreed_at: status === "agreed" ? now : null,
-        updated_at: now,
-      },
-      { onConflict: "brief_id" },
-    );
+    const { error: upsertError } = await supabase.from("commercial_terms").upsert({
+      brief_id: briefId,
+      talent_id: talentId,
+      buyer_price: buyerPrice,
+      talent_payable: talentPayable,
+      direct_costs: directCosts,
+      taxes_and_payment_fees: taxesAndPaymentFees,
+      buyer_payment_schedule: buyerSchedule,
+      talent_payment_schedule: talentSchedule,
+      buyer_payment_terms: null,
+      talent_payment_terms: null,
+      payment_terms: null,
+      cancellation_terms: typeof body?.cancellationTerms === "string" ? body.cancellationTerms : null,
+      rider_notes: typeof body?.riderNotes === "string" ? body.riderNotes : null,
+      special_conditions: typeof body?.specialConditions === "string" ? body.specialConditions : null,
+      notes: typeof body?.notes === "string" ? body.notes : null,
+      status,
+      agreed_at: status === "agreed" ? now : null,
+      updated_at: now,
+    }, { onConflict: "brief_id" });
     if (upsertError) throw new Error(upsertError.message);
 
     const proposedStatus = status === "agreed" ? "terms_agreed" : "buyer_selected";
     const nextStatus = forwardOnlyBriefStatus(brief.status, proposedStatus);
     if (nextStatus !== brief.status) {
-      const { error: briefUpdateError } = await supabase
-        .from("briefs")
-        .update({ status: nextStatus })
-        .eq("id", briefId)
-        .eq("status", brief.status);
+      const { error: briefUpdateError } = await supabase.from("briefs").update({ status: nextStatus }).eq("id", briefId).eq("status", brief.status);
       if (briefUpdateError) throw new Error(briefUpdateError.message);
     }
 

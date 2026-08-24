@@ -13,8 +13,6 @@ function getServerClient() {
 }
 
 export async function POST(request: Request) {
-  if (process.env.VERCEL_ENV === "production") return NextResponse.json({ error: "Not found" }, { status: 404 });
-
   try {
     const body = await request.json().catch(() => null);
     const action = typeof body?.action === "string" ? body.action : "";
@@ -31,7 +29,7 @@ export async function POST(request: Request) {
     if (action === "create_next_buyer_payment") {
       const [{ data: milestones, error: milestoneError }, { data: activePayments, error: paymentError }] = await Promise.all([
         supabase.from("payment_milestones").select("sequence_no,milestone_type,calculation_type,percentage,amount,status").eq("booking_id", bookingId).eq("party", "buyer").order("sequence_no"),
-        supabase.from("payments").select("id,payment_type,amount,status").eq("booking_id", bookingId).in("status", ["pending", "paid"]).order("created_at"),
+        supabase.from("payments").select("id,payment_type,amount,status,idempotency_key").eq("booking_id", bookingId).in("status", ["pending", "paid"]).order("created_at"),
       ]);
       if (milestoneError) throw new Error(milestoneError.message);
       if (paymentError) throw new Error(paymentError.message);
@@ -54,9 +52,17 @@ export async function POST(request: Request) {
       if (amount <= 0) return NextResponse.json({ error: "Next buyer milestone amount is invalid" }, { status: 409 });
       const milestoneType = (milestones.find((row) => row.sequence_no === next.sequence_no)?.milestone_type ?? "other") as string;
       const paymentType = milestoneType === "full_payment" ? "buyer_full_payment" : milestoneType === "deposit" || milestoneType === "booking_fee" ? "buyer_deposit" : "buyer_balance";
+      const idempotencyKey = `buyer-payment:${bookingId}:${next.sequence_no}`;
 
-      const { data: payment, error: insertError } = await supabase.from("payments").insert({ booking_id: bookingId, payment_type: paymentType, amount, status: "pending" }).select("id,status,payment_type,amount").single();
-      if (insertError || !payment) throw new Error(insertError?.message ?? "Payment creation failed");
+      const existingByKey = (activePayments ?? []).find((row) => row.idempotency_key === idempotencyKey);
+      if (existingByKey) return NextResponse.json({ ok: true, payment: existingByKey, reused: true, milestoneSequence: next.sequence_no });
+
+      const { data: payment, error: insertError } = await supabase.from("payments").insert({ booking_id: bookingId, payment_type: paymentType, amount, status: "pending", idempotency_key: idempotencyKey }).select("id,status,payment_type,amount,idempotency_key").single();
+      if (insertError || !payment) {
+        const { data: raced } = await supabase.from("payments").select("id,status,payment_type,amount,idempotency_key").eq("idempotency_key", idempotencyKey).maybeSingle();
+        if (raced) return NextResponse.json({ ok: true, payment: raced, reused: true, milestoneSequence: next.sequence_no });
+        throw new Error(insertError?.message ?? "Payment creation failed");
+      }
       return NextResponse.json({ ok: true, payment, milestoneSequence: next.sequence_no, source: "booking_payment_milestone" });
     }
 
@@ -65,6 +71,7 @@ export async function POST(request: Request) {
     const { data: payment, error: paymentError } = await supabase.from("payments").select("id,booking_id,status").eq("id", paymentId).single();
     if (paymentError || !payment) return NextResponse.json({ error: "Payment not found" }, { status: 404 });
     if (payment.booking_id !== bookingId) return NextResponse.json({ error: "Payment does not belong to booking" }, { status: 409 });
+    if (payment.status === "paid") return NextResponse.json({ ok: true, paymentStatus: "paid", bookingStatus: booking.status, reused: true });
     if (payment.status !== "pending") return NextResponse.json({ error: "Payment is not pending" }, { status: 409 });
 
     const now = new Date().toISOString();

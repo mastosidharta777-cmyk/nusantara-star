@@ -17,8 +17,6 @@ function optionalDate(value: unknown) {
 }
 
 export async function POST(request: Request) {
-  if (process.env.VERCEL_ENV === "production") return NextResponse.json({ error: "Not found" }, { status: 404 });
-
   try {
     const body = await request.json().catch(() => null);
     const briefId = typeof body?.briefId === "string" ? body.briefId : "";
@@ -69,22 +67,11 @@ export async function POST(request: Request) {
     if (briefError || !brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
     if (termsError) throw new Error(termsError.message);
 
-    const { data: item, error: itemError } = await supabase
-      .from("proposal_items")
-      .select("id,talent_offer_id,talent_id,buyer_price")
-      .eq("proposal_id", proposal.id)
-      .eq("talent_id", selection.talent_id)
-      .single();
+    const { data: item, error: itemError } = await supabase.from("proposal_items").select("id,talent_offer_id,talent_id,buyer_price").eq("proposal_id", proposal.id).eq("talent_id", selection.talent_id).single();
     if (itemError || !item) return NextResponse.json({ error: "Selected proposal item not found" }, { status: 409 });
 
-    const { data: offer, error: offerError } = await supabase
-      .from("talent_offers")
-      .select("id,event_fee,status,availability_status")
-      .eq("id", item.talent_offer_id)
-      .single();
-    if (offerError || !offer || offer.status !== "confirmed" || offer.availability_status !== "confirmed") {
-      return NextResponse.json({ error: "Talent offer is not confirmed" }, { status: 409 });
-    }
+    const { data: offer, error: offerError } = await supabase.from("talent_offers").select("id,event_fee,status,availability_status").eq("id", item.talent_offer_id).single();
+    if (offerError || !offer || offer.status !== "confirmed" || offer.availability_status !== "confirmed") return NextResponse.json({ error: "Talent offer is not confirmed" }, { status: 409 });
 
     const buyerPrice = terms ? Number(terms.buyer_price) : Number(item.buyer_price);
     const talentPayable = terms ? Number(terms.talent_payable) : Number(offer.event_fee);
@@ -97,19 +84,7 @@ export async function POST(request: Request) {
     const directCostDueDate = optionalDate(body?.directCostDueDate) ?? existing?.direct_cost_due_date ?? null;
     const taxFeeDueDate = optionalDate(body?.taxFeeDueDate) ?? existing?.tax_fee_due_date ?? null;
 
-    const review = computeDealReview({
-      buyerPrice,
-      talentPayable,
-      directCosts,
-      taxesAndPaymentFees,
-      buyerSchedule,
-      talentSchedule,
-      eventDate: brief.event_date,
-      bookingReferenceDate,
-      invoiceReferenceDate,
-      directCostDueDate,
-      taxFeeDueDate,
-    });
+    const review = computeDealReview({ buyerPrice, talentPayable, directCosts, taxesAndPaymentFees, buyerSchedule, talentSchedule, eventDate: brief.event_date, bookingReferenceDate, invoiceReferenceDate, directCostDueDate, taxFeeDueDate });
     const issues = [...review.unresolvedIssues];
     if (buyerPrice !== Number(item.buyer_price)) issues.push("Buyer price berbeda dari proposal yang dipilih buyer");
     if (talentPayable !== Number(offer.event_fee)) issues.push("Talent payable berbeda dari confirmed talent offer");

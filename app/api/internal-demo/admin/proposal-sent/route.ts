@@ -11,10 +11,6 @@ function getServerClient() {
 }
 
 export async function POST(request: Request) {
-  if (process.env.VERCEL_ENV === "production") {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
   try {
     const body = await request.json().catch(() => null);
     const briefId = typeof body?.briefId === "string" ? body.briefId : "";
@@ -23,18 +19,11 @@ export async function POST(request: Request) {
     const supabase = getServerClient();
     const { data: brief, error: briefError } = await supabase.from("briefs").select("id,status").eq("id", briefId).single();
     if (briefError || !brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
-    if (!["shortlisted", "proposal_sent"].includes(brief.status)) {
-      return NextResponse.json({ error: "Brief is not ready for proposal" }, { status: 409 });
-    }
+    if (!["shortlisted", "proposal_sent"].includes(brief.status)) return NextResponse.json({ error: "Brief is not ready for proposal" }, { status: 409 });
 
     const [{ data: approvedMatches, error: matchError }, { data: offers, error: offerError }, { data: talents, error: talentError }] = await Promise.all([
       supabase.from("match_results").select("talent_id,score,tier").eq("brief_id", briefId).eq("admin_approved", true),
-      supabase
-        .from("talent_offers")
-        .select("id,talent_id,status,availability_status,event_fee,currency,included_costs,excluded_costs,payment_terms,rider_exceptions,quote_valid_until")
-        .eq("brief_id", briefId)
-        .eq("status", "confirmed")
-        .eq("availability_status", "confirmed"),
+      supabase.from("talent_offers").select("id,talent_id,status,availability_status,event_fee,currency,included_costs,excluded_costs,payment_terms,rider_exceptions,quote_valid_until").eq("brief_id", briefId).eq("status", "confirmed").eq("availability_status", "confirmed"),
       supabase.from("talents").select("id,name,category,base_city,genres,bio,profile_image_url"),
     ]);
     if (matchError) throw new Error(matchError.message);
@@ -52,29 +41,16 @@ export async function POST(request: Request) {
     });
     if (!ready.length) return NextResponse.json({ error: "No approved talent with a valid confirmed event offer" }, { status: 409 });
 
-    const { data: current, error: currentError } = await supabase
-      .from("proposals")
-      .select("id,version,status")
-      .eq("brief_id", briefId)
-      .order("version", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { data: current, error: currentError } = await supabase.from("proposals").select("id,version,status").eq("brief_id", briefId).order("version", { ascending: false }).limit(1).maybeSingle();
     if (currentError) throw new Error(currentError.message);
-
-    if (current && ["sent", "viewed", "selected"].includes(current.status)) {
-      return NextResponse.json({ ok: true, briefId, proposalId: current.id, version: current.version, status: current.status, reused: true });
-    }
+    if (current && ["sent", "viewed", "selected"].includes(current.status)) return NextResponse.json({ ok: true, briefId, proposalId: current.id, version: current.version, status: current.status, reused: true });
 
     const version = (current?.version ?? 0) + 1;
     const expiries = ready.map(({ offer }) => offer.quote_valid_until).filter(Boolean).map((value) => new Date(String(value)).getTime());
     const expiresAt = expiries.length ? new Date(Math.min(...expiries)).toISOString() : null;
     const now = new Date().toISOString();
 
-    const { data: proposal, error: proposalError } = await supabase
-      .from("proposals")
-      .insert({ brief_id: briefId, version, status: "sent", expires_at: expiresAt, sent_at: now, updated_at: now })
-      .select("id,version")
-      .single();
+    const { data: proposal, error: proposalError } = await supabase.from("proposals").insert({ brief_id: briefId, version, status: "sent", expires_at: expiresAt, sent_at: now, updated_at: now }).select("id,version").single();
     if (proposalError || !proposal) throw new Error(proposalError?.message ?? "Proposal creation failed");
 
     const itemRows = ready.map(({ match, offer, talent }) => ({
@@ -106,12 +82,7 @@ export async function POST(request: Request) {
       throw new Error(itemError.message);
     }
 
-    const { data: updatedRows, error: updateError } = await supabase
-      .from("briefs")
-      .update({ status: "proposal_sent" })
-      .eq("id", briefId)
-      .in("status", ["shortlisted", "proposal_sent"])
-      .select("id,status");
+    const { data: updatedRows, error: updateError } = await supabase.from("briefs").update({ status: "proposal_sent" }).eq("id", briefId).in("status", ["shortlisted", "proposal_sent"]).select("id,status");
     if (updateError) throw new Error(updateError.message);
     if (!updatedRows?.length) return NextResponse.json({ error: "Brief already advanced beyond proposal stage" }, { status: 409 });
 

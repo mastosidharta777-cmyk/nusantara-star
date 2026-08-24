@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 
 import { loadAdminDashboardData } from "@/lib/admin-data";
 
@@ -28,8 +27,6 @@ function freshnessClass(value: string) {
 }
 
 export default async function AdminPage() {
-  if (process.env.VERCEL_ENV === "production") notFound();
-
   const { talents, briefs, kpis } = await loadAdminDashboardData();
 
   return (
@@ -40,11 +37,11 @@ export default async function AdminPage() {
             <p className="eyebrow mb-3">Nusantara Star Internal</p>
             <h1 className="text-3xl font-semibold tracking-[-0.03em] md:text-5xl">Admin Dashboard</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-black/60 md:text-base">
-              Brief → matching → availability confirmation. Preview-only V1, connected to Supabase.
+              Brief → matching → availability → proposal → deal → secure booking.
             </p>
           </div>
           <div className="w-fit border border-black/10 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-black/60">
-            Preview Only
+            Authenticated Internal
           </div>
         </header>
 
@@ -97,19 +94,9 @@ export default async function AdminPage() {
                       <td className="px-5 py-4 text-black/65">{brief.event_date ?? "—"}</td>
                       <td className="px-5 py-4 text-black/65">{brief.city ?? "—"}</td>
                       <td className="px-5 py-4 text-black/65">{brief.talent_category ?? "—"}</td>
-                      <td className="px-5 py-4 text-black/65">
-                        {money(brief.budget_min)} – {money(brief.budget_max)}
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className="border border-black/10 px-2 py-1 text-xs font-semibold uppercase tracking-[0.08em]">
-                          {brief.status}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <Link href={`/admin/briefs/${brief.id}`} className="font-semibold underline underline-offset-4">
-                          Open Brief
-                        </Link>
-                      </td>
+                      <td className="px-5 py-4 text-black/65">{money(brief.budget_min)} – {money(brief.budget_max)}</td>
+                      <td className="px-5 py-4"><span className="border border-black/10 px-2 py-1 text-xs font-semibold uppercase tracking-[0.08em]">{brief.status}</span></td>
+                      <td className="px-5 py-4"><Link href={`/admin/briefs/${brief.id}`} className="font-semibold underline underline-offset-4">Open Brief</Link></td>
                     </tr>
                   ))}
                 </tbody>
@@ -120,24 +107,14 @@ export default async function AdminPage() {
 
         <section className="border border-black/10 bg-white">
           <div className="flex flex-col gap-2 border-b border-black/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold">Talent Database</p>
-              <p className="mt-1 text-xs text-black/45">Internal status, rate, and calendar freshness</p>
-            </div>
+            <div><p className="text-sm font-semibold">Talent Database</p><p className="mt-1 text-xs text-black/45">Internal status, rate, and calendar freshness</p></div>
             <span className="text-xs font-semibold text-black/45">{talents.length} talents</span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead className="border-b border-black/10 bg-black/[0.025] text-xs uppercase tracking-[0.12em] text-black/45">
-                <tr>
-                  <th className="px-5 py-3 font-semibold">Talent</th>
-                  <th className="px-5 py-3 font-semibold">Category</th>
-                  <th className="px-5 py-3 font-semibold">City</th>
-                  <th className="px-5 py-3 font-semibold">Rate</th>
-                  <th className="px-5 py-3 font-semibold">Internal Status</th>
-                  <th className="px-5 py-3 font-semibold">Availability Freshness</th>
-                </tr>
+                <tr><th className="px-5 py-3 font-semibold">Talent</th><th className="px-5 py-3 font-semibold">Category</th><th className="px-5 py-3 font-semibold">City</th><th className="px-5 py-3 font-semibold">Rate</th><th className="px-5 py-3 font-semibold">Internal Status</th><th className="px-5 py-3 font-semibold">Availability Freshness</th></tr>
               </thead>
               <tbody>
                 {talents.map((talent) => (
@@ -145,20 +122,9 @@ export default async function AdminPage() {
                     <td className="px-5 py-4 font-semibold">{talent.name}</td>
                     <td className="px-5 py-4 text-black/65">{talent.category}</td>
                     <td className="px-5 py-4 text-black/65">{talent.base_city ?? "—"}</td>
-                    <td className="whitespace-nowrap px-5 py-4 text-black/65">
-                      {money(talent.budget_min)} – {money(talent.budget_max)}
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="border border-black/10 px-2 py-1 text-xs font-semibold uppercase tracking-[0.08em]">
-                        {talent.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex border px-2 py-1 text-xs font-semibold ${freshnessClass(talent.freshness)}`}>
-                        {freshnessLabel(talent.freshness)}
-                        {talent.daysSinceCalendarUpdate != null ? ` · ${talent.daysSinceCalendarUpdate}d` : ""}
-                      </span>
-                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 text-black/65">{money(talent.budget_min)} – {money(talent.budget_max)}</td>
+                    <td className="px-5 py-4"><span className="border border-black/10 px-2 py-1 text-xs font-semibold uppercase tracking-[0.08em]">{talent.status}</span></td>
+                    <td className="px-5 py-4"><span className={`inline-flex border px-2 py-1 text-xs font-semibold ${freshnessClass(talent.freshness)}`}>{freshnessLabel(talent.freshness)}{talent.daysSinceCalendarUpdate != null ? ` · ${talent.daysSinceCalendarUpdate}d` : ""}</span></td>
                   </tr>
                 ))}
               </tbody>

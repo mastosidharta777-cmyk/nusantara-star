@@ -8,12 +8,7 @@ function getServerClient() {
   return createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-function previewOnly() {
-  return process.env.VERCEL_ENV !== "production";
-}
-
 export async function POST(request: Request) {
-  if (!previewOnly()) return new NextResponse(null, { status: 404 });
   const supabase = getServerClient();
   if (!supabase) return NextResponse.json({ error: "Supabase belum dikonfigurasi" }, { status: 500 });
 
@@ -31,13 +26,7 @@ export async function POST(request: Request) {
   if (action === "delete_payment_policy") {
     const policyId = typeof body.policyId === "string" ? body.policyId : "";
     if (!policyId) return NextResponse.json({ error: "Kebijakan pembayaran tidak valid" }, { status: 400 });
-
-    const { error } = await supabase
-      .from("talent_payment_policy_templates")
-      .delete()
-      .eq("id", policyId)
-      .eq("talent_id", talentId);
-
+    const { error } = await supabase.from("talent_payment_policy_templates").delete().eq("id", policyId).eq("talent_id", talentId);
     if (error) return NextResponse.json({ error: "Gagal menghapus kebijakan pembayaran", detail: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   }
@@ -46,7 +35,6 @@ export async function POST(request: Request) {
     const milestoneTypes = ["booking_fee", "deposit", "balance", "full_payment", "other"];
     const calculationTypes = ["percentage", "fixed_amount", "remaining_balance"];
     const dueBases = ["booking_date", "event_date", "event_completion", "invoice_date"];
-
     const milestoneType = body.milestoneType;
     const calculationType = body.calculationType;
     const dueBasis = body.dueBasis;
@@ -85,7 +73,6 @@ export async function POST(request: Request) {
       negotiable,
       notes: typeof body.notes === "string" && body.notes.trim() ? body.notes.trim() : null,
     }).select("*").single();
-
     if (error) return NextResponse.json({ error: "Gagal menyimpan kebijakan pembayaran", detail: error.message }, { status: 500 });
     return NextResponse.json({ ok: true, data });
   }
@@ -112,7 +99,6 @@ export async function POST(request: Request) {
       buyer_visible: body.buyerVisible === true,
       sort_order: sortOrder,
     }).select("*").single();
-
     if (error) return NextResponse.json({ error: "Gagal menyimpan media talent", detail: error.message }, { status: 500 });
     return NextResponse.json({ ok: true, data });
   }

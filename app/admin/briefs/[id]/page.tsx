@@ -24,13 +24,13 @@ function tierLabel(tier: string) {
 }
 
 export default async function AdminBriefDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  if (process.env.VERCEL_ENV === "production") notFound();
   const { id } = await params;
   const detail = await loadAdminBriefDetail(id);
   if (!detail) notFound();
 
   const { row, matches, selectedTalent, talentPolicyTemplates, commercialTerms, booking, payments, paymentMilestones } = detail;
   const deal = selectedTalent ? await loadDealReviewData(row.id) : null;
+  const dealLocked = deal?.status === "locked";
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
@@ -84,8 +84,8 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
           </details>
         ) : null}
 
-        {selectedTalent && commercialTerms?.status === "agreed" && ["terms_agreed", "booked"].includes(row.status) ? <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} /> : null}
-        {booking && commercialTerms?.status === "agreed" ? <AdminPaymentMilestones bookingId={booking.id} milestones={paymentMilestones} /> : null}
+        {selectedTalent && dealLocked ? <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} /> : null}
+        {booking && dealLocked ? <AdminPaymentMilestones bookingId={booking.id} milestones={paymentMilestones} /> : null}
       </div>
     </main>
   );
