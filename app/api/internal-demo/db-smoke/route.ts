@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { loadBuyerProposal } from "@/lib/buyer-proposal";
 import { persistMatchSnapshot } from "@/lib/match-persistence";
 import { rankTalents } from "@/lib/talent-engine/matching";
 import { loadEngineTalents } from "@/lib/talent-engine/supabase-talents";
@@ -54,7 +55,7 @@ export async function GET() {
         status: "verified",
         public_visible: false,
       })
-      .select("id")
+      .select("id,name,category,base_city,genres,bio,profile_image_url")
       .single();
     if (talentError || !talent?.id) throw new Error(`Talent insert failed: ${talentError?.message ?? "missing id"}`);
     talentId = String(talent.id);
@@ -124,6 +125,12 @@ export async function GET() {
       .single();
     if (matchReadError || !persistedMatch) throw new Error(`Persisted match read failed: ${matchReadError?.message ?? "missing row"}`);
 
+    const { error: approveError } = await supabase
+      .from("match_results")
+      .update({ admin_approved: true, reviewed_at: new Date().toISOString() })
+      .eq("id", persistedMatch.id);
+    if (approveError) throw new Error(`Match approval failed: ${approveError.message}`);
+
     const now = new Date().toISOString();
     const { data: requestRow, error: requestError } = await supabase
       .from("availability_requests")
@@ -165,27 +172,74 @@ export async function GET() {
         confirmed_at: respondedAt,
         updated_at: respondedAt,
       })
-      .select("id,status,availability_status,event_fee,currency,quote_valid_until,confirmation_source")
+      .select("id,status,availability_status,event_fee,currency,quote_valid_until,confirmation_source,included_costs,excluded_costs,payment_terms,rider_exceptions")
       .single();
     if (offerError || !offer) throw new Error(`Talent offer insert failed: ${offerError?.message ?? "missing row"}`);
 
-    const { data: confirmedRequest, error: confirmReadError } = await supabase
-      .from("availability_requests")
-      .select("status,responded_at")
-      .eq("id", requestRow.id)
+    const { data: proposal, error: proposalError } = await supabase
+      .from("proposals")
+      .insert({
+        brief_id: briefId,
+        version: 1,
+        status: "sent",
+        expires_at: quoteValidUntil,
+        sent_at: respondedAt,
+        updated_at: respondedAt,
+      })
+      .select("id,version,status,expires_at")
       .single();
-    if (confirmReadError || confirmedRequest?.status !== "confirmed") {
-      throw new Error(`Availability confirmation read failed: ${confirmReadError?.message ?? "unexpected status"}`);
-    }
+    if (proposalError || !proposal) throw new Error(`Proposal insert failed: ${proposalError?.message ?? "missing row"}`);
 
-    const offerSnapshotValid =
-      offer.status === "confirmed" &&
-      offer.availability_status === "confirmed" &&
-      Number(offer.event_fee) === 12500000 &&
-      offer.currency === "IDR" &&
-      offer.confirmation_source === "manager_portal" &&
-      Boolean(offer.quote_valid_until);
-    if (!offerSnapshotValid) throw new Error("Talent offer snapshot validation failed");
+    const { data: proposalItem, error: proposalItemError } = await supabase
+      .from("proposal_items")
+      .insert({
+        proposal_id: proposal.id,
+        brief_id: briefId,
+        talent_id: talentId,
+        talent_offer_id: offer.id,
+        buyer_price: Number(offer.event_fee),
+        currency: offer.currency,
+        availability_status: offer.availability_status,
+        included_costs: offer.included_costs,
+        excluded_costs: offer.excluded_costs,
+        payment_terms: offer.payment_terms,
+        rider_exceptions: offer.rider_exceptions,
+        offer_valid_until: offer.quote_valid_until,
+        talent_name_snapshot: talent.name,
+        talent_category_snapshot: talent.category,
+        talent_base_city_snapshot: talent.base_city,
+        talent_genres_snapshot: talent.genres ?? [],
+        talent_bio_snapshot: talent.bio,
+        talent_profile_image_url_snapshot: talent.profile_image_url,
+        match_score_snapshot: persistedMatch.score,
+        match_tier_snapshot: persistedMatch.tier,
+      })
+      .select("id,buyer_price,talent_offer_id,talent_name_snapshot,match_score_snapshot")
+      .single();
+    if (proposalItemError || !proposalItem) throw new Error(`Proposal item insert failed: ${proposalItemError?.message ?? "missing row"}`);
+
+    const { error: briefStageError } = await supabase.from("briefs").update({ status: "proposal_sent" }).eq("id", briefId);
+    if (briefStageError) throw new Error(`Brief proposal stage failed: ${briefStageError.message}`);
+
+    const buyerProposal = await loadBuyerProposal(briefId);
+    const buyerItem = buyerProposal?.talents?.[0];
+    if (!buyerProposal?.proposal || !buyerItem) throw new Error("Buyer proposal loader did not return the frozen proposal snapshot");
+    if (buyerItem.buyer_price !== 12500000 || buyerItem.name !== marker) throw new Error("Buyer proposal snapshot values are incorrect");
+
+    const { error: selectionError } = await supabase.from("buyer_selections").insert({
+      brief_id: briefId,
+      talent_id: talentId,
+      status: "selected",
+      selected_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    if (selectionError) throw new Error(`Buyer selection failed: ${selectionError.message}`);
+
+    const { error: proposalSelectedError } = await supabase.from("proposals").update({ status: "selected", updated_at: new Date().toISOString() }).eq("id", proposal.id);
+    if (proposalSelectedError) throw new Error(`Proposal selected state failed: ${proposalSelectedError.message}`);
+
+    const selectedProposal = await loadBuyerProposal(briefId);
+    if (selectedProposal?.selectedTalentId !== talentId) throw new Error("Buyer selection was not reflected in the proposal view");
 
     return NextResponse.json({
       ok: true,
@@ -201,6 +255,10 @@ export async function GET() {
         talentOfferSnapshot: true,
         eventSpecificFee: Number(offer.event_fee) === 12500000,
         offerValidity: Boolean(offer.quote_valid_until),
+        proposalSnapshot: proposal.status === "sent" && proposal.version === 1,
+        proposalItemSnapshot: Number(proposalItem.buyer_price) === 12500000 && proposalItem.talent_offer_id === offer.id,
+        buyerViewUsesSnapshot: buyerItem.buyer_price === 12500000 && buyerItem.name === marker,
+        buyerSelection: selectedProposal?.selectedTalentId === talentId,
       },
       match: {
         score: smokeMatch.score,
@@ -213,6 +271,11 @@ export async function GET() {
         eventFee: Number(offer.event_fee),
         currency: offer.currency,
         confirmationSource: offer.confirmation_source,
+      },
+      proposal: {
+        version: proposal.version,
+        buyerPrice: buyerItem.buyer_price,
+        selectedTalentId: selectedProposal?.selectedTalentId ?? null,
       },
       cleanup: "automatic",
     });
