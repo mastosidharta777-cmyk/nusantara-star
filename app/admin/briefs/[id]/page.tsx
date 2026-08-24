@@ -5,10 +5,12 @@ import { AdminBookingActions } from "@/components/admin-booking-actions";
 import { AdminDealReview } from "@/components/admin-deal-review";
 import { AdminDealSheetForm } from "@/components/admin-deal-sheet-form";
 import { AdminMatchActions } from "@/components/admin-match-actions";
+import { AdminOperations } from "@/components/admin-operations";
 import { AdminPaymentMilestones } from "@/components/admin-payment-milestones";
 import { AdminProposalActions } from "@/components/admin-proposal-actions";
 import { loadAdminBriefDetail } from "@/lib/admin-brief-detail";
 import { loadDealReviewData } from "@/lib/deal-review-data";
+import { loadOperationsData } from "@/lib/operations-data";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +33,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
   const { row, matches, selectedTalent, talentPolicyTemplates, commercialTerms, booking, payments, paymentMilestones } = detail;
   const deal = selectedTalent ? await loadDealReviewData(row.id) : null;
   const dealLocked = deal?.status === "locked";
+  const operations = await loadOperationsData(booking?.id ?? null);
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
@@ -86,6 +89,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
 
         {selectedTalent && dealLocked ? <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} /> : null}
         {booking && dealLocked ? <AdminPaymentMilestones bookingId={booking.id} milestones={paymentMilestones} /> : null}
+        {booking && dealLocked && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminOperations booking={booking} checklist={operations.checklist} incidents={operations.incidents} settlements={operations.settlements} /> : null}
       </div>
     </main>
   );
