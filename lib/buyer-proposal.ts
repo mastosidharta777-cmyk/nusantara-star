@@ -13,28 +13,34 @@ type BriefRow = {
   status: string;
 };
 
-type ProposalMatchRow = {
-  talent_id: string;
-  score: number;
-  tier: string;
-  admin_approved: boolean;
-};
-
-type TalentRow = {
+type ProposalRow = {
   id: string;
-  name: string;
-  category: string;
-  base_city: string | null;
-  genres: string[] | null;
-  budget_min: number | null;
-  budget_max: number | null;
-  bio: string | null;
-  profile_image_url: string | null;
+  brief_id: string;
+  version: number;
+  status: string;
+  expires_at: string | null;
+  sent_at: string | null;
 };
 
-type AvailabilityRequestRow = {
+type ProposalItemRow = {
+  id: string;
   talent_id: string;
-  status: string;
+  buyer_price: number;
+  currency: string;
+  availability_status: string;
+  included_costs: string | null;
+  excluded_costs: string | null;
+  payment_terms: string | null;
+  rider_exceptions: string | null;
+  offer_valid_until: string | null;
+  talent_name_snapshot: string;
+  talent_category_snapshot: string;
+  talent_base_city_snapshot: string | null;
+  talent_genres_snapshot: string[] | null;
+  talent_bio_snapshot: string | null;
+  talent_profile_image_url_snapshot: string | null;
+  match_score_snapshot: number | null;
+  match_tier_snapshot: string | null;
 };
 
 type BuyerSelectionRow = {
@@ -51,45 +57,60 @@ function getServerClient() {
 
 export async function loadBuyerProposal(briefId: string) {
   const supabase = getServerClient();
-  const [
-    { data: brief, error: briefError },
-    { data: matches, error: matchError },
-    { data: requests, error: requestError },
-    { data: selection, error: selectionError },
-  ] = await Promise.all([
+  const [{ data: brief, error: briefError }, { data: proposal, error: proposalError }, { data: selection, error: selectionError }] = await Promise.all([
     supabase.from("briefs").select("id,event_type,event_date,city,venue,audience_size,talent_category,budget_min,budget_max,status").eq("id", briefId).single(),
-    supabase.from("match_results").select("talent_id,score,tier,admin_approved").eq("brief_id", briefId).eq("admin_approved", true),
-    supabase.from("availability_requests").select("talent_id,status").eq("brief_id", briefId).eq("status", "confirmed"),
+    supabase
+      .from("proposals")
+      .select("id,brief_id,version,status,expires_at,sent_at")
+      .eq("brief_id", briefId)
+      .in("status", ["sent", "viewed", "selected"])
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
     supabase.from("buyer_selections").select("talent_id,status").eq("brief_id", briefId).eq("status", "selected").maybeSingle(),
   ]);
 
   if (briefError || !brief) return null;
-  if (matchError) throw new Error(matchError.message);
-  if (requestError) throw new Error(requestError.message);
-  if (selectionError && selectionError.code !== "42P01") throw new Error(selectionError.message);
+  if (proposalError) throw new Error(proposalError.message);
+  if (selectionError) throw new Error(selectionError.message);
 
-  const confirmedTalentIds = new Set(((requests ?? []) as AvailabilityRequestRow[]).map((item) => item.talent_id));
-  const approvedConfirmed = ((matches ?? []) as ProposalMatchRow[]).filter((item) => confirmedTalentIds.has(item.talent_id));
-  const selectedTalentId = selection ? (selection as BuyerSelectionRow).talent_id : null;
-
-  if (approvedConfirmed.length === 0) {
-    return { brief: brief as BriefRow, talents: [] as Array<TalentRow & { score: number; tier: string }>, selectedTalentId };
+  if (!proposal) {
+    return { brief: brief as BriefRow, proposal: null, talents: [], selectedTalentId: selection ? (selection as BuyerSelectionRow).talent_id : null };
   }
 
-  const talentIds = approvedConfirmed.map((item) => item.talent_id);
-  const { data: talents, error: talentError } = await supabase
-    .from("talents")
-    .select("id,name,category,base_city,genres,budget_min,budget_max,bio,profile_image_url")
-    .in("id", talentIds);
-  if (talentError) throw new Error(talentError.message);
+  const proposalRow = proposal as ProposalRow;
+  if (proposalRow.expires_at && new Date(proposalRow.expires_at).getTime() <= Date.now()) {
+    return { brief: brief as BriefRow, proposal: { ...proposalRow, status: "expired" }, talents: [], selectedTalentId: selection ? (selection as BuyerSelectionRow).talent_id : null };
+  }
 
-  const matchMap = new Map(approvedConfirmed.map((item) => [item.talent_id, item]));
-  const ordered = ((talents ?? []) as TalentRow[])
-    .map((talent) => {
-      const match = matchMap.get(talent.id)!;
-      return { ...talent, score: match.score, tier: match.tier };
-    })
-    .sort((a, b) => b.score - a.score);
+  const { data: items, error: itemError } = await supabase
+    .from("proposal_items")
+    .select("id,talent_id,buyer_price,currency,availability_status,included_costs,excluded_costs,payment_terms,rider_exceptions,offer_valid_until,talent_name_snapshot,talent_category_snapshot,talent_base_city_snapshot,talent_genres_snapshot,talent_bio_snapshot,talent_profile_image_url_snapshot,match_score_snapshot,match_tier_snapshot")
+    .eq("proposal_id", proposalRow.id)
+    .order("match_score_snapshot", { ascending: false });
+  if (itemError) throw new Error(itemError.message);
 
-  return { brief: brief as BriefRow, talents: ordered, selectedTalentId };
+  const selectedTalentId = selection ? (selection as BuyerSelectionRow).talent_id : null;
+  const talents = ((items ?? []) as ProposalItemRow[]).map((item) => ({
+    id: item.talent_id,
+    proposalItemId: item.id,
+    name: item.talent_name_snapshot,
+    category: item.talent_category_snapshot,
+    base_city: item.talent_base_city_snapshot,
+    genres: item.talent_genres_snapshot ?? [],
+    bio: item.talent_bio_snapshot,
+    profile_image_url: item.talent_profile_image_url_snapshot,
+    buyer_price: Number(item.buyer_price),
+    currency: item.currency,
+    availability_status: item.availability_status,
+    included_costs: item.included_costs,
+    excluded_costs: item.excluded_costs,
+    payment_terms: item.payment_terms,
+    rider_exceptions: item.rider_exceptions,
+    offer_valid_until: item.offer_valid_until,
+    score: item.match_score_snapshot,
+    tier: item.match_tier_snapshot,
+  }));
+
+  return { brief: brief as BriefRow, proposal: proposalRow, talents, selectedTalentId };
 }

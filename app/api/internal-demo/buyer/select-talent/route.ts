@@ -11,50 +11,44 @@ function getServerClient() {
 }
 
 export async function POST(request: Request) {
-  if (process.env.VERCEL_ENV === "production") {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  if (process.env.VERCEL_ENV === "production") return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   try {
     const body = await request.json().catch(() => null);
     const briefId = typeof body?.briefId === "string" ? body.briefId : "";
     const talentId = typeof body?.talentId === "string" ? body.talentId : "";
-    if (!briefId || !talentId) return NextResponse.json({ error: "Invalid selection" }, { status: 400 });
+    const proposalItemId = typeof body?.proposalItemId === "string" ? body.proposalItemId : "";
+    if (!briefId || !talentId || !proposalItemId) return NextResponse.json({ error: "Invalid selection" }, { status: 400 });
 
     const supabase = getServerClient();
-    const { data: brief, error: briefError } = await supabase
-      .from("briefs")
-      .select("id,status")
-      .eq("id", briefId)
-      .single();
+    const { data: brief, error: briefError } = await supabase.from("briefs").select("id,status").eq("id", briefId).single();
     if (briefError || !brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
+    if (!["proposal_sent", "buyer_selected"].includes(brief.status)) return NextResponse.json({ error: "Brief is not ready for buyer selection" }, { status: 409 });
 
-    if (!["proposal_sent", "buyer_selected"].includes(brief.status)) {
-      return NextResponse.json({ error: "Brief is not ready for buyer selection" }, { status: 409 });
+    const { data: item, error: itemError } = await supabase
+      .from("proposal_items")
+      .select("id,proposal_id,brief_id,talent_id,offer_valid_until")
+      .eq("id", proposalItemId)
+      .eq("brief_id", briefId)
+      .eq("talent_id", talentId)
+      .maybeSingle();
+    if (itemError) throw new Error(itemError.message);
+    if (!item) return NextResponse.json({ error: "Talent is not part of this proposal snapshot" }, { status: 409 });
+
+    const { data: proposal, error: proposalError } = await supabase
+      .from("proposals")
+      .select("id,status,expires_at")
+      .eq("id", item.proposal_id)
+      .in("status", ["sent", "viewed", "selected"])
+      .maybeSingle();
+    if (proposalError) throw new Error(proposalError.message);
+    if (!proposal) return NextResponse.json({ error: "Proposal is not selectable" }, { status: 409 });
+
+    const nowMs = Date.now();
+    if ((proposal.expires_at && new Date(proposal.expires_at).getTime() <= nowMs) || (item.offer_valid_until && new Date(item.offer_valid_until).getTime() <= nowMs)) {
+      return NextResponse.json({ error: "Proposal or talent offer has expired and requires reconfirmation" }, { status: 409 });
     }
 
-    const { data: match, error: matchError } = await supabase
-      .from("match_results")
-      .select("talent_id,admin_approved")
-      .eq("brief_id", briefId)
-      .eq("talent_id", talentId)
-      .eq("admin_approved", true)
-      .maybeSingle();
-    if (matchError) throw new Error(matchError.message);
-    if (!match) return NextResponse.json({ error: "Talent is not approved for this proposal" }, { status: 409 });
-
-    const { data: availability, error: availabilityError } = await supabase
-      .from("availability_requests")
-      .select("talent_id,status")
-      .eq("brief_id", briefId)
-      .eq("talent_id", talentId)
-      .eq("status", "confirmed")
-      .maybeSingle();
-    if (availabilityError) throw new Error(availabilityError.message);
-    if (!availability) return NextResponse.json({ error: "Talent availability is not confirmed" }, { status: 409 });
-
-    // Claim the allowed workflow state first. A stale request cannot move a brief
-    // that has already advanced to terms/booking back to buyer_selected.
     const { data: claimedRows, error: claimError } = await supabase
       .from("briefs")
       .update({ status: "buyer_selected" })
@@ -62,29 +56,19 @@ export async function POST(request: Request) {
       .in("status", ["proposal_sent", "buyer_selected"])
       .select("id,status");
     if (claimError) throw new Error(claimError.message);
-    if (!claimedRows?.length) {
-      return NextResponse.json({ error: "Brief already advanced beyond buyer selection" }, { status: 409 });
-    }
+    if (!claimedRows?.length) return NextResponse.json({ error: "Brief already advanced beyond buyer selection" }, { status: 409 });
 
     const now = new Date().toISOString();
     const { error: selectionError } = await supabase.from("buyer_selections").upsert(
-      {
-        brief_id: briefId,
-        talent_id: talentId,
-        status: "selected",
-        selected_at: now,
-        updated_at: now,
-      },
+      { brief_id: briefId, talent_id: talentId, status: "selected", selected_at: now, updated_at: now },
       { onConflict: "brief_id" },
     );
-    if (selectionError) {
-      if (brief.status === "proposal_sent") {
-        await supabase.from("briefs").update({ status: "proposal_sent" }).eq("id", briefId).eq("status", "buyer_selected");
-      }
-      throw new Error(selectionError.message);
-    }
+    if (selectionError) throw new Error(selectionError.message);
 
-    return NextResponse.json({ ok: true, briefId, talentId, status: "buyer_selected" });
+    const { error: proposalUpdateError } = await supabase.from("proposals").update({ status: "selected", updated_at: now }).eq("id", proposal.id);
+    if (proposalUpdateError) throw new Error(proposalUpdateError.message);
+
+    return NextResponse.json({ ok: true, briefId, talentId, proposalId: proposal.id, proposalItemId, status: "buyer_selected" });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     console.error("Buyer talent selection failed", detail);
