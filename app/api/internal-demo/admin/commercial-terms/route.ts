@@ -36,6 +36,12 @@ function parseAmount(value: unknown) {
   return Number.isFinite(amount) ? amount : null;
 }
 
+function isIsoDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 function parseSchedule(value: unknown): ParsedMilestone[] | null {
   if (!Array.isArray(value)) return null;
   const rows: ParsedMilestone[] = [];
@@ -54,7 +60,12 @@ function parseSchedule(value: unknown): ParsedMilestone[] | null {
     if (!Number.isInteger(dueOffsetDays)) return null;
     if (calculationType === "percentage" && (percentage === null || !Number.isFinite(percentage) || percentage < 0 || percentage > 100)) return null;
     if (calculationType === "fixed_amount" && (amount === null || !Number.isFinite(amount) || amount < 0)) return null;
-    if (dueBasis === "custom_date" && !customDueDate) return null;
+    if (calculationType === "remaining_balance" && (percentage !== null || amount !== null)) return null;
+    if (dueBasis === "custom_date") {
+      if (!customDueDate || !isIsoDate(customDueDate)) return null;
+    } else if (customDueDate !== null) {
+      return null;
+    }
 
     rows.push({
       milestone_type: milestoneType,
@@ -64,7 +75,7 @@ function parseSchedule(value: unknown): ParsedMilestone[] | null {
       amount: calculationType === "fixed_amount" ? amount : null,
       due_basis: dueBasis,
       due_offset_days: dueOffsetDays,
-      custom_due_date: customDueDate,
+      custom_due_date: dueBasis === "custom_date" ? customDueDate : null,
       refundable,
       cancellation_note: typeof row?.cancellation_note === "string" ? row.cancellation_note : null,
       notes: typeof row?.notes === "string" ? row.notes : null,
