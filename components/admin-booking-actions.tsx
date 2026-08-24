@@ -4,216 +4,55 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 type Booking = {
-  id: string;
-  status: string;
-  event_date: string;
-  venue: string | null;
-  city: string | null;
-  buyer_price: number | null;
-  talent_payable: number | null;
-  direct_cost: number | null;
+  id: string; status: string; event_date: string; buyer_price: number | null;
+  buyer_terms_accepted_at?: string | null; financial_security_type?: string | null;
+  financial_security_status?: string; financial_security_reference?: string | null; secured_at?: string | null;
 } | null;
+type Payment = { id: string; payment_type: string | null; amount: number; status: string; paid_at: string | null };
+function money(value: number | null) { return value == null ? "—" : new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(value); }
 
-type Payment = {
-  id: string;
-  payment_type: string | null;
-  amount: number;
-  provider: string | null;
-  provider_reference: string | null;
-  status: string;
-  paid_at: string | null;
-  created_at: string;
-};
-
-function money(value: number | null) {
-  if (value == null) return "—";
-  return new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-export function AdminBookingActions({
-  briefId,
-  talentName,
-  booking,
-  payments,
-}: {
-  briefId: string;
-  talentName: string;
-  booking: Booking;
-  payments: Payment[];
-}) {
+export function AdminBookingActions({ briefId, talentName, booking, payments }: { briefId: string; talentName: string; booking: Booking; payments: Payment[] }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"booking" | "deposit" | "balance" | "paid" | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [securityType, setSecurityType] = useState("approved_po_credit");
+  const [reference, setReference] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(Boolean(booking?.buyer_terms_accepted_at));
 
-  async function post(body: Record<string, string>) {
-    const response = await fetch(body.action === "create_booking" ? "/api/internal-demo/admin/booking" : "/api/internal-demo/admin/payment", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body.action === "create_booking" ? { briefId } : body),
-    });
-    const result = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(result?.detail ?? result?.error ?? "Aksi gagal");
-    router.refresh();
-  }
-
-  async function createPendingBooking() {
-    setBusy("booking");
-    setError(null);
+  async function bookingAction(action: string, extra: Record<string, string> = {}) {
+    setBusy(action); setError(null);
     try {
-      await post({ action: "create_booking" });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal membuat booking");
-    } finally {
-      setBusy(null);
-    }
+      const response = await fetch("/api/internal-demo/admin/booking", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ briefId, action, ...extra }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.detail ?? result?.error ?? "Aksi booking gagal");
+      if (action === "accept_buyer_terms") setTermsAccepted(true);
+      router.refresh();
+    } catch (err) { setError(err instanceof Error ? err.message : "Aksi booking gagal"); } finally { setBusy(null); }
   }
-
-  async function createDeposit() {
-    if (!booking) return;
-    setBusy("deposit");
-    setError(null);
+  async function paymentAction(action: string, paymentId?: string) {
+    if (!booking) return; setBusy(action); setError(null);
     try {
-      await post({ action: "create_deposit", bookingId: booking.id });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal membuat payment DP");
-    } finally {
-      setBusy(null);
-    }
+      const response = await fetch("/api/internal-demo/admin/payment", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ bookingId: booking.id, action, paymentId }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.detail ?? result?.error ?? "Aksi pembayaran gagal");
+      router.refresh();
+    } catch (err) { setError(err instanceof Error ? err.message : "Aksi pembayaran gagal"); } finally { setBusy(null); }
   }
 
-  async function createBalance() {
-    if (!booking) return;
-    setBusy("balance");
-    setError(null);
-    try {
-      await post({ action: "create_balance", bookingId: booking.id });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal membuat pelunasan buyer");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function markPaid(paymentId: string) {
-    if (!booking) return;
-    setBusy("paid");
-    setError(null);
-    try {
-      await post({ action: "mark_paid", bookingId: booking.id, paymentId });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal mengonfirmasi pembayaran");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  const deposit = payments.find((payment) => ["buyer_deposit", "buyer_full_payment"].includes(payment.payment_type ?? "") && ["pending", "paid"].includes(payment.status));
-  const balance = payments.find((payment) => payment.payment_type === "buyer_balance" && ["pending", "paid"].includes(payment.status));
-  const paidBuyerTotal = payments
-    .filter((payment) => ["buyer_deposit", "buyer_balance", "buyer_full_payment"].includes(payment.payment_type ?? "") && payment.status === "paid")
-    .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
-  const remaining = Math.max(0, Number(booking?.buyer_price ?? 0) - paidBuyerTotal);
-
-  return (
-    <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="text-sm font-semibold">Booking Record</p>
-          <p className="mt-1 text-xs text-black/45">Talent: {talentName}. Booking dibuat dari commercial terms yang sudah dikunci.</p>
-        </div>
-        {booking ? (
-          <span className="w-fit border border-black/10 bg-[#f5f3ee] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em]">
-            {booking.status}
-          </span>
-        ) : null}
-      </div>
-
-      {booking ? (
-        <>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Booking ID</span><br /><span className="break-all">{booking.id}</span></div>
-            <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Tanggal</span><br />{booking.event_date}</div>
-            <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Harga Buyer</span><br />{money(booking.buyer_price)}</div>
-            <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Talent Payable</span><br />{money(booking.talent_payable)}</div>
-          </div>
-
-          <div className="mt-5 border-t border-black/10 pt-5">
-            <p className="text-sm font-semibold">Buyer Payment</p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Sudah Dibayar</span><br />{money(paidBuyerTotal)}</div>
-              <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Sisa</span><br />{money(remaining)}</div>
-              <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Status Booking</span><br />{booking.status}</div>
-            </div>
-
-            {!deposit && booking.status === "pending" ? (
-              <div className="mt-3">
-                <p className="text-sm text-black/60">Locked terms: 50% saat konfirmasi. Untuk booking ini DP = {money((booking.buyer_price ?? 0) / 2)}.</p>
-                <button type="button" onClick={createDeposit} disabled={busy !== null} className="mt-3 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
-                  {busy === "deposit" ? "Membuat…" : "Buat Payment DP Pending"}
-                </button>
-              </div>
-            ) : null}
-
-            {deposit ? (
-              <div className="mt-3 border border-black/10 bg-[#f5f3ee] p-4">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="text-sm"><span className="text-black/45">Tipe</span><br />{deposit.payment_type}</div>
-                  <div className="text-sm"><span className="text-black/45">Jumlah</span><br />{money(deposit.amount)}</div>
-                  <div className="text-sm"><span className="text-black/45">Status</span><br />{deposit.status}</div>
-                </div>
-                {deposit.status === "pending" && booking.status === "pending" ? (
-                  <button type="button" onClick={() => markPaid(deposit.id)} disabled={busy !== null} className="mt-4 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
-                    {busy === "paid" ? "Mengonfirmasi…" : "Tandai DP Sudah Dibayar"}
-                  </button>
-                ) : null}
-                {deposit.status === "paid" ? <p className="mt-4 text-sm font-semibold">✓ DP tercatat.</p> : null}
-              </div>
-            ) : null}
-
-            {booking.status === "confirmed" && remaining > 0 && !balance ? (
-              <div className="mt-4 border border-black/10 p-4">
-                <p className="text-sm text-black/60">Sisa pembayaran buyer: <strong>{money(remaining)}</strong>.</p>
-                <button type="button" onClick={createBalance} disabled={busy !== null} className="mt-3 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
-                  {busy === "balance" ? "Membuat…" : "Buat Payment Pelunasan Pending"}
-                </button>
-              </div>
-            ) : null}
-
-            {balance ? (
-              <div className="mt-4 border border-black/10 bg-[#f5f3ee] p-4">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="text-sm"><span className="text-black/45">Tipe</span><br />buyer_balance</div>
-                  <div className="text-sm"><span className="text-black/45">Jumlah</span><br />{money(balance.amount)}</div>
-                  <div className="text-sm"><span className="text-black/45">Status</span><br />{balance.status}</div>
-                </div>
-                {balance.status === "pending" && booking.status === "confirmed" ? (
-                  <button type="button" onClick={() => markPaid(balance.id)} disabled={busy !== null} className="mt-4 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
-                    {busy === "paid" ? "Mengonfirmasi…" : "Tandai Pelunasan Sudah Dibayar"}
-                  </button>
-                ) : null}
-                {balance.status === "paid" ? <p className="mt-4 text-sm font-semibold">✓ Buyer lunas. Booking tetap confirmed sampai acara selesai.</p> : null}
-              </div>
-            ) : null}
-          </div>
-        </>
-      ) : (
-        <div className="mt-5">
-          <p className="text-sm leading-6 text-black/60">Status awal akan <strong>pending</strong>. Ini belum berarti booking confirmed dan belum memicu invoice atau pembayaran.</p>
-          <button
-            type="button"
-            onClick={createPendingBooking}
-            disabled={busy !== null}
-            className="mt-4 border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
-          >
-            {busy === "booking" ? "Membuat…" : "Buat Booking Pending"}
-          </button>
-        </div>
-      )}
-      {error ? <p className="mt-3 text-xs font-semibold text-red-700">{error}</p> : null}
-    </section>
-  );
+  const paidTotal = payments.filter((p) => p.status === "paid").reduce((sum, p) => sum + Number(p.amount ?? 0), 0);
+  const pendingPayment = payments.find((p) => p.status === "pending");
+  return <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-semibold">Secure Booking</p><p className="mt-1 text-xs text-black/45">Talent: {talentName}. Buyer Selected belum berarti booked.</p></div>{booking ? <span className="border border-black/15 px-3 py-2 text-xs font-semibold uppercase">{booking.status}</span> : null}</div>
+    {!booking ? <div className="mt-5"><p className="text-sm text-black/60">Buat booking sebagai <strong>pending_security</strong>. Belum secured.</p><button onClick={() => bookingAction("create_booking")} disabled={busy !== null} className="mt-3 bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{busy ? "Memproses…" : "Buat Pending Security"}</button></div> : <>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Buyer price</span><br />{money(booking.buyer_price)}</div><div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Buyer terms</span><br />{termsAccepted ? "Accepted" : "Belum accepted"}</div><div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Financial security</span><br />{booking.financial_security_status ?? (booking.status === "secured" ? "satisfied" : "pending")}</div><div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Buyer paid</span><br />{money(paidTotal)}</div></div>
+      {booking.status === "pending_security" && !termsAccepted ? <button onClick={() => bookingAction("accept_buyer_terms")} disabled={busy !== null} className="mt-4 border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40">Catat Buyer Terms Accepted</button> : null}
+      {booking.status === "pending_security" ? <div className="mt-5 border-t border-black/10 pt-5"><p className="text-sm font-semibold">Financial Security</p><p className="mt-1 text-xs text-black/45">Tidak ada DP universal. Pembayaran mengikuti milestone deal yang dikunci.</p>
+        {!pendingPayment ? <button onClick={() => paymentAction("create_next_buyer_payment")} disabled={busy !== null} className="mt-3 border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40">Buat Payment Milestone Berikutnya</button> : null}
+        {pendingPayment ? <div className="mt-3 border border-black/10 p-4 text-sm">Pending: {pendingPayment.payment_type} · {money(pendingPayment.amount)}<br /><button onClick={() => paymentAction("mark_paid", pendingPayment.id)} disabled={busy !== null} className="mt-3 bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">Tandai Sudah Dibayar</button></div> : null}
+        <div className="mt-4 grid gap-2 md:grid-cols-[220px_1fr_auto]"><select value={securityType} onChange={(e) => setSecurityType(e.target.value)} className="border border-black/15 p-2 text-sm"><option value="approved_po_credit">Approved PO / Credit</option><option value="authorized_exception">Authorized Exception</option></select><input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="PO reference / catatan exception" className="border border-black/15 p-2 text-sm" /><button onClick={() => bookingAction("set_security", { securityType, reference })} disabled={busy !== null} className="border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40">Set Security</button></div>
+        <button onClick={() => bookingAction("secure_booking")} disabled={busy !== null} className="mt-5 bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">Evaluate & Secure Booking</button></div> : null}
+      {booking.status === "secured" ? <p className="mt-5 bg-black p-4 text-sm font-semibold text-white">✓ BOOKING SECURED</p> : null}
+    </>}
+    {error ? <p className="mt-3 text-xs font-semibold text-red-700">{error}</p> : null}
+  </section>;
 }
