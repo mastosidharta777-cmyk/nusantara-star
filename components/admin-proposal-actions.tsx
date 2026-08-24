@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+
+import { SecureAccessLinkButton } from "@/components/secure-access-link-button";
 
 export function AdminProposalActions({ briefId, status }: { briefId: string; status: string }) {
   const router = useRouter();
@@ -33,22 +34,14 @@ export function AdminProposalActions({ briefId, status }: { briefId: string; sta
   return (
     <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
       <p className="text-sm font-semibold">Proposal Buyer / Daftar Pilihan</p>
-      <p className="mt-1 text-xs text-black/45">
-        Proposal untuk buyer. Pilihan bahasa ditangani di halaman buyer, bukan dari admin.
-      </p>
+      <p className="mt-1 text-xs text-black/45">Buyer membuka proposal melalui signed expiring link, bukan URL publik langsung.</p>
       <div className="mt-4 flex flex-wrap gap-2">
-        <Link href={`/id/proposal/${briefId}`} className="border border-black bg-black px-4 py-2 text-sm font-semibold text-white">
-          Lihat Proposal Buyer
-        </Link>
+        {sent ? <SecureAccessLinkButton scope="buyer_proposal" subjectId={briefId} label="Buka Secure Buyer Link" /> : null}
         <button
           type="button"
           onClick={markSent}
           disabled={busy || sent}
-          className={
-            sent
-              ? "cursor-default border border-black bg-black px-4 py-2 text-sm font-semibold text-white"
-              : "border border-black/20 bg-[#f5f3ee] px-4 py-2 text-sm font-semibold disabled:opacity-40"
-          }
+          className={sent ? "cursor-default border border-black/20 bg-[#f5f3ee] px-4 py-2 text-sm font-semibold" : "border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"}
         >
           {sent ? "✓ Proposal Sudah Dikirim" : busy ? "Menyimpan…" : "Tandai Proposal Dikirim"}
         </button>
