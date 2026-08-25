@@ -1,132 +1,20 @@
 import { NextResponse } from "next/server";
-
 import { persistBrief } from "@/lib/brief-persistence";
 import { persistMatchSnapshot } from "@/lib/match-persistence";
 import { parseBriefWithAI } from "@/lib/talent-engine/ai-brief";
 import { rankTalents } from "@/lib/talent-engine/matching";
 import { loadEngineTalents } from "@/lib/talent-engine/supabase-talents";
+import type { EngineTalent } from "@/lib/talent-engine/types";
 
-export const runtime = "nodejs";
-
-const scenarios: Record<string, string> = {
-  corporate: "Corporate dinner 12 September 2026 di Jakarta, 500 orang, butuh band pop energetic, budget 20-30 juta.",
-  wedding: "Wedding 18 September 2026 di Bali, ingin penyanyi wanita pop jazz yang elegant, budget maksimal 35 juta.",
-  activation: "Brand activation 25 September 2026 di Bandung, audience muda, butuh MC energetic, budget 10-15 juta.",
-  hotel: "Hotel lounge event 18 September 2026 di Jakarta, butuh acoustic duo jazz pop yang hangat dan elegan, budget 8-15 juta.",
-  cultural: "Acara budaya perusahaan 12 September 2026 di Jakarta, butuh pertunjukan tradisional kontemporer Indonesia, budget 20-40 juta.",
-  booked: "Corporate event 12 September 2026 di Jakarta, butuh band pop alternative premium, budget 30-50 juta.",
-  stale: "Private event 18 September 2026 di Jakarta, butuh DJ commercial energetic, budget maksimal 25 juta.",
-  tightBudget: "Wedding 18 September 2026 di Jakarta, butuh acoustic duo pop elegan, budget maksimal 7 juta.",
-  singerBudget: "Corporate event 29 September 2026 di Jakarta, butuh singer, budget maksimal 10 juta.",
-};
-
-function isProduction() {
-  return process.env.VERCEL_ENV === "production";
-}
-
-function safeError(error: unknown) {
-  const message = error instanceof Error ? error.message : "Unknown error";
-  console.error("Internal demo match failed", message);
-
-  return NextResponse.json(
-    {
-      error: "Internal demo match failed",
-      detail: message,
-      env: {
-        hasSupabaseUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
-        hasSupabaseServiceRoleKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-        vercelEnv: process.env.VERCEL_ENV ?? null,
-      },
-    },
-    { status: 500 },
-  );
-}
-
-async function runMatch(text: string) {
-  const [{ brief, source }, roster] = await Promise.all([parseBriefWithAI(text), loadEngineTalents()]);
-  const matches = rankTalents(roster.talents, brief, 5);
-
-  return {
-    source,
-    rosterSource: roster.source,
-    rosterSize: roster.talents.length,
-    brief,
-    matches: matches.map((match) => ({
-      talent: {
-        id: match.talent.id,
-        name: match.talent.name,
-        category: match.talent.category,
-        genres: match.talent.genres,
-        baseCity: match.talent.baseCity,
-        budgetMin: match.talent.budgetMin,
-        budgetMax: match.talent.budgetMax,
-        reliabilityScore: match.talent.reliabilityScore,
-      },
-      score: match.score,
-      tier: match.tier,
-      breakdown: match.breakdown,
-      availabilityStatus: match.availabilityStatus,
-      freshness: match.freshness,
-      requiresLiveConfirmation: match.requiresLiveConfirmation,
-      reasons: match.reasons,
-    })),
-  };
-}
-
-export async function GET(request: Request) {
-  if (isProduction()) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  try {
-    const url = new URL(request.url);
-    const customText = url.searchParams.get("text")?.trim() ?? "";
-    if (customText) {
-      const result = await runMatch(customText);
-      return NextResponse.json({ selfTest: false, input: customText, ...result });
-    }
-
-    const scenario = url.searchParams.get("scenario") ?? "corporate";
-    if (scenario === "all") {
-      const results = [];
-      for (const [name, input] of Object.entries(scenarios)) {
-        results.push({ scenario: name, input, ...(await runMatch(input)) });
-      }
-      return NextResponse.json({ selfTest: true, results });
-    }
-
-    const text = scenarios[scenario] ?? scenarios.corporate;
-    const result = await runMatch(text);
-    return NextResponse.json({ selfTest: true, scenario, input: text, ...result });
-  } catch (error) {
-    return safeError(error);
-  }
-}
-
-export async function POST(request: Request) {
-  if (isProduction()) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  try {
-    const body = await request.json().catch(() => null);
-    const text = typeof body?.text === "string" ? body.text.trim() : "";
-
-    if (!text) {
-      return NextResponse.json({ error: "Brief text is required" }, { status: 400 });
-    }
-
-    const result = await runMatch(text);
-    const persisted = await persistBrief(result.brief);
-    const snapshot = await persistMatchSnapshot(persisted.id, result.matches);
-
-    return NextResponse.json({
-      ...result,
-      briefId: persisted.id,
-      persisted: true,
-      matchSnapshot: snapshot,
-    });
-  } catch (error) {
-    return safeError(error);
-  }
-}
+export const runtime="nodejs";
+const scenarios:Record<string,string>={corporate:"Corporate dinner 12 September 2026 di Jakarta, 500 orang, butuh band pop energetic, budget 20-30 juta.",wedding:"Wedding 18 September 2026 di Bali, ingin penyanyi wanita pop jazz yang elegant, budget maksimal 35 juta.",activation:"Brand activation 25 September 2026 di Bandung, audience muda, butuh MC energetic, budget 10-15 juta.",hotel:"Hotel lounge event 18 September 2026 di Jakarta, butuh acoustic duo jazz pop yang hangat dan elegan, budget 8-15 juta."};
+function isProduction(){return process.env.VERCEL_ENV==="production"}
+function testRoster():EngineTalent[]{const now=new Date().toISOString();return[
+{id:"test-cover-rock",name:"Test Cover Rock",category:"Band",actType:"cover_entertainment",genres:["Rock","Pop"],musicStyles:["Top 40","Rock","Indonesian Hits","International Hits"],vibeTags:["Upbeat","Party","High Energy"],capabilityTags:["Singalong","Request Song","Danceable"],baseCity:"Jakarta",serviceCities:["Jakarta","Tangerang","Bogor"],performanceFormats:["Acoustic","Full Band"],eventTypes:["Corporate","Wedding","Private Party","Brand Activation"],audienceTags:["Corporate","Party"],budgetMin:15000000,budgetMax:25000000,reliabilityScore:92,lastCalendarUpdatedAt:now,availability:[{date:"2026-09-20",status:"available"}],isDemo:true},
+{id:"test-cover-pop",name:"Test Cover Pop Acoustic",category:"Band",actType:"cover_entertainment",genres:["Pop"],musicStyles:["Top 40","Pop","Indonesian Hits"],vibeTags:["Elegant","Warm","Upbeat"],capabilityTags:["Singalong","Custom Setlist"],baseCity:"Jakarta",serviceCities:["Jakarta","Bandung"],performanceFormats:["Acoustic","Semi Acoustic"],eventTypes:["Corporate","Wedding","Hotel"],audienceTags:["Elegant","Corporate"],budgetMin:10000000,budgetMax:18000000,reliabilityScore:88,lastCalendarUpdatedAt:now,availability:[{date:"2026-09-20",status:"available"}],isDemo:true},
+{id:"test-original",name:"Test Original Artist",category:"Band",actType:"original_artist",genres:["Rock","Alternative"],musicStyles:["Rock"],vibeTags:["High Energy"],capabilityTags:[],baseCity:"Jakarta",serviceCities:["Jakarta"],performanceFormats:["Full Band"],eventTypes:["Festival","Corporate"],audienceTags:["Young"],budgetMin:20000000,budgetMax:30000000,reliabilityScore:90,lastCalendarUpdatedAt:now,availability:[{date:"2026-09-20",status:"available"}],isDemo:true}
+]}
+function safeError(error:unknown){const message=error instanceof Error?error.message:"Unknown error";console.error("Internal demo match failed",message);return NextResponse.json({error:"Internal demo match failed",detail:message},{status:500})}
+async function runMatch(text:string,useTestRoster=false){const [{brief,source},roster]=await Promise.all([parseBriefWithAI(text),loadEngineTalents()]);const talents=useTestRoster?testRoster():roster.talents;const matches=rankTalents(talents,brief,5);return{source,rosterSource:useTestRoster?"synthetic_test":roster.source,rosterSize:talents.length,brief,matches:matches.map(match=>({talent:{id:match.talent.id,name:match.talent.name,category:match.talent.category,actType:match.talent.actType,genres:match.talent.genres,musicStyles:match.talent.musicStyles,performanceFormats:match.talent.performanceFormats,vibeTags:match.talent.vibeTags,capabilityTags:match.talent.capabilityTags,baseCity:match.talent.baseCity,budgetMin:match.talent.budgetMin,budgetMax:match.talent.budgetMax,reliabilityScore:match.talent.reliabilityScore},score:match.score,tier:match.tier,breakdown:match.breakdown,availabilityStatus:match.availabilityStatus,freshness:match.freshness,requiresLiveConfirmation:match.requiresLiveConfirmation,reasons:match.reasons}))}}
+export async function GET(request:Request){if(isProduction())return NextResponse.json({error:"Not found"},{status:404});try{const url=new URL(request.url),customText=url.searchParams.get("text")?.trim()??"",useTestRoster=url.searchParams.get("testRoster")==="1";if(customText){const result=await runMatch(customText,useTestRoster);return NextResponse.json({selfTest:false,input:customText,...result})}const scenario=url.searchParams.get("scenario")??"corporate",text=scenarios[scenario]??scenarios.corporate;const result=await runMatch(text,useTestRoster);return NextResponse.json({selfTest:true,scenario,input:text,...result})}catch(error){return safeError(error)}}
+export async function POST(request:Request){if(isProduction())return NextResponse.json({error:"Not found"},{status:404});try{const body=await request.json().catch(()=>null),text=typeof body?.text==="string"?body.text.trim():"";if(!text)return NextResponse.json({error:"Brief text is required"},{status:400});const result=await runMatch(text,false);const persisted=await persistBrief(result.brief),snapshot=await persistMatchSnapshot(persisted.id,result.matches);return NextResponse.json({...result,briefId:persisted.id,persisted:true,matchSnapshot:snapshot})}catch(error){return safeError(error)}}
