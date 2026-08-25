@@ -18,7 +18,7 @@ function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function createR2PresignedUrl(method: "PUT" | "HEAD", objectKey: string, expiresSeconds = 900) {
+export function createR2PresignedUrl(method: "PUT" | "HEAD" | "DELETE", objectKey: string, expiresSeconds = 900) {
   const accountId = env("R2_ACCOUNT_ID");
   const accessKey = env("R2_ACCESS_KEY_ID");
   const secretKey = env("R2_SECRET_ACCESS_KEY");
