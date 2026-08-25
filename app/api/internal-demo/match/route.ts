@@ -80,8 +80,13 @@ export async function GET(request: Request) {
 
   try {
     const url = new URL(request.url);
-    const scenario = url.searchParams.get("scenario") ?? "corporate";
+    const customText = url.searchParams.get("text")?.trim() ?? "";
+    if (customText) {
+      const result = await runMatch(customText);
+      return NextResponse.json({ selfTest: false, input: customText, ...result });
+    }
 
+    const scenario = url.searchParams.get("scenario") ?? "corporate";
     if (scenario === "all") {
       const results = [];
       for (const [name, input] of Object.entries(scenarios)) {
