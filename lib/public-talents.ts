@@ -12,6 +12,10 @@ function getServerClient() {
 export type PublicTalentCard = { id: string; name: string; category: string; base_city: string | null; genres: string[]; bio: string | null; photo_url: string | null };
 export type PublicTalentDetail = PublicTalentCard & { service_cities: string[]; performance_formats: string[]; event_types: string[]; show_duration_minutes: number | null; instagram_url: string | null; tiktok_url: string | null; youtube_url: string | null; videos: { id: string; title: string | null; description: string | null; url: string; asset_type: string }[] };
 
+function isOperationalName(name: string) {
+  return !name.toUpperCase().startsWith("SECURE-SMOKE-");
+}
+
 async function photoUrl(supabase: ReturnType<typeof getServerClient>, talentId: string) {
   const { data: asset } = await supabase.from("talent_assets").select("storage_key").eq("talent_id", talentId).eq("asset_type", "profile_photo").eq("provider", "supabase_storage").eq("upload_status", "uploaded").eq("review_status", "approved").eq("buyer_visible", true).order("sort_order", { ascending: true }).limit(1).maybeSingle();
   if (!asset) return null;
@@ -23,14 +27,15 @@ export async function loadPublicTalents(): Promise<PublicTalentCard[]> {
   const supabase = getServerClient();
   const { data, error } = await supabase.from("talents").select("id,name,category,base_city,genres,bio").eq("public_visible", true).eq("status", "verified").eq("onboarding_status", "approved").order("name", { ascending: true });
   if (error) throw new Error(error.message);
-  return Promise.all((data ?? []).map(async (talent) => ({ ...talent, genres: talent.genres ?? [], photo_url: await photoUrl(supabase, talent.id) })));
+  const operational = (data ?? []).filter((talent) => isOperationalName(talent.name));
+  return Promise.all(operational.map(async (talent) => ({ ...talent, genres: talent.genres ?? [], photo_url: await photoUrl(supabase, talent.id) })));
 }
 
 export async function loadPublicTalent(talentId: string): Promise<PublicTalentDetail | null> {
   const supabase = getServerClient();
   const { data: talent, error } = await supabase.from("talents").select("id,name,category,base_city,genres,bio,service_cities,performance_formats,event_types,show_duration_minutes,instagram_url,tiktok_url,youtube_url").eq("id", talentId).eq("public_visible", true).eq("status", "verified").eq("onboarding_status", "approved").maybeSingle();
   if (error) throw new Error(error.message);
-  if (!talent) return null;
+  if (!talent || !isOperationalName(talent.name)) return null;
   const { data: assets, error: assetsError } = await supabase.from("talent_assets").select("id,storage_key,title,description,asset_type").eq("talent_id", talentId).eq("provider", "cloudflare_r2").eq("upload_status", "uploaded").eq("review_status", "approved").eq("buyer_visible", true).order("sort_order", { ascending: true });
   if (assetsError) throw new Error(assetsError.message);
   return {

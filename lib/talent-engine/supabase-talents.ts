@@ -47,6 +47,10 @@ function normalizeActType(value: string | null): TalentActType {
   return null;
 }
 
+function isOperationalTalent(row: TalentRow) {
+  return !row.name.toUpperCase().startsWith("SECURE-SMOKE-");
+}
+
 export async function loadEngineTalents(): Promise<{ talents: EngineTalent[]; source: "supabase" }> {
   const supabase = getServerClient();
   if (!supabase) throw new Error("Supabase server environment is not configured");
@@ -70,7 +74,7 @@ export async function loadEngineTalents(): Promise<{ talents: EngineTalent[]; so
     availabilityByTalent.set(row.talent_id, current);
   }
 
-  const talents: EngineTalent[] = (talentData as TalentRow[]).map((row) => ({
+  const talents: EngineTalent[] = (talentData as TalentRow[]).filter(isOperationalTalent).map((row) => ({
     id: row.id,
     name: row.name,
     category: row.category,
