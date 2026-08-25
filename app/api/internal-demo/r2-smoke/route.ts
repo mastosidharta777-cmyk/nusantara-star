@@ -16,7 +16,10 @@ export async function GET(request: Request) {
     const headUrl = createR2PresignedUrl("HEAD", key, 120);
     const deleteUrl = createR2PresignedUrl("DELETE", key, 120);
 
-    const origin = new URL(request.url).origin;
+    const fallbackOrigin = new URL(request.url).origin;
+    const branchHost = process.env.VERCEL_BRANCH_URL?.trim() || process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+    const origin = branchHost ? `https://${branchHost}` : fallbackOrigin;
+
     const preflight = await fetch(putUrl, {
       method: "OPTIONS",
       headers: {
@@ -53,7 +56,8 @@ export async function GET(request: Request) {
         smokeObjectDeleted: cleanup.ok,
       },
       cors: {
-        origin: corsOrigin,
+        requestedOrigin: origin,
+        returnedOrigin: corsOrigin,
         methods: corsMethods,
       },
     });
