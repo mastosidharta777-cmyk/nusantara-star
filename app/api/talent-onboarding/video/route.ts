@@ -19,10 +19,9 @@ function getServerClient() {
 }
 
 function safeExtension(fileName: string, mimeType: string) {
-  const ext = fileName.split(".").pop()?.toLowerCase();
-  if (mimeType === "video/mp4") return ext === "mp4" ? "mp4" : "mp4";
-  if (mimeType === "video/webm") return ext === "webm" ? "webm" : "webm";
-  return "bin";
+  if (mimeType === "video/mp4") return "mp4";
+  if (mimeType === "video/webm") return "webm";
+  return fileName.split(".").pop()?.toLowerCase() || "bin";
 }
 
 export async function POST(request: Request) {
@@ -34,7 +33,8 @@ export async function POST(request: Request) {
     const mimeType = typeof body?.mimeType === "string" ? body.mimeType : "";
     const sizeBytes = Number(body?.sizeBytes ?? 0);
     const assetType = typeof body?.assetType === "string" ? body.assetType : "";
-    const title = typeof body?.title === "string" && body.title.trim() ? body.title.trim() : null;
+    const title = typeof body?.title === "string" && body.title.trim() ? body.title.trim().slice(0, 160) : null;
+    const description = typeof body?.description === "string" && body.description.trim() ? body.description.trim().slice(0, 1000) : null;
 
     if (!talentId || !verifyAccessToken(token, "talent_onboarding", talentId)) return NextResponse.json({ error: "Invalid or expired onboarding link" }, { status: 401 });
     if (!fileName || !ALLOWED_VIDEO_TYPES.has(mimeType) || !Number.isSafeInteger(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_VIDEO_BYTES || !ALLOWED_ASSET_TYPES.has(assetType)) {
@@ -56,6 +56,7 @@ export async function POST(request: Request) {
       mime_type: mimeType,
       size_bytes: sizeBytes,
       title,
+      description,
       upload_status: "pending_upload",
       review_status: "pending",
       buyer_visible: false,

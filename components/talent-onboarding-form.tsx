@@ -21,6 +21,11 @@ export function TalentOnboardingForm({ talentId, token }: { talentId: string; to
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoTitle, setVideoTitle] = useState("");
+  const [videoDescription, setVideoDescription] = useState("");
+  const [videoTags, setVideoTags] = useState<string[]>([]);
+  const [videoNotes, setVideoNotes] = useState("");
 
   async function refresh() {
     const res = await fetch(`/api/talent-onboarding/profile?talentId=${encodeURIComponent(talentId)}&token=${encodeURIComponent(token)}`, { cache: "no-store" });
@@ -63,15 +68,32 @@ export function TalentOnboardingForm({ talentId, token }: { talentId: string; to
     } catch (e) { setError(e instanceof Error ? e.message : "Upload foto gagal"); } finally { setBusy(false); }
   }
 
-  async function uploadVideo(file: File | null) {
-    if (!file) return; setBusy(true); setError(""); setMessage("");
+  async function suggestVideoMetadata() {
+    if (!videoFile) return;
+    setBusy(true); setError(""); setMessage("");
     try {
-      const prep = await fetch("/api/talent-onboarding/video", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, fileName: file.name, mimeType: file.type, sizeBytes: file.size, assetType: "live_performance", title: file.name.replace(/\.[^.]+$/, "") }) });
+      const res = await fetch("/api/talent-onboarding/metadata-suggestion", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ talentId, token, fileName: videoFile.name, assetType: "live_performance", notes: videoNotes }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.detail ?? data?.error ?? "AI metadata gagal");
+      setVideoTitle(data.suggestion?.title ?? "");
+      setVideoDescription(data.suggestion?.description ?? "");
+      setVideoTags(Array.isArray(data.suggestion?.tags) ? data.suggestion.tags : []);
+      setMessage(data.source === "ai" ? "Saran AI sudah dibuat. Silakan edit sebelum upload." : "Saran dasar dibuat. Silakan edit sebelum upload.");
+    } catch (e) { setError(e instanceof Error ? e.message : "AI metadata gagal"); } finally { setBusy(false); }
+  }
+
+  async function uploadVideo() {
+    if (!videoFile) return; setBusy(true); setError(""); setMessage("");
+    try {
+      const prep = await fetch("/api/talent-onboarding/video", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, fileName: videoFile.name, mimeType: videoFile.type, sizeBytes: videoFile.size, assetType: "live_performance", title: videoTitle || videoFile.name.replace(/\.[^.]+$/, ""), description: videoDescription }) });
       const p = await prep.json().catch(() => null); if (!prep.ok) throw new Error(p?.detail ?? p?.error ?? "Gagal menyiapkan video");
-      const put = await fetch(p.uploadUrl, { method: "PUT", headers: { "content-type": file.type }, body: file }); if (!put.ok) throw new Error(`Upload video gagal (${put.status})`);
+      const put = await fetch(p.uploadUrl, { method: "PUT", headers: { "content-type": videoFile.type }, body: videoFile }); if (!put.ok) throw new Error(`Upload video gagal (${put.status})`);
       const verify = await fetch("/api/talent-onboarding/video", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, assetId: p.assetId }) });
       const v = await verify.json().catch(() => null); if (!verify.ok) throw new Error(v?.detail ?? v?.error ?? "Video belum terverifikasi");
-      setMessage("Video berhasil diunggah dan menunggu review."); await refresh();
+      setMessage("Video berhasil diunggah dan menunggu review."); setVideoFile(null); setVideoTitle(""); setVideoDescription(""); setVideoTags([]); setVideoNotes(""); await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Upload video gagal"); } finally { setBusy(false); }
   }
 
@@ -96,7 +118,7 @@ export function TalentOnboardingForm({ talentId, token }: { talentId: string; to
       <label className="block text-sm font-semibold">Kebijakan akomodasi<textarea value={profile.accommodationPolicy} onChange={(e) => setProfile((p) => ({ ...p, accommodationPolicy: e.target.value }))} rows={3} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" /></label>
       <button disabled={busy} onClick={save} className="w-fit border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40">Simpan Draft</button>
     </section>
-    <section className="mt-5 grid gap-4 md:grid-cols-2"><label className="border border-black/10 bg-white p-5 text-sm font-semibold">Foto profil<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(e) => uploadPhoto(e.target.files?.[0] ?? null)} className="mt-3 block w-full text-sm font-normal" /><span className="mt-2 block text-xs font-normal text-black/45">JPG/PNG/WebP, maks. 10 MB</span></label><label className="border border-black/10 bg-white p-5 text-sm font-semibold">Video live utama<input type="file" accept="video/mp4,video/webm" disabled={busy} onChange={(e) => uploadVideo(e.target.files?.[0] ?? null)} className="mt-3 block w-full text-sm font-normal" /><span className="mt-2 block text-xs font-normal text-black/45">MP4/WebM, maks. 150 MB</span></label></section>
+    <section className="mt-5 grid gap-4 md:grid-cols-2"><label className="border border-black/10 bg-white p-5 text-sm font-semibold">Foto profil<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(e) => uploadPhoto(e.target.files?.[0] ?? null)} className="mt-3 block w-full text-sm font-normal" /><span className="mt-2 block text-xs font-normal text-black/45">JPG/PNG/WebP, maks. 10 MB</span></label><div className="border border-black/10 bg-white p-5 text-sm font-semibold">Video live utama<input type="file" accept="video/mp4,video/webm" disabled={busy} onChange={(e) => { const file = e.target.files?.[0] ?? null; setVideoFile(file); setVideoTitle(file ? file.name.replace(/\.[^.]+$/, "") : ""); setVideoDescription(""); setVideoTags([]); }} className="mt-3 block w-full text-sm font-normal" /><span className="mt-2 block text-xs font-normal text-black/45">MP4/WebM, maks. 150 MB</span>{videoFile ? <div className="mt-4 space-y-3"><label className="block text-xs font-semibold">Catatan opsional untuk AI<input value={videoNotes} onChange={(e) => setVideoNotes(e.target.value)} placeholder="Contoh: format acoustic, lagu original" className="mt-1 w-full border border-black/15 px-3 py-2 font-normal" /></label><button type="button" disabled={busy} onClick={suggestVideoMetadata} className="border border-black px-3 py-2 text-xs font-semibold disabled:opacity-40">Bantu isi dengan AI</button><label className="block text-xs font-semibold">Judul<input value={videoTitle} onChange={(e) => setVideoTitle(e.target.value)} className="mt-1 w-full border border-black/15 px-3 py-2 font-normal" /></label><label className="block text-xs font-semibold">Deskripsi<textarea value={videoDescription} onChange={(e) => setVideoDescription(e.target.value)} rows={3} className="mt-1 w-full border border-black/15 px-3 py-2 font-normal" /></label>{videoTags.length ? <p className="text-xs font-normal text-black/50">Tag saran: {videoTags.join(", ")}</p> : null}<button type="button" disabled={busy} onClick={uploadVideo} className="border border-black bg-black px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">Upload Video</button></div> : null}</div></section>
     <section className="mt-5 border border-black/10 bg-white p-5"><p className="text-sm font-semibold">Media terunggah</p><div className="mt-3 space-y-2">{assets.length ? assets.map((a) => <div key={a.id} className="flex justify-between gap-3 border-t border-black/10 pt-2 text-xs"><span>{a.asset_type} · {a.original_filename ?? "file"}</span><span>{a.upload_status} / {a.review_status}</span></div>) : <p className="text-xs text-black/45">Belum ada media.</p>}</div></section>
     {message ? <p className="mt-4 text-sm font-semibold text-green-700">{message}</p> : null}{error ? <p className="mt-4 text-sm font-semibold text-red-700">{error}</p> : null}
     <button disabled={busy || status === "approved"} onClick={submit} className="mt-6 border border-black bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">{busy ? "Memproses…" : "Kirim untuk Review"}</button>

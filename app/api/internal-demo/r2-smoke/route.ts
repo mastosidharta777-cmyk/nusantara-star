@@ -14,6 +14,7 @@ export async function GET(request: Request) {
   try {
     const putUrl = createR2PresignedUrl("PUT", key, 120);
     const headUrl = createR2PresignedUrl("HEAD", key, 120);
+    const getUrl = createR2PresignedUrl("GET", key, 120);
     const deleteUrl = createR2PresignedUrl("DELETE", key, 120);
 
     const fallbackOrigin = new URL(request.url).origin;
@@ -45,19 +46,26 @@ export async function GET(request: Request) {
     const size = Number(head.headers.get("content-length") ?? 0);
     const objectVerified = head.ok && size === Buffer.byteLength(payload);
 
+    const get = await fetch(getUrl, { method: "GET", headers: { Origin: origin }, cache: "no-store" });
+    const getBody = get.ok ? await get.text() : "";
+    const getCorsOrigin = get.headers.get("access-control-allow-origin");
+    const getPlaybackReady = get.ok && getBody === payload && (getCorsOrigin === origin || getCorsOrigin === "*");
+
     const cleanup = await fetch(deleteUrl, { method: "DELETE", cache: "no-store" });
 
     return NextResponse.json({
-      ok: corsReady && objectVerified && cleanup.ok,
+      ok: corsReady && objectVerified && getPlaybackReady && cleanup.ok,
       checks: {
         r2CredentialsWork: put.ok,
         r2ObjectVerified: objectVerified,
         corsAllowsDirectBrowserPut: corsReady,
+        corsAllowsBuyerGetPlayback: getPlaybackReady,
         smokeObjectDeleted: cleanup.ok,
       },
       cors: {
         requestedOrigin: origin,
-        returnedOrigin: corsOrigin,
+        putReturnedOrigin: corsOrigin,
+        getReturnedOrigin: getCorsOrigin,
         methods: corsMethods,
       },
     });
