@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AdminTalentCommercialProfile } from "@/components/admin-talent-commercial-profile";
+import { AdminTalentOnboardingLink } from "@/components/admin-talent-onboarding-link";
 import { loadAdminTalentDetail } from "@/lib/admin-talent-detail";
 
 function money(value: number | null) {
@@ -38,6 +39,7 @@ export default async function AdminTalentDetailPage({ params }: { params: Promis
           <article className="border border-black/10 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Media Kurasi</p><p className="mt-3 text-sm font-semibold">{media.length} video</p></article>
         </section>
 
+        <AdminTalentOnboardingLink talentId={talent.id} />
         <AdminTalentCommercialProfile talentId={talent.id} policies={paymentPolicies} media={media} />
       </div>
     </main>

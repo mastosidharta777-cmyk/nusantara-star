@@ -15,7 +15,7 @@ function getServerClient() {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
-    const scope = body?.scope === "buyer_proposal" || body?.scope === "talent_offer" ? body.scope : null;
+    const scope = body?.scope === "buyer_proposal" || body?.scope === "talent_offer" || body?.scope === "talent_onboarding" ? body.scope : null;
     const subjectId = typeof body?.subjectId === "string" ? body.subjectId : "";
     if (!scope || !subjectId) return NextResponse.json({ error: "Invalid secure-link request" }, { status: 400 });
 
@@ -37,11 +37,17 @@ export async function POST(request: Request) {
         if (proposalExpiry < expiresAt) expiresAt = proposalExpiry;
       }
       path = `/id/proposal/${encodeURIComponent(subjectId)}`;
-    } else {
+    } else if (scope === "talent_offer") {
       const { data: row, error } = await supabase.from("availability_requests").select("id").eq("id", subjectId).maybeSingle();
       if (error) throw new Error(error.message);
       if (!row) return NextResponse.json({ error: "Availability request not found" }, { status: 404 });
       path = `/talent-confirmation/${encodeURIComponent(subjectId)}`;
+    } else {
+      const { data: talent, error } = await supabase.from("talents").select("id,status").eq("id", subjectId).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!talent || talent.status === "inactive") return NextResponse.json({ error: "Talent is not available for onboarding" }, { status: 404 });
+      expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      path = `/talent-onboarding/${encodeURIComponent(subjectId)}`;
     }
 
     const token = signAccessToken(scope, subjectId, expiresAt);
