@@ -15,12 +15,12 @@ export function BuyerSelectTalent({ briefId, talentId, proposalItemId, locale, s
     try {
       const response = await fetch("/api/internal-demo/buyer/select-talent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ briefId, talentId, proposalItemId, accessToken }) });
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.detail ?? body?.error ?? "Action failed");
+      if (!response.ok) throw new Error(body?.detail ?? body?.error ?? (isId ? "Gagal memilih talent" : "Failed to select talent"));
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Action failed");
+      setError(err instanceof Error ? err.message : (isId ? "Gagal memilih talent" : "Failed to select talent"));
     } finally { setBusy(false); }
   }
 
-  return <div className="mt-5"><button type="button" onClick={chooseTalent} disabled={busy || selected} className={selected ? "w-full border border-black bg-black px-4 py-3 text-sm font-semibold text-white" : "w-full border border-black px-4 py-3 text-sm font-semibold transition hover:bg-black hover:text-white disabled:opacity-50"}>{selected ? (isId ? "✓ Talent Dipilih" : "✓ Talent Selected") : busy ? (isId ? "Menyimpan…" : "Saving…") : (isId ? "Pilih Talent Ini" : "Select This Talent")}</button>{error ? <p className="mt-2 text-xs font-semibold text-red-700">{error}</p> : null}</div>;
+  return <div className="mt-5"><button type="button" onClick={chooseTalent} disabled={busy || selected} className={selected ? "w-full border border-black bg-black px-4 py-3 text-sm font-semibold text-white" : "w-full border border-black px-4 py-3 text-sm font-semibold transition hover:bg-black hover:text-white disabled:opacity-50"}>{selected ? (isId ? "✓ Talent dipilih" : "✓ Talent selected") : busy ? (isId ? "Menyimpan…" : "Saving…") : (isId ? "Pilih talent ini" : "Select this talent")}</button>{error ? <p className="mt-2 text-xs font-semibold text-red-700">{error}</p> : null}</div>;
 }
