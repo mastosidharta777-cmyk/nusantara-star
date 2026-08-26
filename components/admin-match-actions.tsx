@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { SecureAccessLinkButton } from "@/components/secure-access-link-button";
+import { availabilityLabel, decisionLabel } from "@/lib/ui-language";
 
 type Props = {
   briefId: string;
@@ -28,10 +29,10 @@ export function AdminMatchActions({ briefId, talentId, decision, availabilityReq
         body: JSON.stringify({ briefId, talentId, action }),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.detail ?? body?.error ?? "Action failed");
+      if (!response.ok) throw new Error(body?.detail ?? body?.error ?? "Aksi gagal diproses");
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Action failed");
+      setError(err instanceof Error ? err.message : "Aksi gagal diproses");
     } finally {
       setBusy(null);
     }
@@ -43,17 +44,17 @@ export function AdminMatchActions({ briefId, talentId, decision, availabilityReq
     <div className="mt-5 border-t border-black/10 pt-4">
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => run("approve")} disabled={busy !== null} className="border border-black bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
-          {busy === "approve" ? "Saving…" : decision === "approved" ? confirmed ? "Approved for Shortlist" : "Approved" : confirmed ? "Approve & Shortlist" : "Approve"}
+          {busy === "approve" ? "Menyimpan…" : decision === "approved" ? (confirmed ? "Disetujui untuk shortlist" : "Disetujui") : confirmed ? "Setujui & masukkan shortlist" : "Setujui"}
         </button>
         <button type="button" onClick={() => run("reject")} disabled={busy !== null} className="border border-black/20 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-40">
-          {busy === "reject" ? "Saving…" : decision === "rejected" ? "Rejected" : "Reject"}
+          {busy === "reject" ? "Menyimpan…" : decision === "rejected" ? "Ditolak" : "Tolak"}
         </button>
         <button type="button" onClick={() => run("request_live_confirmation")} disabled={busy !== null} className="border border-black/20 bg-[#f5f3ee] px-4 py-2 text-sm font-semibold disabled:opacity-40">
-          {busy === "request_live_confirmation" ? "Sending…" : availabilityRequestStatus === "pending" ? "Live Confirmation Pending" : availabilityRequestStatus ? `Live Confirmation: ${availabilityRequestStatus}` : "Request Live Confirmation"}
+          {busy === "request_live_confirmation" ? "Mengirim…" : availabilityRequestStatus === "pending" ? "Konfirmasi langsung menunggu" : availabilityRequestStatus ? `Konfirmasi langsung: ${availabilityLabel(availabilityRequestStatus)}` : "Minta konfirmasi langsung"}
         </button>
-        {availabilityRequestId ? <SecureAccessLinkButton scope="talent_offer" subjectId={availabilityRequestId} label="Buka Secure Manager Link" /> : null}
+        {availabilityRequestId ? <SecureAccessLinkButton scope="talent_offer" subjectId={availabilityRequestId} label="Buka tautan aman manajer" /> : null}
       </div>
-      <p className="mt-2 text-xs text-black/45">Decision: {decision} · Availability request: {availabilityRequestStatus ?? "none"}</p>
+      <p className="mt-2 text-xs text-black/45">Keputusan: {decisionLabel(decision)} · Permintaan ketersediaan: {availabilityLabel(availabilityRequestStatus)}</p>
       {error ? <p className="mt-2 text-xs font-semibold text-red-700">{error}</p> : null}
     </div>
   );
