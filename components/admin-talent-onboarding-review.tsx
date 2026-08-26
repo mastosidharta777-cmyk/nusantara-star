@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-type Asset = { id: string; asset_type: string; original_filename: string | null; upload_status: string; review_status: string; buyer_visible: boolean };
+type Asset = { id: string; asset_type: string; original_filename: string | null; mime_type?: string | null; upload_status: string; review_status: string; buyer_visible: boolean; preview_url?: string | null };
 type ReviewData = { talent: { onboarding_status: string; public_visible: boolean; status?: string }; submission: any; assets: Asset[] };
 
 function assetLabel(type: string) {
@@ -28,6 +28,7 @@ export function AdminTalentOnboardingReview({ talentId }: { talentId: string }) 
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [note, setNote] = useState("");
+  const [openPreview, setOpenPreview] = useState<Record<string, boolean>>({});
 
   async function refresh() {
     const res = await fetch(`/api/internal-demo/admin/talent-onboarding-review?talentId=${encodeURIComponent(talentId)}`, { cache: "no-store" });
@@ -56,7 +57,7 @@ export function AdminTalentOnboardingReview({ talentId }: { talentId: string }) 
 
   return <section className="mb-7 border border-black/10 bg-white p-5 md:p-6">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Profil & Media</p><p className="mt-2 text-sm text-black/55">Review data onboarding dan media yang akan dipakai Nusantara Star.</p></div>
+      <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Profil & Media</p><p className="mt-2 text-sm text-black/55">Periksa isi foto, video, dan dokumen sebelum mengambil keputusan.</p></div>
       <span className="border border-black/10 px-3 py-2 text-xs font-semibold uppercase">{data?.talent.onboarding_status ?? "loading"}</span>
     </div>
 
@@ -66,15 +67,29 @@ export function AdminTalentOnboardingReview({ talentId }: { talentId: string }) 
       <div><b>Manager/PIC</b><p>{data.submission.manager_name || "—"}</p></div><div><b>Kontak internal</b><p>{data.submission.manager_whatsapp || data.submission.manager_email || "—"}</p></div>
     </div> : <p className="mt-5 text-sm text-black/50">Belum ada profil onboarding yang disimpan.</p>}
 
-    <div className="mt-5 space-y-2">{data?.assets?.length ? data.assets.map((asset) => {
+    <div className="mt-5 space-y-3">{data?.assets?.length ? data.assets.map((asset) => {
       const isApproved = asset.review_status === "approved";
       const isRejected = asset.review_status === "rejected";
-      return <div key={asset.id} className="flex flex-col gap-3 border-t border-black/10 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-sm"><b>{assetLabel(asset.asset_type)}</b><p className="text-xs text-black/50">{asset.original_filename ?? "file"} · {reviewLabel(asset.review_status)}{asset.buyer_visible ? " · tampil ke buyer" : ""}</p></div>
-        <div className="flex gap-2">
-          <button disabled={busy || asset.upload_status !== "uploaded" || isApproved} onClick={() => act({ action: "review_asset", assetId: asset.id, decision: "approved" }, `${assetLabel(asset.asset_type)} disetujui.`)} className={`border px-3 py-2 text-xs font-semibold disabled:opacity-50 ${isApproved ? "border-green-700 bg-green-50 text-green-800" : "border-black"}`}>{isApproved ? "✓ Disetujui" : "Setujui"}</button>
-          <button disabled={busy || asset.upload_status !== "uploaded" || isRejected} onClick={() => act({ action: "review_asset", assetId: asset.id, decision: "rejected" }, `${assetLabel(asset.asset_type)} ditolak.`)} className={`border px-3 py-2 text-xs font-semibold disabled:opacity-50 ${isRejected ? "border-red-700 bg-red-50 text-red-800" : "border-black/15"}`}>{isRejected ? "✓ Ditolak" : "Tolak"}</button>
+      const previewed = !!openPreview[asset.id];
+      const isImage = asset.asset_type === "profile_photo";
+      const isVideo = ["live_performance", "showreel", "event_clip"].includes(asset.asset_type);
+      const isPdf = asset.mime_type === "application/pdf";
+      return <div key={asset.id} className="border-t border-black/10 py-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm"><b>{assetLabel(asset.asset_type)}</b><p className="text-xs text-black/50">{asset.original_filename ?? "file"} · {reviewLabel(asset.review_status)}{asset.buyer_visible ? " · tampil ke buyer" : ""}</p></div>
+          <div className="flex flex-wrap gap-2">
+            {asset.preview_url ? <button onClick={() => setOpenPreview((v) => ({ ...v, [asset.id]: !v[asset.id] }))} className="border border-black/20 px-3 py-2 text-xs font-semibold">{previewed ? "Tutup preview" : "Lihat dulu"}</button> : <span className="px-3 py-2 text-xs text-red-700">Preview tidak tersedia</span>}
+            <button disabled={busy || asset.upload_status !== "uploaded" || isApproved || (!previewed && !isApproved)} onClick={() => act({ action: "review_asset", assetId: asset.id, decision: "approved" }, `${assetLabel(asset.asset_type)} disetujui.`)} className={`border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${isApproved ? "border-green-700 bg-green-50 text-green-800" : "border-black"}`}>{isApproved ? "✓ Disetujui" : "Setujui"}</button>
+            <button disabled={busy || asset.upload_status !== "uploaded" || isRejected} onClick={() => act({ action: "review_asset", assetId: asset.id, decision: "rejected" }, `${assetLabel(asset.asset_type)} ditolak.`)} className={`border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${isRejected ? "border-red-700 bg-red-50 text-red-800" : "border-black/15"}`}>{isRejected ? "✓ Ditolak" : "Tolak"}</button>
+          </div>
         </div>
+        {previewed && asset.preview_url ? <div className="mt-4 border border-black/10 bg-[#f5f3ee] p-3">
+          {isImage ? <img src={asset.preview_url} alt={asset.original_filename ?? "Preview foto"} className="max-h-[560px] w-full object-contain" /> : null}
+          {isVideo ? <video src={asset.preview_url} controls preload="metadata" className="max-h-[560px] w-full bg-black" /> : null}
+          {asset.asset_type === "rider_document" && isPdf ? <iframe src={asset.preview_url} title={asset.original_filename ?? "Preview rider"} className="h-[620px] w-full bg-white" /> : null}
+          {asset.asset_type === "rider_document" && !isPdf ? <a href={asset.preview_url} target="_blank" rel="noreferrer" className="text-sm font-semibold underline">Buka dokumen rider di tab baru</a> : null}
+          <p className="mt-2 text-xs text-black/45">Preview privat sementara. Setujui hanya setelah isi benar-benar diperiksa.</p>
+        </div> : null}
       </div>;
     }) : <p className="mt-4 text-sm text-black/50">Belum ada media.</p>}</div>
 
