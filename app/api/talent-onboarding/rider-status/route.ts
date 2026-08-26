@@ -100,12 +100,12 @@ export async function PATCH(request: Request) {
     for (const [k, v] of Object.entries(answers)) if (typeof v === "string" && v.trim()) clean[k] = v.trim().slice(0, 1200);
 
     const [{ data: talent }, { data: submission }] = await Promise.all([
-      s.from("talents").select("name,base_city").eq("id", talentId).maybeSingle(),
-      s.from("talent_profile_submissions").select("name,base_city").eq("talent_id", talentId).maybeSingle(),
+      s.from("talents").select("name,base_city,category").eq("id", talentId).maybeSingle(),
+      s.from("talent_profile_submissions").select("name,base_city,category").eq("talent_id", talentId).maybeSingle(),
     ]);
     const merged = { ...(current.answers ?? {}), ...clean };
     const source = submission ?? talent;
-    const result = await normalizeRiderSource({ sourceText: current.source_text ?? "", talentName: source?.name ?? null, baseCity: source?.base_city ?? null, answers: merged });
+    const result = await normalizeRiderSource({ sourceText: current.source_text ?? "", talentName: source?.name ?? null, baseCity: source?.base_city ?? null, category: source?.category ?? null, answers: merged });
     const extra = requiredQuestionsFromNormalized(result.normalized);
     const byKey = new Map<string, any>();
     for (const q of [...result.questions, ...extra]) if (q?.key) byKey.set(q.key, q);
