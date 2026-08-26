@@ -1,97 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-
-import { extractRiderText, persistRiderVersion } from "@/lib/rider-normalization";
+import { extractRiderText, persistRiderVersion, validateRiderIdentity } from "@/lib/rider-normalization";
 import { verifyAccessToken } from "@/lib/signed-access";
-
-export const runtime = "nodejs";
-
-const MAX_RIDER_BYTES = 15 * 1024 * 1024;
-const ALLOWED = new Map([
-  ["application/pdf", "pdf"],
-  ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"],
-  ["text/plain", "txt"],
-]);
-
-function getServerClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceRoleKey) throw new Error("Supabase server environment is not configured");
-  return createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
-}
-function auth(body: any) {
-  const talentId = typeof body?.talentId === "string" ? body.talentId : "";
-  const token = typeof body?.token === "string" ? body.token : "";
-  return { talentId, ok: Boolean(talentId && verifyAccessToken(token, "talent_onboarding", talentId)) };
-}
-
-export async function POST(request: Request) {
-  try {
-    const body = await request.json().catch(() => null);
-    const { talentId, ok } = auth(body);
-    if (!ok) return NextResponse.json({ error: "Invalid or expired onboarding link" }, { status: 401 });
-    const fileName = typeof body?.fileName === "string" ? body.fileName.trim() : "";
-    const mimeType = typeof body?.mimeType === "string" ? body.mimeType : "";
-    const sizeBytes = Number(body?.sizeBytes ?? 0);
-    const ext = ALLOWED.get(mimeType);
-    if (!fileName || !ext || !Number.isSafeInteger(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_RIDER_BYTES) return NextResponse.json({ error: "Gunakan PDF, DOCX, atau TXT maksimal 15 MB" }, { status: 400 });
-
-    const supabase = getServerClient();
-    const storageKey = `${talentId}/${randomUUID()}.${ext}`;
-    const { data: signed, error: signedError } = await supabase.storage.from("talent-documents").createSignedUploadUrl(storageKey);
-    if (signedError || !signed) throw new Error(signedError?.message ?? "Signed rider upload failed");
-    const { data: asset, error: assetError } = await supabase.from("talent_assets").insert({ talent_id: talentId, asset_type: "rider_document", provider: "supabase_storage", storage_key: storageKey, original_filename: fileName, mime_type: mimeType, size_bytes: sizeBytes, title: "Rider source document", upload_status: "pending_upload", review_status: "pending", buyer_visible: false }).select("id").single();
-    if (assetError || !asset) throw new Error(assetError?.message ?? "Rider asset record failed");
-    return NextResponse.json({ ok: true, assetId: asset.id, path: signed.path, token: signed.token });
-  } catch (error) {
-    return NextResponse.json({ error: "Rider upload preparation failed", detail: error instanceof Error ? error.message : String(error) }, { status: 500 });
-  }
-}
-
-export async function PATCH(request: Request) {
-  try {
-    const body = await request.json().catch(() => null);
-    const { talentId, ok } = auth(body);
-    const assetId = typeof body?.assetId === "string" ? body.assetId : "";
-    if (!ok || !assetId) return NextResponse.json({ error: "Invalid or expired onboarding link" }, { status: 401 });
-    const supabase = getServerClient();
-    const { data: asset, error } = await supabase.from("talent_assets").select("id,storage_key,size_bytes,provider,asset_type,mime_type,original_filename").eq("id", assetId).eq("talent_id", talentId).maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!asset || asset.provider !== "supabase_storage" || asset.asset_type !== "rider_document") return NextResponse.json({ error: "Rider document not found" }, { status: 404 });
-
-    const parts = asset.storage_key.split("/"); const file = parts.pop() ?? ""; const folder = parts.join("/");
-    const { data: listed, error: listError } = await supabase.storage.from("talent-documents").list(folder, { search: file, limit: 20 });
-    if (listError) throw new Error(listError.message);
-    const uploaded = (listed ?? []).find((item) => item.name === file);
-    const uploadedSize = Number((uploaded as any)?.metadata?.size ?? 0);
-    if (!uploaded || uploadedSize !== Number(asset.size_bytes)) return NextResponse.json({ error: "Uploaded rider could not be verified" }, { status: 409 });
-
-    const now = new Date().toISOString();
-    const { error: updateError } = await supabase.from("talent_assets").update({ upload_status: "uploaded", uploaded_at: now, buyer_visible: false, updated_at: now }).eq("id", assetId);
-    if (updateError) throw new Error(updateError.message);
-
-    let riderVersion = null;
-    let normalizationError: string | null = null;
-    try {
-      const [{ data: downloaded, error: downloadError }, { data: talent }, { data: submission }] = await Promise.all([
-        supabase.storage.from("talent-documents").download(asset.storage_key),
-        supabase.from("talents").select("name,base_city").eq("id", talentId).maybeSingle(),
-        supabase.from("talent_profile_submissions").select("name,base_city").eq("talent_id", talentId).maybeSingle(),
-      ]);
-      if (downloadError || !downloaded) throw new Error(downloadError?.message ?? "Rider download failed");
-      const buffer = Buffer.from(await downloaded.arrayBuffer());
-      const sourceText = (await extractRiderText(buffer, asset.mime_type)).replace(/\u0000/g, " ").trim();
-      if (!sourceText) throw new Error("Dokumen tidak menghasilkan teks yang dapat dibaca");
-      const source = submission ?? talent;
-      riderVersion = await persistRiderVersion(supabase, { talentId, sourceType: "uploaded_document", sourceAssetId: assetId, sourceFilename: asset.original_filename, sourceText, talentName: source?.name ?? null, baseCity: source?.base_city ?? null });
-    } catch (normalizationFailure) {
-      normalizationError = normalizationFailure instanceof Error ? normalizationFailure.message : String(normalizationFailure);
-      console.error("Rider document normalization failed", normalizationFailure);
-    }
-
-    return NextResponse.json({ ok: true, normalized: Boolean(riderVersion), riderVersion, normalizationError });
-  } catch (error) {
-    return NextResponse.json({ error: "Rider upload verification failed", detail: error instanceof Error ? error.message : String(error) }, { status: 500 });
-  }
-}
+export const runtime="nodejs";
+const MAX=15*1024*1024;const ALLOWED=new Map([["application/pdf","pdf"],["application/vnd.openxmlformats-officedocument.wordprocessingml.document","docx"],["text/plain","txt"]]);
+function client(){const u=process.env.NEXT_PUBLIC_SUPABASE_URL,k=process.env.SUPABASE_SERVICE_ROLE_KEY;if(!u||!k)throw new Error("Supabase server environment is not configured");return createClient(u,k,{auth:{persistSession:false,autoRefreshToken:false}})}
+function auth(b:any){const talentId=typeof b?.talentId==="string"?b.talentId:"",token=typeof b?.token==="string"?b.token:"";return{talentId,ok:Boolean(talentId&&verifyAccessToken(token,"talent_onboarding",talentId))}}
+export async function POST(request:Request){try{const b=await request.json().catch(()=>null);const{talentId,ok}=auth(b);if(!ok)return NextResponse.json({error:"Invalid or expired onboarding link"},{status:401});const fileName=typeof b?.fileName==="string"?b.fileName.trim():"",mimeType=typeof b?.mimeType==="string"?b.mimeType:"",sizeBytes=Number(b?.sizeBytes??0),ext=ALLOWED.get(mimeType);if(!fileName||!ext||!Number.isSafeInteger(sizeBytes)||sizeBytes<=0||sizeBytes>MAX)return NextResponse.json({error:"Gunakan PDF, DOCX, atau TXT maksimal 15 MB"},{status:400});const s=client(),storageKey=`${talentId}/${randomUUID()}.${ext}`;const{data:signed,error:se}=await s.storage.from("talent-documents").createSignedUploadUrl(storageKey);if(se||!signed)throw new Error(se?.message??"Signed upload failed");const{data:asset,error:ae}=await s.from("talent_assets").insert({talent_id:talentId,asset_type:"rider_document",provider:"supabase_storage",storage_key:storageKey,original_filename:fileName,mime_type:mimeType,size_bytes:sizeBytes,title:"Rider source document",upload_status:"pending_upload",review_status:"pending",buyer_visible:false}).select("id").single();if(ae||!asset)throw new Error(ae?.message??"Rider asset record failed");return NextResponse.json({ok:true,assetId:asset.id,path:signed.path,token:signed.token})}catch(e){return NextResponse.json({error:"Rider upload preparation failed",detail:e instanceof Error?e.message:String(e)},{status:500})}}
+export async function PATCH(request:Request){try{const b=await request.json().catch(()=>null);const{talentId,ok}=auth(b),assetId=typeof b?.assetId==="string"?b.assetId:"";if(!ok||!assetId)return NextResponse.json({error:"Invalid or expired onboarding link"},{status:401});const s=client();const{data:asset,error}=await s.from("talent_assets").select("id,storage_key,size_bytes,provider,asset_type,mime_type,original_filename").eq("id",assetId).eq("talent_id",talentId).maybeSingle();if(error)throw new Error(error.message);if(!asset||asset.provider!=="supabase_storage"||asset.asset_type!=="rider_document")return NextResponse.json({error:"Rider document not found"},{status:404});const parts=asset.storage_key.split("/"),file=parts.pop()??"",folder=parts.join("/");const{data:listed,error:le}=await s.storage.from("talent-documents").list(folder,{search:file,limit:20});if(le)throw new Error(le.message);const uploaded=(listed??[]).find(x=>x.name===file),uploadedSize=Number((uploaded as any)?.metadata?.size??0);if(!uploaded||uploadedSize!==Number(asset.size_bytes))return NextResponse.json({error:"Uploaded rider could not be verified"},{status:409});const now=new Date().toISOString();await s.from("talent_assets").update({upload_status:"uploaded",uploaded_at:now,buyer_visible:false,updated_at:now}).eq("id",assetId);
+ const[{data:downloaded,error:de},{data:talent},{data:submission}]=await Promise.all([s.storage.from("talent-documents").download(asset.storage_key),s.from("talents").select("name,base_city").eq("id",talentId).maybeSingle(),s.from("talent_profile_submissions").select("name,base_city").eq("talent_id",talentId).maybeSingle()]);if(de||!downloaded)throw new Error(de?.message??"Rider download failed");const sourceText=(await extractRiderText(Buffer.from(await downloaded.arrayBuffer()),asset.mime_type)).replace(/\u0000/g," ").trim();if(!sourceText)throw new Error("Dokumen tidak menghasilkan teks yang dapat dibaca");const source=submission??talent;if(!source?.name)throw new Error("Nama talent tidak ditemukan");const identity=await validateRiderIdentity({sourceText,talentName:source.name,sourceFilename:asset.original_filename});if(identity.outcome==="mismatch"){await s.from("talent_assets").update({review_status:"rejected",buyer_visible:false,description:`Source mismatch: ${identity.detectedArtist??"artist berbeda"}`,reviewed_at:now,updated_at:now}).eq("id",assetId);return NextResponse.json({error:`Dokumen terdeteksi milik ${identity.detectedArtist??"talent lain"}, bukan ${source.name}. Upload rider yang sesuai.`,sourceMismatch:true,identity},{status:409})}
+ try{const riderVersion=await persistRiderVersion(s,{talentId,sourceType:"uploaded_document",sourceAssetId:assetId,sourceFilename:asset.original_filename,sourceText,talentName:source.name,baseCity:source.base_city??null});return NextResponse.json({ok:true,normalized:true,riderVersion,identity})}catch(n){await s.from("talent_assets").update({description:"Dokumen tersimpan tetapi normalisasi gagal; belum menjadi master rider.",updated_at:now}).eq("id",assetId);return NextResponse.json({error:"Dokumen tersimpan, tetapi normalisasi rider gagal. File belum dijadikan master rider.",detail:n instanceof Error?n.message:String(n),normalized:false,identity},{status:422})}
+ }catch(e){return NextResponse.json({error:"Rider upload verification failed",detail:e instanceof Error?e.message:String(e)},{status:500})}}
