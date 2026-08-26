@@ -6,280 +6,66 @@ import { getSupabaseBrowserClient } from "@/lib/supabase";
 type Asset = { id: string; asset_type: string; original_filename: string | null; upload_status: string; review_status: string };
 type Profile = {
   name: string; category: string; actType: string; baseCity: string; genres: string; musicStyles: string; vibeTags: string;
-  capabilityTags: string; serviceCities: string; performanceFormats: string; eventTypes: string; bio: string;
-  showDurationMinutes: string; managerName: string; managerEmail: string; managerWhatsapp: string; instagramUrl: string;
-  tiktokUrl: string; youtubeUrl: string; baseRider: string; travelPolicy: string; accommodationPolicy: string;
+  capabilityTags: string; performanceFormats: string; eventTypes: string; bio: string; showDurationMinutes: string;
+  managerName: string; managerEmail: string; managerWhatsapp: string; instagramUrl: string; tiktokUrl: string; youtubeUrl: string;
+  baseRider: string; travelPolicy: string; accommodationPolicy: string;
 };
-
-const blank: Profile = {
-  name: "", category: "", actType: "", baseCity: "", genres: "", musicStyles: "", vibeTags: "", capabilityTags: "",
-  serviceCities: "", performanceFormats: "", eventTypes: "", bio: "", showDurationMinutes: "", managerName: "",
-  managerEmail: "", managerWhatsapp: "", instagramUrl: "", tiktokUrl: "", youtubeUrl: "", baseRider: "",
-  travelPolicy: "", accommodationPolicy: "",
-};
-
-const split = (v: string) => v.split(",").map((x) => x.trim()).filter(Boolean);
-const join = (v: unknown) => Array.isArray(v) ? v.join(", ") : "";
-
-const TAXONOMY = {
-  categories: ["Solo", "Duo/Trio", "Band", "DJ", "Traditional/Ethnic"],
-  performanceFormats: ["Full Band", "Acoustic", "Semi Acoustic", "Playback", "DJ Set", "Hybrid"],
-  musicStyles: ["Top 40", "Pop", "Rock", "Jazz", "R&B/Soul", "Dangdut", "EDM", "80s/90s", "Indonesian Hits", "International Hits", "Ethnic/World"],
-  vibeTags: ["Chill", "Elegant", "Romantic", "Upbeat", "Party", "High Energy"],
-  capabilityTags: ["Request Song", "Bilingual Repertoire", "Custom Setlist", "MC Interaction", "Singalong", "Danceable"],
-  eventTypes: ["Corporate", "Wedding", "Private Party", "Hotel/Lounge", "Festival", "Brand Activation"],
-  serviceCities: ["Jakarta", "Tangerang", "Bekasi", "Bogor", "Bandung", "Yogyakarta", "Surabaya", "Bali"],
-  genres: ["Pop", "Rock", "Jazz", "R&B/Soul", "Dangdut", "EDM", "Alternative", "Ethnic/World"],
+const blank: Profile = { name:"",category:"",actType:"",baseCity:"",genres:"",musicStyles:"",vibeTags:"",capabilityTags:"",performanceFormats:"",eventTypes:"",bio:"",showDurationMinutes:"",managerName:"",managerEmail:"",managerWhatsapp:"",instagramUrl:"",tiktokUrl:"",youtubeUrl:"",baseRider:"",travelPolicy:"",accommodationPolicy:"" };
+const split=(v:string)=>v.split(",").map(x=>x.trim()).filter(Boolean);
+const join=(v:unknown)=>Array.isArray(v)?v.join(", "):"";
+const TAXONOMY={
+  categories:["Solo","Duo/Trio","Band","DJ","Traditional/Ethnic"],
+  performanceFormats:["Full Band","Acoustic","Semi Acoustic","Playback","DJ Set","Hybrid"],
+  musicStyles:["Top 40","Pop","Rock","Jazz","R&B/Soul","Dangdut","EDM","80s/90s","Indonesian Hits","International Hits","Ethnic/World"],
+  vibeTags:["Chill","Elegant","Romantic","Upbeat","Party","High Energy"],
+  capabilityTags:["Request Song","Bilingual Repertoire","Custom Setlist","MC Interaction","Singalong","Danceable"],
+  eventTypes:["Corporate","Wedding","Private Party","Hotel/Lounge","Festival","Brand Activation"],
+  genres:["Pop","Rock","Jazz","R&B/Soul","Dangdut","EDM","Alternative","Ethnic/World"],
 } as const;
+function canonicalCategory(value:unknown){if(typeof value!=="string")return"";const raw=value.trim();const key=raw.toLowerCase().replace(/[_-]+/g," ").replace(/\s+/g," ");if(["singer","solo","soloist","vocalist"].includes(key))return"Solo";if(["duo","trio","duo/trio","duo trio"].includes(key))return"Duo/Trio";if(key==="band")return"Band";if(key==="dj")return"DJ";if(["traditional","ethnic","traditional/ethnic","traditional ethnic"].includes(key))return"Traditional/Ethnic";return raw}
+const assetLabel=(t:string)=>({profile_photo:"Foto profil",press_photo:"Foto pers",live_performance:"Video live utama",showreel:"Showreel",event_clip:"Video event",rider_document:"Rider"}[t]??"File");
+const statusLabel=(u:string,r:string)=>u!=="uploaded"?"Sedang diunggah":r==="approved"?"Disetujui":r==="rejected"?"Ditolak":"Terunggah · Menunggu review";
 
-function canonicalCategory(value: unknown) {
-  if (typeof value !== "string") return "";
-  const raw = value.trim();
-  const key = raw.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
-  if (["singer", "solo", "soloist", "vocalist"].includes(key)) return "Solo";
-  if (["duo", "trio", "duo/trio", "duo trio"].includes(key)) return "Duo/Trio";
-  if (key === "band") return "Band";
-  if (key === "dj") return "DJ";
-  if (["traditional", "ethnic", "traditional/ethnic", "traditional ethnic"].includes(key)) return "Traditional/Ethnic";
-  return raw;
-}
-
-export function TalentOnboardingForm({ talentId, token }: { talentId: string; token: string }) {
-  const [profile, setProfile] = useState<Profile>(blank);
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [status, setStatus] = useState("not_started");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [categoryOther, setCategoryOther] = useState(false);
-  const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [videoTitle, setVideoTitle] = useState("");
-  const [videoDescription, setVideoDescription] = useState("");
-  const [videoTags, setVideoTags] = useState<string[]>([]);
-  const [videoNotes, setVideoNotes] = useState("");
-  const [riderUnclear, setRiderUnclear] = useState<string[]>([]);
-
-  async function refresh() {
-    const r = await fetch(`/api/talent-onboarding/profile?talentId=${encodeURIComponent(talentId)}&token=${encodeURIComponent(token)}`, { cache: "no-store" });
-    const d = await r.json().catch(() => null);
-    if (!r.ok) throw new Error(d?.error ?? "Gagal memuat onboarding");
-    const s = d.submission ?? d.talent;
-    const category = canonicalCategory(s?.category ?? "");
-    const known = TAXONOMY.categories.includes(category as (typeof TAXONOMY.categories)[number]);
-    setCategoryOther(Boolean(category && !known));
-    setStatus(d.talent?.onboarding_status ?? "not_started");
-    setAssets(d.assets ?? []);
-    setProfile({
-      name: s?.name ?? "", category, actType: s?.act_type ?? "", baseCity: s?.base_city ?? "", genres: join(s?.genres),
-      musicStyles: join(s?.music_styles), vibeTags: join(s?.vibe_tags), capabilityTags: join(s?.capability_tags),
-      serviceCities: join(s?.service_cities), performanceFormats: join(s?.performance_formats), eventTypes: join(s?.event_types),
-      bio: s?.bio ?? "", showDurationMinutes: s?.show_duration_minutes ? String(s.show_duration_minutes) : "",
-      managerName: s?.manager_name ?? "", managerEmail: s?.manager_email ?? "", managerWhatsapp: s?.manager_whatsapp ?? "",
-      instagramUrl: s?.instagram_url ?? "", tiktokUrl: s?.tiktok_url ?? "", youtubeUrl: s?.youtube_url ?? "",
-      baseRider: s?.base_rider ?? "", travelPolicy: s?.travel_policy ?? "", accommodationPolicy: s?.accommodation_policy ?? "",
-    });
-  }
-
-  useEffect(() => { refresh().catch((e) => setError(e.message)); }, []);
-
-  const field = (k: keyof Profile, label: string, placeholder = "") => (
-    <label className="block text-sm font-semibold">{label}
-      <input value={profile[k]} onChange={(e) => setProfile((x) => ({ ...x, [k]: e.target.value }))} placeholder={placeholder} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" />
-    </label>
-  );
-
-  const multi = (k: keyof Profile, label: string, options: readonly string[]) => {
-    const selected = split(profile[k]);
-    const extras = selected.filter((v) => !options.includes(v));
-    const toggle = (value: string) => setProfile((p) => {
-      const current = split(p[k]);
-      const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
-      return { ...p, [k]: next.join(", ") };
-    });
-    return (
-      <fieldset className="block text-sm font-semibold">
-        <legend>{label}</legend>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {options.map((option) => (
-            <label key={option} className={`cursor-pointer border px-3 py-2 text-xs font-semibold ${selected.includes(option) ? "border-black bg-black text-white" : "border-black/15 bg-white"}`}>
-              <input type="checkbox" checked={selected.includes(option)} onChange={() => toggle(option)} className="sr-only" />{option}
-            </label>
-          ))}
-        </div>
-        <input value={extras.join(", ")} onChange={(e) => setProfile((p) => ({ ...p, [k]: [...selected.filter((v) => options.includes(v)), ...split(e.target.value)].join(", ") }))} placeholder="Lainnya, pisahkan dengan koma" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" />
-      </fieldset>
-    );
-  };
-
-  async function save() {
-    setBusy(true); setError(""); setMessage("");
-    try {
-      const r = await fetch("/api/talent-onboarding/profile", {
-        method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ talentId, token, ...profile, showDurationMinutes: profile.showDurationMinutes || null, genres: split(profile.genres), musicStyles: split(profile.musicStyles), vibeTags: split(profile.vibeTags), capabilityTags: split(profile.capabilityTags), serviceCities: split(profile.serviceCities), performanceFormats: split(profile.performanceFormats), eventTypes: split(profile.eventTypes) }),
-      });
-      const d = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(d?.detail ?? d?.error ?? "Gagal menyimpan");
-      setMessage("Profil tersimpan sebagai draft.");
-      await refresh();
-      return true;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal menyimpan");
-      return false;
-    } finally { setBusy(false); }
-  }
-
-  async function uploadPhoto(file: File | null) {
-    if (!file) return;
-    setBusy(true); setError("");
-    try {
-      const r = await fetch("/api/talent-onboarding/photo", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, fileName: file.name, mimeType: file.type, sizeBytes: file.size, assetType: "profile_photo" }) });
-      const p = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(p?.detail ?? p?.error);
-      const c = getSupabaseBrowserClient();
-      if (!c) throw new Error("Supabase browser client belum dikonfigurasi");
-      const { error: uploadError } = await c.storage.from("talent-photos").uploadToSignedUrl(p.path, p.token, file, { contentType: file.type });
-      if (uploadError) throw uploadError;
-      const v = await fetch("/api/talent-onboarding/photo", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, assetId: p.assetId }) });
-      if (!v.ok) throw new Error("Foto belum terverifikasi");
-      setMessage("Foto berhasil diunggah dan menunggu review.");
-      await refresh();
-    } catch (e) { setError(e instanceof Error ? e.message : "Upload foto gagal"); }
-    finally { setBusy(false); }
-  }
-
-  async function uploadRider(file: File | null) {
-    if (!file) return;
-    setBusy(true); setError(""); setMessage("");
-    try {
-      const r = await fetch("/api/talent-onboarding/rider", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, fileName: file.name, mimeType: file.type, sizeBytes: file.size }) });
-      const p = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(p?.detail ?? p?.error ?? "Upload rider gagal");
-      const c = getSupabaseBrowserClient();
-      if (!c) throw new Error("Supabase browser client belum dikonfigurasi");
-      const { error: uploadError } = await c.storage.from("talent-documents").uploadToSignedUrl(p.path, p.token, file, { contentType: file.type });
-      if (uploadError) throw uploadError;
-      const v = await fetch("/api/talent-onboarding/rider", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, assetId: p.assetId }) });
-      const vd = await v.json().catch(() => null);
-      if (!v.ok) throw new Error(vd?.detail ?? vd?.error ?? "Rider belum terverifikasi");
-      setMessage("Dokumen rider tersimpan privat dan menunggu review admin.");
-      await refresh();
-    } catch (e) { setError(e instanceof Error ? e.message : "Upload rider gagal"); }
-    finally { setBusy(false); }
-  }
-
-  async function normalizeRider() {
-    if (!profile.baseRider.trim() && !profile.travelPolicy.trim() && !profile.accommodationPolicy.trim()) {
-      setError("Isi atau tempel teks rider terlebih dahulu."); return;
-    }
-    setBusy(true); setError(""); setMessage(""); setRiderUnclear([]);
-    try {
-      const r = await fetch("/api/talent-onboarding/rider-normalize", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, baseRider: profile.baseRider, travelPolicy: profile.travelPolicy, accommodationPolicy: profile.accommodationPolicy }) });
-      const d = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(d?.detail ?? d?.error ?? "AI rider gagal");
-      const s = d?.suggestion ?? {};
-      setProfile((p) => ({ ...p, baseRider: typeof s.baseRider === "string" ? s.baseRider : p.baseRider, travelPolicy: typeof s.travelPolicy === "string" ? s.travelPolicy : p.travelPolicy, accommodationPolicy: typeof s.accommodationPolicy === "string" ? s.accommodationPolicy : p.accommodationPolicy }));
-      setRiderUnclear(Array.isArray(s.unclearItems) ? s.unclearItems : []);
-      setMessage("Rider dirapikan sebagai draft. Periksa lalu Simpan Draft.");
-    } catch (e) { setError(e instanceof Error ? e.message : "AI rider gagal"); }
-    finally { setBusy(false); }
-  }
-
-  async function suggestVideoMetadata() {
-    if (!videoFile) return;
-    setBusy(true); setError("");
-    try {
-      const r = await fetch("/api/talent-onboarding/metadata-suggestion", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, fileName: videoFile.name, assetType: "live_performance", notes: videoNotes }) });
-      const d = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(d?.detail ?? d?.error ?? "AI metadata gagal");
-      setVideoTitle(d.suggestion?.title ?? ""); setVideoDescription(d.suggestion?.description ?? ""); setVideoTags(Array.isArray(d.suggestion?.tags) ? d.suggestion.tags : []);
-      setMessage("Saran AI dibuat. Silakan edit sebelum upload.");
-    } catch (e) { setError(e instanceof Error ? e.message : "AI metadata gagal"); }
-    finally { setBusy(false); }
-  }
-
-  async function uploadVideo() {
-    if (!videoFile) return;
-    setBusy(true); setError("");
-    try {
-      const r = await fetch("/api/talent-onboarding/video", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, fileName: videoFile.name, mimeType: videoFile.type, sizeBytes: videoFile.size, assetType: "live_performance", title: videoTitle || videoFile.name.replace(/\.[^.]+$/, ""), description: videoDescription }) });
-      const p = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(p?.detail ?? p?.error);
-      const put = await fetch(p.uploadUrl, { method: "PUT", headers: { "content-type": videoFile.type }, body: videoFile });
-      if (!put.ok) throw new Error(`Upload video gagal (${put.status})`);
-      const v = await fetch("/api/talent-onboarding/video", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, assetId: p.assetId }) });
-      if (!v.ok) throw new Error("Video belum terverifikasi");
-      setMessage("Video berhasil diunggah dan menunggu review."); setVideoFile(null); setVideoTitle(""); setVideoDescription(""); setVideoTags([]); setVideoNotes("");
-      await refresh();
-    } catch (e) { setError(e instanceof Error ? e.message : "Upload video gagal"); }
-    finally { setBusy(false); }
-  }
-
-  async function submit() {
-    setBusy(true); setError("");
-    try {
-      const saved = await save(); if (!saved) return;
-      setBusy(true);
-      const r = await fetch("/api/talent-onboarding/profile", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token }) });
-      const d = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(d?.detail ?? d?.error ?? "Submit gagal");
-      setMessage("Onboarding berhasil dikirim untuk review.");
-      await refresh();
-    } catch (e) { setError(e instanceof Error ? e.message : "Submit gagal"); }
-    finally { setBusy(false); }
-  }
-
-  const categorySelectValue = categoryOther ? "__other" : profile.category;
-
-  return <main className="min-h-screen bg-[#f5f3ee] px-5 py-10 text-[#171713] md:px-10"><div className="mx-auto max-w-3xl">
-    <p className="eyebrow">Nusantara Star · Talent Onboarding</p>
-    <div className="mt-4 flex flex-wrap items-end justify-between gap-3"><h1 className="text-4xl font-semibold tracking-[-0.03em]">Lengkapi profil talent</h1><span className="border border-black/10 bg-white px-3 py-2 text-xs font-semibold uppercase">{status}</span></div>
-    <p className="mt-3 text-sm text-black/55">Pilih data standar agar matching akurat. Gunakan “Lainnya” hanya bila belum ada di pilihan. Semua data tetap menunggu review admin.</p>
-
-    <section className="mt-8 grid gap-4 border border-black/10 bg-white p-5 md:grid-cols-2 md:p-6">
-      {field("name", "Nama talent")}
-      <label className="block text-sm font-semibold">Kategori
-        <select value={categorySelectValue} onChange={(e) => { const value = e.target.value; if (value === "__other") { setCategoryOther(true); setProfile((p) => ({ ...p, category: "" })); } else { setCategoryOther(false); setProfile((p) => ({ ...p, category: value })); } }} className="mt-2 w-full border border-black/15 bg-white px-3 py-3 font-normal">
-          <option value="">Pilih</option>{TAXONOMY.categories.map((x) => <option key={x} value={x}>{x}</option>)}<option value="__other">Lainnya</option>
-        </select>
-        {categoryOther ? <input value={profile.category} onChange={(e) => setProfile((p) => ({ ...p, category: e.target.value }))} placeholder="Tulis kategori lainnya" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" /> : null}
-      </label>
-      <label className="block text-sm font-semibold">Jenis act
-        <select value={profile.actType} onChange={(e) => setProfile((p) => ({ ...p, actType: e.target.value }))} className="mt-2 w-full border border-black/15 bg-white px-3 py-3 font-normal"><option value="">Pilih</option><option value="original_artist">Original Artist</option><option value="cover_entertainment">Cover & Entertainment</option></select>
-      </label>
-      {field("baseCity", "Kota asal")}
-      {multi("performanceFormats", "Format tampil", TAXONOMY.performanceFormats)}
-      {multi("musicStyles", "Music style", TAXONOMY.musicStyles)}
-      {multi("vibeTags", "Energy / vibe", TAXONOMY.vibeTags)}
-      {multi("capabilityTags", "Capabilities", TAXONOMY.capabilityTags)}
-      {multi("genres", "Genre", TAXONOMY.genres)}
-      {multi("eventTypes", "Cocok untuk event", TAXONOMY.eventTypes)}
-      {multi("serviceCities", "Kota layanan", TAXONOMY.serviceCities)}
-      {field("showDurationMinutes", "Durasi tampil (menit)")}
-      <label className="block text-sm font-semibold md:col-span-2">Bio<textarea value={profile.bio} onChange={(e) => setProfile((p) => ({ ...p, bio: e.target.value }))} rows={5} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" /></label>
-      {field("managerName", "Manager / PIC")}{field("managerWhatsapp", "WhatsApp manager/PIC")}{field("managerEmail", "Email manager/PIC")}{field("instagramUrl", "Instagram")}{field("tiktokUrl", "TikTok")}{field("youtubeUrl", "YouTube")}
-
-      <div className="md:col-span-2 border-t border-black/10 pt-5">
-        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-semibold">Rider standar Nusantara Star</p><p className="mt-1 text-xs font-normal text-black/50">Tempel isi rider di bawah. AI hanya merapikan fakta yang Anda berikan dan tidak boleh menambah syarat baru.</p></div><button type="button" disabled={busy} onClick={normalizeRider} className="border border-black px-3 py-2 text-xs font-semibold disabled:opacity-40">Rapikan dengan AI</button></div>
-      </div>
-      <label className="block text-sm font-semibold md:col-span-2">Base rider<textarea value={profile.baseRider} onChange={(e) => setProfile((p) => ({ ...p, baseRider: e.target.value }))} rows={5} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" /></label>
-      <label className="block text-sm font-semibold">Kebijakan perjalanan<textarea value={profile.travelPolicy} onChange={(e) => setProfile((p) => ({ ...p, travelPolicy: e.target.value }))} rows={4} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" /></label>
-      <label className="block text-sm font-semibold">Kebijakan akomodasi<textarea value={profile.accommodationPolicy} onChange={(e) => setProfile((p) => ({ ...p, accommodationPolicy: e.target.value }))} rows={4} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" /></label>
-      {riderUnclear.length ? <div className="md:col-span-2 border border-amber-300 bg-amber-50 p-3 text-xs"><p className="font-semibold">Perlu dikonfirmasi, AI tidak menebak:</p><ul className="mt-2 list-disc space-y-1 pl-5">{riderUnclear.map((x, i) => <li key={`${x}-${i}`}>{x}</li>)}</ul></div> : null}
-      <button disabled={busy} onClick={save} className="w-fit border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40">Simpan Draft</button>
-    </section>
-
-    <section className="mt-5 grid gap-4 md:grid-cols-3">
-      <label className="border border-black/10 bg-white p-5 text-sm font-semibold">Foto profil<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(e) => uploadPhoto(e.target.files?.[0] ?? null)} className="mt-3 block w-full text-sm font-normal" /></label>
-      <div className="border border-black/10 bg-white p-5 text-sm font-semibold">Video live utama<input type="file" accept="video/mp4,video/webm" disabled={busy} onChange={(e) => { const f = e.target.files?.[0] ?? null; setVideoFile(f); setVideoTitle(f ? f.name.replace(/\.[^.]+$/, " ").trim() : ""); setVideoDescription(""); setVideoTags([]); }} className="mt-3 block w-full text-sm font-normal" />
-        {videoFile ? <div className="mt-4 space-y-3"><input value={videoNotes} onChange={(e) => setVideoNotes(e.target.value)} placeholder="Catatan untuk AI" className="w-full border border-black/15 px-3 py-2 font-normal" /><button type="button" disabled={busy} onClick={suggestVideoMetadata} className="border border-black px-3 py-2 text-xs font-semibold">Bantu isi dengan AI</button><input value={videoTitle} onChange={(e) => setVideoTitle(e.target.value)} className="w-full border border-black/15 px-3 py-2 font-normal" /><textarea value={videoDescription} onChange={(e) => setVideoDescription(e.target.value)} rows={3} className="w-full border border-black/15 px-3 py-2 font-normal" />{videoTags.length ? <p className="text-xs font-normal text-black/50">Tag saran: {videoTags.join(", ")}</p> : null}<button type="button" disabled={busy} onClick={uploadVideo} className="border border-black bg-black px-3 py-2 text-xs font-semibold text-white">Upload Video</button></div> : null}
-      </div>
-      <label className="border border-black/10 bg-white p-5 text-sm font-semibold">Dokumen rider<input type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" disabled={busy} onChange={(e) => uploadRider(e.target.files?.[0] ?? null)} className="mt-3 block w-full text-sm font-normal" /><span className="mt-2 block text-xs font-normal text-black/45">PDF/DOCX/TXT maks. 15 MB, disimpan privat. V1: AI merapikan teks yang ditempel di field rider; file asli tetap sumber kebenaran.</span></label>
-    </section>
-
-    <section className="mt-5 border border-black/10 bg-white p-5"><p className="text-sm font-semibold">Media & dokumen terunggah</p>{assets.map((a) => <div key={a.id} className="mt-2 flex justify-between border-t border-black/10 pt-2 text-xs"><span>{a.asset_type} · {a.original_filename ?? "file"}</span><span>{a.upload_status} / {a.review_status}</span></div>)}</section>
-    {message ? <p className="mt-4 text-sm font-semibold text-green-700">{message}</p> : null}
-    {error ? <p className="mt-4 text-sm font-semibold text-red-700">{error}</p> : null}
-    <button disabled={busy || status === "approved"} onClick={submit} className="mt-6 border border-black bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">{busy ? "Memproses…" : "Kirim untuk Review"}</button>
-  </div></main>;
+export function TalentOnboardingForm({talentId,token}:{talentId:string;token:string}){
+ const[profile,setProfile]=useState<Profile>(blank);const[assets,setAssets]=useState<Asset[]>([]);const[status,setStatus]=useState("not_started");const[busy,setBusy]=useState(false);const[message,setMessage]=useState("");const[error,setError]=useState("");const[categoryOther,setCategoryOther]=useState(false);const[videoFile,setVideoFile]=useState<File|null>(null);
+ const locked=status==="submitted"||status==="approved";
+ async function refresh(){const r=await fetch(`/api/talent-onboarding/profile?talentId=${encodeURIComponent(talentId)}&token=${encodeURIComponent(token)}`,{cache:"no-store"});const d=await r.json().catch(()=>null);if(!r.ok)throw new Error(d?.error??"Gagal memuat onboarding");const s=d.submission??d.talent;const category=canonicalCategory(s?.category??"");setCategoryOther(Boolean(category&&!TAXONOMY.categories.includes(category as any)));setStatus(d.talent?.onboarding_status??"not_started");setAssets(d.assets??[]);setProfile({name:s?.name??"",category,actType:s?.act_type??"",baseCity:s?.base_city??"",genres:join(s?.genres),musicStyles:join(s?.music_styles),vibeTags:join(s?.vibe_tags),capabilityTags:join(s?.capability_tags),performanceFormats:join(s?.performance_formats),eventTypes:join(s?.event_types),bio:s?.bio??"",showDurationMinutes:s?.show_duration_minutes?String(s.show_duration_minutes):"",managerName:s?.manager_name??"",managerEmail:s?.manager_email??"",managerWhatsapp:s?.manager_whatsapp??"",instagramUrl:s?.instagram_url??"",tiktokUrl:s?.tiktok_url??"",youtubeUrl:s?.youtube_url??"",baseRider:s?.base_rider??"",travelPolicy:s?.travel_policy??"",accommodationPolicy:s?.accommodation_policy??""})}
+ useEffect(()=>{refresh().catch(e=>setError(e.message))},[]);
+ const field=(k:keyof Profile,l:string)=><label className="block text-sm font-semibold">{l}<input disabled={locked} value={profile[k]} onChange={e=>setProfile(x=>({...x,[k]:e.target.value}))} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5"/></label>;
+ const multi=(k:keyof Profile,l:string,options:readonly string[])=>{const selected=split(profile[k]);const extras=selected.filter(v=>!options.includes(v));const toggle=(value:string)=>setProfile(p=>{const cur=split(p[k]);return{...p,[k]:(cur.includes(value)?cur.filter(v=>v!==value):[...cur,value]).join(", ")}});return <fieldset className="block text-sm font-semibold"><legend>{l}</legend><div className="mt-2 flex flex-wrap gap-2">{options.map(o=><label key={o} className={`cursor-pointer border px-3 py-2 text-xs font-semibold ${selected.includes(o)?"border-black bg-black text-white":"border-black/15 bg-white"}`}><input disabled={locked} type="checkbox" checked={selected.includes(o)} onChange={()=>toggle(o)} className="sr-only"/>{o}</label>)}</div><input disabled={locked} value={extras.join(", ")} onChange={e=>setProfile(p=>({...p,[k]:[...selected.filter(v=>options.includes(v)),...split(e.target.value)].join(", ")}))} placeholder="Lainnya, pisahkan dengan koma" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5"/></fieldset>};
+ async function save(){setBusy(true);setError("");setMessage("");try{const r=await fetch("/api/talent-onboarding/profile",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({talentId,token,...profile,showDurationMinutes:profile.showDurationMinutes||null,genres:split(profile.genres),musicStyles:split(profile.musicStyles),vibeTags:split(profile.vibeTags),capabilityTags:split(profile.capabilityTags),performanceFormats:split(profile.performanceFormats),eventTypes:split(profile.eventTypes)})});const d=await r.json().catch(()=>null);if(!r.ok)throw new Error(d?.detail??d?.error??"Gagal menyimpan");setMessage("Profil tersimpan sebagai draft.");await refresh();return true}catch(e){setError(e instanceof Error?e.message:"Gagal menyimpan");return false}finally{setBusy(false)}}
+ async function uploadPhoto(file:File|null){if(!file)return;setBusy(true);setError("");try{const r=await fetch("/api/talent-onboarding/photo",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({talentId,token,fileName:file.name,mimeType:file.type,sizeBytes:file.size,assetType:"profile_photo"})});const p=await r.json().catch(()=>null);if(!r.ok)throw new Error(p?.detail??p?.error);const c=getSupabaseBrowserClient();if(!c)throw new Error("Supabase browser client belum dikonfigurasi");const{error:ue}=await c.storage.from("talent-photos").uploadToSignedUrl(p.path,p.token,file,{contentType:file.type});if(ue)throw ue;const v=await fetch("/api/talent-onboarding/photo",{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({talentId,token,assetId:p.assetId})});if(!v.ok)throw new Error("Foto belum terverifikasi");setMessage("Foto berhasil diunggah dan menunggu review.");await refresh()}catch(e){setError(e instanceof Error?e.message:"Upload foto gagal")}finally{setBusy(false)}}
+ async function uploadRider(file:File|null){if(!file)return;setBusy(true);setError("");setMessage("");try{const r=await fetch("/api/talent-onboarding/rider",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({talentId,token,fileName:file.name,mimeType:file.type,sizeBytes:file.size})});const p=await r.json().catch(()=>null);if(!r.ok)throw new Error(p?.detail??p?.error??"Upload rider gagal");const c=getSupabaseBrowserClient();if(!c)throw new Error("Supabase browser client belum dikonfigurasi");const{error:ue}=await c.storage.from("talent-documents").uploadToSignedUrl(p.path,p.token,file,{contentType:file.type});if(ue)throw ue;const v=await fetch("/api/talent-onboarding/rider",{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({talentId,token,assetId:p.assetId})});const vd=await v.json().catch(()=>null);if(!v.ok)throw new Error(vd?.detail??vd?.error??"Rider belum terverifikasi");setMessage("Rider tersimpan privat dan menunggu review.");await refresh()}catch(e){setError(e instanceof Error?e.message:"Upload rider gagal")}finally{setBusy(false)}}
+ async function uploadVideo(){if(!videoFile)return;setBusy(true);setError("");try{const r=await fetch("/api/talent-onboarding/video",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({talentId,token,fileName:videoFile.name,mimeType:videoFile.type,sizeBytes:videoFile.size,assetType:"live_performance"})});const p=await r.json().catch(()=>null);if(!r.ok)throw new Error(p?.detail??p?.error);const put=await fetch(p.uploadUrl,{method:"PUT",headers:{"content-type":videoFile.type},body:videoFile});if(!put.ok)throw new Error(`Upload video gagal (${put.status})`);const v=await fetch("/api/talent-onboarding/video",{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({talentId,token,assetId:p.assetId})});if(!v.ok)throw new Error("Video belum terverifikasi");setMessage("Video berhasil diunggah dan menunggu review.");setVideoFile(null);await refresh()}catch(e){setError(e instanceof Error?e.message:"Upload video gagal")}finally{setBusy(false)}}
+ async function submit(){setBusy(true);setError("");try{const saved=await save();if(!saved)return;setBusy(true);const r=await fetch("/api/talent-onboarding/profile",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({talentId,token})});const d=await r.json().catch(()=>null);if(!r.ok)throw new Error(d?.detail??d?.error??"Submit gagal");setMessage("Onboarding berhasil dikirim untuk review.");await refresh()}catch(e){setError(e instanceof Error?e.message:"Submit gagal")}finally{setBusy(false)}}
+ const categorySelectValue=categoryOther?"__other":profile.category;
+ const submitLabel=status==="approved"?"Sudah disetujui":status==="submitted"?"Sudah dikirim":busy?"Memproses…":"Kirim untuk Review";
+ return <main className="min-h-screen bg-[#f5f3ee] px-5 py-10 text-[#171713] md:px-10"><div className="mx-auto max-w-3xl">
+  <p className="eyebrow">Nusantara Star · Talent Onboarding</p><div className="mt-4 flex flex-wrap items-end justify-between gap-3"><h1 className="text-4xl font-semibold tracking-[-0.03em]">Lengkapi profil talent</h1><span className="border border-black/10 bg-white px-3 py-2 text-xs font-semibold uppercase">{status.replace("_"," ")}</span></div>
+  <p className="mt-3 text-sm text-black/55">Isi fakta yang Anda ketahui. Sistem menstandarkan data di backend; semua data tetap menunggu review admin.</p>
+  <section className="mt-8 grid gap-4 border border-black/10 bg-white p-5 md:grid-cols-2 md:p-6">
+   {field("name","Nama talent")}
+   <label className="block text-sm font-semibold">Kategori<select disabled={locked} value={categorySelectValue} onChange={e=>{const v=e.target.value;if(v==="__other"){setCategoryOther(true);setProfile(p=>({...p,category:""}))}else{setCategoryOther(false);setProfile(p=>({...p,category:v}))}}} className="mt-2 w-full border border-black/15 bg-white px-3 py-3 font-normal disabled:bg-black/5"><option value="">Pilih</option>{TAXONOMY.categories.map(x=><option key={x} value={x}>{x}</option>)}<option value="__other">Lainnya</option></select>{categoryOther?<input disabled={locked} value={profile.category} onChange={e=>setProfile(p=>({...p,category:e.target.value}))} placeholder="Tulis kategori lainnya" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal"/>:null}</label>
+   <label className="block text-sm font-semibold">Jenis act<select disabled={locked} value={profile.actType} onChange={e=>setProfile(p=>({...p,actType:e.target.value}))} className="mt-2 w-full border border-black/15 bg-white px-3 py-3 font-normal disabled:bg-black/5"><option value="">Pilih</option><option value="original_artist">Original Artist</option><option value="cover_entertainment">Cover & Entertainment</option></select></label>
+   {field("baseCity","Kota asal")}
+   {multi("performanceFormats","Format tampil",TAXONOMY.performanceFormats)}{multi("musicStyles","Music style",TAXONOMY.musicStyles)}{multi("vibeTags","Energy / vibe",TAXONOMY.vibeTags)}{multi("capabilityTags","Capabilities",TAXONOMY.capabilityTags)}{multi("genres","Genre",TAXONOMY.genres)}{multi("eventTypes","Cocok untuk event",TAXONOMY.eventTypes)}{field("showDurationMinutes","Durasi tampil (menit)")}
+   <label className="block text-sm font-semibold md:col-span-2">Bio<textarea disabled={locked} value={profile.bio} onChange={e=>setProfile(p=>({...p,bio:e.target.value}))} rows={5} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5"/></label>
+   {field("managerName","Manager / PIC")}{field("managerWhatsapp","WhatsApp manager/PIC")}{field("managerEmail","Email manager/PIC")}
+   <div className="md:col-span-2 border-t border-black/10 pt-5"><p className="text-sm font-semibold">Referensi sosial media · internal</p><p className="mt-1 text-xs text-black/50">Untuk verifikasi dan kurasi Nusantara Star. Tidak ditampilkan sebagai kontak/link buyer.</p></div>
+   {field("instagramUrl","Instagram")}{field("tiktokUrl","TikTok")}{field("youtubeUrl","YouTube")}
+   <div className="md:col-span-2 border-t border-black/10 pt-5"><p className="text-sm font-semibold">Rider</p><p className="mt-1 text-xs text-black/50">Isi base rider atau upload dokumen rider. Keduanya boleh digunakan; file disimpan privat. Teks rider akan distandarkan otomatis di backend tanpa menambah syarat baru.</p></div>
+   <label className="block text-sm font-semibold md:col-span-2">Base rider<textarea disabled={locked} value={profile.baseRider} onChange={e=>setProfile(p=>({...p,baseRider:e.target.value}))} rows={5} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5"/></label>
+   <label className="block text-sm font-semibold md:col-span-2">Dokumen rider <span className="font-normal text-black/45">(opsional)</span><input type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" disabled={busy||locked} onChange={e=>uploadRider(e.target.files?.[0]??null)} className="mt-3 block w-full text-sm font-normal"/><span className="mt-2 block text-xs font-normal text-black/45">PDF/DOCX/TXT maks. 15 MB · privat.</span></label>
+   <label className="block text-sm font-semibold">Kebijakan perjalanan<textarea disabled={locked} value={profile.travelPolicy} onChange={e=>setProfile(p=>({...p,travelPolicy:e.target.value}))} rows={4} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5"/></label>
+   <label className="block text-sm font-semibold">Kebijakan akomodasi<textarea disabled={locked} value={profile.accommodationPolicy} onChange={e=>setProfile(p=>({...p,accommodationPolicy:e.target.value}))} rows={4} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5"/></label>
+   <button disabled={busy||locked} onClick={save} className="w-fit border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40">Simpan Draft</button>
+  </section>
+  <section className="mt-5 grid gap-4 md:grid-cols-2">
+   <label className="border border-black/10 bg-white p-5 text-sm font-semibold">Foto profil<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy||locked} onChange={e=>uploadPhoto(e.target.files?.[0]??null)} className="mt-3 block w-full text-sm font-normal"/></label>
+   <div className="border border-black/10 bg-white p-5 text-sm font-semibold">Video live utama<input type="file" accept="video/mp4,video/webm" disabled={busy||locked} onChange={e=>setVideoFile(e.target.files?.[0]??null)} className="mt-3 block w-full text-sm font-normal"/>{videoFile?<button type="button" disabled={busy||locked} onClick={uploadVideo} className="mt-4 border border-black bg-black px-3 py-2 text-xs font-semibold text-white">Upload Video</button>:null}<p className="mt-2 text-xs font-normal text-black/45">Metadata dirapikan otomatis setelah upload.</p></div>
+  </section>
+  <section className="mt-5 border border-black/10 bg-white p-5"><p className="text-sm font-semibold">Media & dokumen terunggah</p>{assets.length?assets.map(a=><div key={a.id} className="mt-2 flex flex-col gap-1 border-t border-black/10 pt-2 text-xs md:flex-row md:items-center md:justify-between"><span><strong>{assetLabel(a.asset_type)}</strong>{a.original_filename?` · ${a.original_filename}`:""}</span><span className="text-black/55">{statusLabel(a.upload_status,a.review_status)}</span></div>):<p className="mt-2 text-xs text-black/45">Belum ada media atau dokumen.</p>}</section>
+  {message?<p className="mt-4 text-sm font-semibold text-green-700">{message}</p>:null}{error?<p className="mt-4 text-sm font-semibold text-red-700">{error}</p>:null}
+  <button disabled={busy||locked} onClick={submit} className="mt-6 border border-black bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">{submitLabel}</button>
+ </div></main>
 }
