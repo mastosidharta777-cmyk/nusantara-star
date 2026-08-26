@@ -1,0 +1,41 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+import { normalizeRiderSource } from "@/lib/rider-normalization";
+import { verifyAccessToken } from "@/lib/signed-access";
+
+export const runtime = "nodejs";
+
+function getServerClient(){const url=process.env.NEXT_PUBLIC_SUPABASE_URL;const key=process.env.SUPABASE_SERVICE_ROLE_KEY;if(!url||!key)throw new Error("Supabase server environment is not configured");return createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}})}
+function auth(body:any){const talentId=typeof body?.talentId==="string"?body.talentId:"";const token=typeof body?.token==="string"?body.token:"";return{talentId,ok:Boolean(talentId&&verifyAccessToken(token,"talent_onboarding",talentId))}}
+
+export async function GET(request:Request){
+  try{
+    const u=new URL(request.url); const talentId=u.searchParams.get("talentId")??""; const token=u.searchParams.get("token")??"";
+    if(!talentId||!verifyAccessToken(token,"talent_onboarding",talentId))return NextResponse.json({error:"Invalid or expired onboarding link"},{status:401});
+    const s=getServerClient();
+    const {data,error}=await s.from("talent_rider_versions").select("id,version_no,source_type,source_filename,normalized_data,missing_questions,answers,normalization_source,status,is_current,updated_at").eq("talent_id",talentId).eq("is_current",true).maybeSingle();
+    if(error){if(error.code==="42P01")return NextResponse.json({ok:true,rider:null,migrationRequired:true});throw new Error(error.message)}
+    return NextResponse.json({ok:true,rider:data??null});
+  }catch(e){return NextResponse.json({error:"Rider status failed",detail:e instanceof Error?e.message:String(e)},{status:500})}
+}
+
+export async function PATCH(request:Request){
+  try{
+    const body=await request.json().catch(()=>null); const {talentId,ok}=auth(body); if(!ok)return NextResponse.json({error:"Invalid or expired onboarding link"},{status:401});
+    const answers=body?.answers&&typeof body.answers==="object"&&!Array.isArray(body.answers)?body.answers:{};
+    const cleanAnswers:Record<string,string>={}; for(const [k,v] of Object.entries(answers)){if(typeof v==="string"&&v.trim())cleanAnswers[k]=v.trim().slice(0,1200)}
+    const s=getServerClient();
+    const [{data:current,error:ce},{data:talent},{data:submission}]=await Promise.all([
+      s.from("talent_rider_versions").select("*").eq("talent_id",talentId).eq("is_current",true).maybeSingle(),
+      s.from("talents").select("name,base_city").eq("id",talentId).maybeSingle(),
+      s.from("talent_profile_submissions").select("name,base_city").eq("talent_id",talentId).maybeSingle(),
+    ]);
+    if(ce)throw new Error(ce.message); if(!current)return NextResponse.json({error:"Belum ada master rider untuk dilengkapi"},{status:409});
+    const mergedAnswers={...(current.answers??{}),...cleanAnswers}; const source=submission??talent;
+    const result=await normalizeRiderSource({sourceText:current.source_text??"",talentName:source?.name??null,baseCity:source?.base_city??null,answers:mergedAnswers});
+    const now=new Date().toISOString(); const status=result.questions.length?"needs_talent_input":"ready_for_admin";
+    const {data,error}=await s.from("talent_rider_versions").update({answers:mergedAnswers,normalized_data:result.normalized,missing_questions:result.questions,normalization_source:result.source,status,talent_confirmed_at:result.questions.length?null:now,updated_at:now}).eq("id",current.id).select("id,version_no,source_type,source_filename,normalized_data,missing_questions,answers,normalization_source,status,is_current,updated_at").single();
+    if(error)throw new Error(error.message); return NextResponse.json({ok:true,rider:data});
+  }catch(e){return NextResponse.json({error:"Rider answers failed",detail:e instanceof Error?e.message:String(e)},{status:500})}
+}

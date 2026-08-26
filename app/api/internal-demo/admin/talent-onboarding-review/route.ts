@@ -10,11 +10,9 @@ function getServerClient() {
   if (!url || !key) throw new Error("Supabase server environment is not configured");
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
-
 function ensureAdmin(request: Request) {
   return process.env.VERCEL_ENV !== "production" || request.headers.get("x-ns-admin-verified") === "1";
 }
-
 async function buildPreviewUrl(s: ReturnType<typeof getServerClient>, asset: any) {
   if (!asset?.storage_key || asset.upload_status !== "uploaded") return null;
   if (asset.provider === "cloudflare_r2") return createR2PresignedUrl("GET", asset.storage_key, 600);
@@ -34,17 +32,19 @@ export async function GET(request: Request) {
     const talentId = new URL(request.url).searchParams.get("talentId") ?? "";
     if (!talentId) return NextResponse.json({ error: "Talent wajib dipilih" }, { status: 400 });
     const s = getServerClient();
-    const [{ data: talent, error: te }, { data: submission, error: se }, { data: assets, error: ae }] = await Promise.all([
+    const [{ data: talent, error: te }, { data: submission, error: se }, { data: assets, error: ae }, { data: rider, error: re }] = await Promise.all([
       s.from("talents").select("id,name,onboarding_status,public_visible,status").eq("id", talentId).maybeSingle(),
       s.from("talent_profile_submissions").select("*").eq("talent_id", talentId).maybeSingle(),
       s.from("talent_assets").select("id,asset_type,provider,storage_key,original_filename,mime_type,size_bytes,title,description,upload_status,review_status,buyer_visible,created_at").eq("talent_id", talentId).order("created_at", { ascending: false }),
+      s.from("talent_rider_versions").select("id,version_no,source_type,source_asset_id,source_filename,normalized_data,missing_questions,answers,normalization_source,status,is_current,updated_at").eq("talent_id", talentId).eq("is_current", true).maybeSingle(),
     ]);
     if (te) throw new Error(te.message);
     if (!talent) return NextResponse.json({ error: "Talent tidak ditemukan" }, { status: 404 });
     if (se) throw new Error(se.message);
     if (ae) throw new Error(ae.message);
+    if (re && re.code !== "42P01") throw new Error(re.message);
     const enriched = await Promise.all((assets ?? []).map(async (asset) => ({ ...asset, preview_url: await buildPreviewUrl(s, asset) })));
-    return NextResponse.json({ ok: true, talent, submission, assets: enriched });
+    return NextResponse.json({ ok: true, talent, submission, assets: enriched, rider: rider ?? null, riderMigrationRequired: re?.code === "42P01" });
   } catch (e) {
     return NextResponse.json({ error: "Gagal memuat review onboarding", detail: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
@@ -67,9 +67,15 @@ export async function PATCH(request: Request) {
       const { data: asset, error: assetError } = await s.from("talent_assets").select("id,asset_type").eq("id", assetId).eq("talent_id", talentId).maybeSingle();
       if (assetError) throw new Error(assetError.message);
       if (!asset) return NextResponse.json({ error: "Asset tidak ditemukan" }, { status: 404 });
+      if (decision === "approved" && asset.asset_type === "rider_document") {
+        const { data: rider, error: riderError } = await s.from("talent_rider_versions").select("status,source_asset_id").eq("talent_id", talentId).eq("is_current", true).maybeSingle();
+        if (riderError && riderError.code !== "42P01") throw new Error(riderError.message);
+        if (rider && rider.source_asset_id === assetId && rider.status === "needs_talent_input") return NextResponse.json({ error: "Rider belum lengkap. Minta talent menjawab pertanyaan dasar terlebih dahulu." }, { status: 409 });
+      }
       const buyerVisible = decision === "approved" && asset.asset_type !== "rider_document";
       const { error } = await s.from("talent_assets").update({ review_status: decision, buyer_visible: buyerVisible, reviewed_at: now, updated_at: now }).eq("id", assetId).eq("talent_id", talentId).eq("upload_status", "uploaded");
       if (error) throw new Error(error.message);
+      if (asset.asset_type === "rider_document" && decision === "approved") await s.from("talent_rider_versions").update({ status: "admin_approved", admin_approved_at: now, updated_at: now }).eq("talent_id", talentId).eq("is_current", true).neq("status", "needs_talent_input");
       return NextResponse.json({ ok: true, buyerVisible });
     }
 
