@@ -1,1 +1,0 @@
-Audit bahasa UI sedang dilakukan berdasarkan docs/UI-LANGUAGE-STANDARD-ID.md. File ini hanya penanda internal agar perubahan UI berikutnya dibatch bersama.
