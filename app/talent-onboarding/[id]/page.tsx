@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
 import { TalentOnboardingForm } from "@/components/talent-onboarding-form";
+import { TalentRiderCompletion } from "@/components/talent-rider-completion";
 import { verifyAccessToken } from "@/lib/signed-access";
 
 export const dynamic = "force-dynamic";
@@ -21,5 +22,5 @@ export default async function TalentOnboardingPage({ params, searchParams }: { p
   const supabase = getServerClient();
   const { data: talent, error } = await supabase.from("talents").select("id,status").eq("id", id).maybeSingle();
   if (error || !talent || talent.status === "inactive") notFound();
-  return <TalentOnboardingForm talentId={id} token={token} />;
+  return <><TalentOnboardingForm talentId={id} token={token} /><TalentRiderCompletion talentId={id} token={token} /></>;
 }

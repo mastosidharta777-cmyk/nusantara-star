@@ -13,6 +13,9 @@ function getServerClient() {
 function ensureAdmin(request: Request) {
   return process.env.VERCEL_ENV !== "production" || request.headers.get("x-ns-admin-verified") === "1";
 }
+function missingRiderTable(error: any) {
+  return error?.code === "42P01" || error?.code === "PGRST205" || String(error?.message ?? "").includes("talent_rider_versions");
+}
 async function buildPreviewUrl(s: ReturnType<typeof getServerClient>, asset: any) {
   if (!asset?.storage_key || asset.upload_status !== "uploaded") return null;
   if (asset.provider === "cloudflare_r2") return createR2PresignedUrl("GET", asset.storage_key, 600);
@@ -42,9 +45,9 @@ export async function GET(request: Request) {
     if (!talent) return NextResponse.json({ error: "Talent tidak ditemukan" }, { status: 404 });
     if (se) throw new Error(se.message);
     if (ae) throw new Error(ae.message);
-    if (re && re.code !== "42P01") throw new Error(re.message);
+    if (re && !missingRiderTable(re)) throw new Error(re.message);
     const enriched = await Promise.all((assets ?? []).map(async (asset) => ({ ...asset, preview_url: await buildPreviewUrl(s, asset) })));
-    return NextResponse.json({ ok: true, talent, submission, assets: enriched, rider: rider ?? null, riderMigrationRequired: re?.code === "42P01" });
+    return NextResponse.json({ ok: true, talent, submission, assets: enriched, rider: rider ?? null, riderMigrationRequired: Boolean(re && missingRiderTable(re)) });
   } catch (e) {
     return NextResponse.json({ error: "Gagal memuat review onboarding", detail: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
@@ -69,13 +72,16 @@ export async function PATCH(request: Request) {
       if (!asset) return NextResponse.json({ error: "Asset tidak ditemukan" }, { status: 404 });
       if (decision === "approved" && asset.asset_type === "rider_document") {
         const { data: rider, error: riderError } = await s.from("talent_rider_versions").select("status,source_asset_id").eq("talent_id", talentId).eq("is_current", true).maybeSingle();
-        if (riderError && riderError.code !== "42P01") throw new Error(riderError.message);
+        if (riderError && !missingRiderTable(riderError)) throw new Error(riderError.message);
         if (rider && rider.source_asset_id === assetId && rider.status === "needs_talent_input") return NextResponse.json({ error: "Rider belum lengkap. Minta talent menjawab pertanyaan dasar terlebih dahulu." }, { status: 409 });
       }
       const buyerVisible = decision === "approved" && asset.asset_type !== "rider_document";
       const { error } = await s.from("talent_assets").update({ review_status: decision, buyer_visible: buyerVisible, reviewed_at: now, updated_at: now }).eq("id", assetId).eq("talent_id", talentId).eq("upload_status", "uploaded");
       if (error) throw new Error(error.message);
-      if (asset.asset_type === "rider_document" && decision === "approved") await s.from("talent_rider_versions").update({ status: "admin_approved", admin_approved_at: now, updated_at: now }).eq("talent_id", talentId).eq("is_current", true).neq("status", "needs_talent_input");
+      if (asset.asset_type === "rider_document" && decision === "approved") {
+        const { error: riderUpdateError } = await s.from("talent_rider_versions").update({ status: "admin_approved", admin_approved_at: now, updated_at: now }).eq("talent_id", talentId).eq("is_current", true).neq("status", "needs_talent_input");
+        if (riderUpdateError && !missingRiderTable(riderUpdateError)) throw new Error(riderUpdateError.message);
+      }
       return NextResponse.json({ ok: true, buyerVisible });
     }
 
