@@ -9,14 +9,15 @@ export type NormalizedRider = {
   meals_per_diem: string[]; special_requirements: string[]; notes: string[];
 };
 
-type RiderCategoryGroup = "music" | "host" | "speaker" | "specialty";
+type RiderCategoryGroup = "music" | "host" | "speaker" | "specialty" | "unknown";
 
 function categoryGroup(category?: string | null): RiderCategoryGroup {
   const key = (category ?? "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
   if (["mc", "host", "mc/host", "mc host", "master of ceremony"].includes(key)) return "host";
   if (["speaker", "pembicara", "keynote speaker"].includes(key)) return "speaker";
   if (["specialty performer", "special performer", "performer", "specialty"].includes(key)) return "specialty";
-  return "music";
+  if (["solo", "singer", "soloist", "vocalist", "duo", "trio", "duo/trio", "duo trio", "band", "dj", "traditional", "ethnic", "traditional/ethnic", "traditional ethnic"].includes(key)) return "music";
+  return "unknown";
 }
 
 export function riderHash(source:string){return createHash("sha256").update(source).digest("hex")}
@@ -29,8 +30,10 @@ export function buildMissingQuestions(r:NormalizedRider,baseCity?:string|null,ca
   const group=categoryGroup(category);
   if(r.party_size==null&&r.performers_count==null&&r.crew_count==null){
     const question=group==="host"||group==="speaker"
-      ?"Berapa orang yang biasanya berangkat untuk pekerjaan ini, termasuk talent dan pendamping/crew jika ada?"
-      :"Berapa total personel yang biasanya berangkat untuk show (talent + crew)?";
+      ?"Berapa orang yang biasanya berangkat untuk pekerjaan ini, termasuk talent dan pendamping/kru jika ada?"
+      :group==="unknown"
+        ?"Berapa orang yang biasanya terlibat atau berangkat untuk pekerjaan ini, termasuk talent dan kru/pendamping jika ada?"
+        :"Berapa total personel yang biasanya berangkat untuk show (talent + kru)?";
     q.push({key:"party_size",question,required:true});
   }
   if(!r.departure_city)q.push({key:"departure_city",question:baseCity?`Apakah kota keberangkatan default rombongan adalah ${baseCity}? Jika berbeda, tulis kotanya.`:"Dari kota mana rombongan biasanya berangkat untuk show?",required:true});
@@ -41,7 +44,9 @@ export function buildMissingQuestions(r:NormalizedRider,baseCity?:string|null,ca
         ?"Apakah ada kebutuhan audio/presentasi yang wajib, misalnya jenis mic, monitor, lectern, layar, clicker, atau perangkat lain? Jika tidak ada, jawab: Tidak ada."
         :group==="specialty"
           ?"Apakah ada kebutuhan teknis, panggung, alat, ruang, atau keselamatan yang wajib untuk penampilan ini? Jika tidak ada, jawab: Tidak ada."
-          :"Apakah ada kebutuhan teknis/backline yang wajib? Jika tidak ada, jawab: Tidak ada.";
+          :group==="unknown"
+            ?"Apakah ada kebutuhan teknis atau operasional yang wajib untuk pekerjaan/penampilan ini? Jika tidak ada, jawab: Tidak ada."
+            :"Apakah ada kebutuhan teknis/backline yang wajib? Jika tidak ada, jawab: Tidak ada.";
     q.push({key:"technical_basics",question,required:true});
   }
   if(r.accommodation_required==null)q.push({key:"accommodation_required",question:"Untuk show di luar kota, apakah rombongan membutuhkan hotel/akomodasi? Jawab Ya atau Tidak, lalu beri detail jika ada.",required:true});
@@ -62,7 +67,7 @@ export async function validateRiderIdentity(input:{sourceText:string;talentName:
 
 export async function normalizeRiderSource(input:{sourceText:string;talentName?:string|null;baseCity?:string|null;category?:string|null;answers?:Record<string,string>|null}){
  const sourceText=input.sourceText.trim().slice(0,50000);if(!sourceText)throw new Error("Dokumen rider tidak memiliki teks yang dapat diproses");const apiKey=process.env.GROQ_API_KEY;if(!apiKey)throw new Error("AI normalisasi rider belum tersedia");const context={talentName:input.talentName??null,talentCategory:input.category??null,baseCity:input.baseCity??null,riderSource:sourceText,confirmedAnswers:input.answers??{}};
- const response=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model:process.env.GROQ_MODEL??"openai/gpt-oss-20b",temperature:0,messages:[{role:"system",content:"Normalize a live-entertainment master rider into structured operational facts. The talent category is context only: requirements for a band, singer, DJ, MC/host, speaker, or specialty performer can legitimately differ. Use ONLY facts explicitly contained in the rider source or confirmed talent answers. Never invent, assume, soften, strengthen, or delete requirements. Do not force music/backline requirements onto MC/host or speaker categories. Preserve quantities, hotel standards, equipment models, crew counts, transport/baggage conditions, hospitality and special requirements exactly when stated. Unknown values must remain null or empty arrays. Return concise Indonesian operational wording while preserving product/model names and standard technical terms."},{role:"user",content:JSON.stringify(context)}],response_format:{type:"json_schema",json_schema:{name:"nusantara_star_master_rider",strict:true,schema:riderSchema}}}),cache:"no-store"});
+ const response=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model:process.env.GROQ_MODEL??"openai/gpt-oss-20b",temperature:0,messages:[{role:"system",content:"Normalize a live-entertainment master rider into structured operational facts. The talent category is context only: requirements for a band, singer, DJ, MC/host, speaker, specialty performer, or another talent type can legitimately differ. Use ONLY facts explicitly contained in the rider source or confirmed talent answers. Never invent, assume, soften, strengthen, or delete requirements. Do not force music/backline requirements onto MC/host, speaker, or an unknown/custom category. Preserve quantities, hotel standards, equipment models, crew counts, transport/baggage conditions, hospitality and special requirements exactly when stated. Unknown values must remain null or empty arrays. Return concise Indonesian operational wording while preserving product/model names and standard technical terms."},{role:"user",content:JSON.stringify(context)}],response_format:{type:"json_schema",json_schema:{name:"nusantara_star_master_rider",strict:true,schema:riderSchema}}}),cache:"no-store"});
  if(!response.ok)throw new Error(`AI normalisasi gagal (${response.status})`);const payload=await response.json();const raw=payload?.choices?.[0]?.message?.content;if(typeof raw!=="string"||!raw)throw new Error("AI tidak mengembalikan hasil normalisasi");const normalized=normalizeShape(JSON.parse(raw));return{normalized,questions:buildMissingQuestions(normalized,input.baseCity,input.category),source:"ai" as const};
 }
 
