@@ -23,37 +23,18 @@ export async function POST(request: Request) {
     if (process.env.VERCEL_ENV && !verifyAccessToken(accessToken, "buyer_proposal", briefId)) return NextResponse.json({ error: "Invalid or expired access link" }, { status: 401 });
 
     const supabase = getServerClient();
-    const { data: brief, error: briefError } = await supabase.from("briefs").select("id,status").eq("id", briefId).single();
-    if (briefError || !brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
-    if (!["proposal_sent", "buyer_selected"].includes(brief.status)) return NextResponse.json({ error: "Brief is not ready for buyer selection" }, { status: 409 });
+    const { data, error } = await supabase.rpc("ns_select_buyer_talent_v1", {
+      p_brief_id: briefId,
+      p_talent_id: talentId,
+      p_proposal_item_id: proposalItemId,
+    });
+    if (error) {
+      const message = error.message || "Buyer talent selection failed";
+      const status = message.includes("not found") ? 404 : 409;
+      return NextResponse.json({ error: message }, { status });
+    }
 
-    const { data: item, error: itemError } = await supabase.from("proposal_items").select("id,proposal_id,brief_id,talent_id,offer_valid_until").eq("id", proposalItemId).eq("brief_id", briefId).eq("talent_id", talentId).maybeSingle();
-    if (itemError) throw new Error(itemError.message);
-    if (!item) return NextResponse.json({ error: "Talent is not part of this proposal snapshot" }, { status: 409 });
-
-    const { data: proposal, error: proposalError } = await supabase.from("proposals").select("id,status,expires_at").eq("id", item.proposal_id).in("status", ["sent", "viewed", "selected"]).maybeSingle();
-    if (proposalError) throw new Error(proposalError.message);
-    if (!proposal) return NextResponse.json({ error: "Proposal is not selectable" }, { status: 409 });
-
-    const nowMs = Date.now();
-    if ((proposal.expires_at && new Date(proposal.expires_at).getTime() <= nowMs) || (item.offer_valid_until && new Date(item.offer_valid_until).getTime() <= nowMs)) return NextResponse.json({ error: "Proposal or talent offer has expired and requires reconfirmation" }, { status: 409 });
-
-    const { data: existingSelection, error: existingSelectionError } = await supabase.from("buyer_selections").select("talent_id,status").eq("brief_id", briefId).maybeSingle();
-    if (existingSelectionError) throw new Error(existingSelectionError.message);
-    if (existingSelection?.talent_id && existingSelection.talent_id !== talentId) return NextResponse.json({ error: "A talent selection is already recorded. Contact Nusantara Star to change it." }, { status: 409 });
-    if (existingSelection?.talent_id === talentId) return NextResponse.json({ ok: true, briefId, talentId, proposalId: proposal.id, proposalItemId, status: "buyer_selected", alreadySelected: true });
-
-    const { data: claimedRows, error: claimError } = await supabase.from("briefs").update({ status: "buyer_selected" }).eq("id", briefId).in("status", ["proposal_sent", "buyer_selected"]).select("id,status");
-    if (claimError) throw new Error(claimError.message);
-    if (!claimedRows?.length) return NextResponse.json({ error: "Brief already advanced beyond buyer selection" }, { status: 409 });
-
-    const now = new Date().toISOString();
-    const { error: selectionError } = await supabase.from("buyer_selections").upsert({ brief_id: briefId, talent_id: talentId, status: "selected", selected_at: now, updated_at: now }, { onConflict: "brief_id" });
-    if (selectionError) throw new Error(selectionError.message);
-    const { error: proposalUpdateError } = await supabase.from("proposals").update({ status: "selected", updated_at: now }).eq("id", proposal.id);
-    if (proposalUpdateError) throw new Error(proposalUpdateError.message);
-
-    return NextResponse.json({ ok: true, briefId, talentId, proposalId: proposal.id, proposalItemId, status: "buyer_selected" });
+    return NextResponse.json({ ok: true, ...(data ?? {}) });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     console.error("Buyer talent selection failed", detail);
