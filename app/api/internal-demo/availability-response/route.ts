@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     const status = body?.status as ResponseStatus | undefined;
     const accessToken = typeof body?.accessToken === "string" ? body.accessToken : null;
     if (!requestId || !["confirmed", "tentative", "unavailable", "no_response"].includes(status ?? "")) return NextResponse.json({ error: "Invalid response payload" }, { status: 400 });
-    if (process.env.VERCEL_ENV === "production" && !verifyAccessToken(accessToken, "talent_offer", requestId)) return NextResponse.json({ error: "Invalid or expired access link" }, { status: 401 });
+    if (process.env.VERCEL_ENV && !verifyAccessToken(accessToken, "talent_offer", requestId)) return NextResponse.json({ error: "Invalid or expired access link" }, { status: 401 });
 
     const rawFee = body?.eventFee;
     const eventFee = rawFee === null || rawFee === undefined || rawFee === "" ? null : Number(rawFee);
@@ -42,6 +42,7 @@ export async function POST(request: Request) {
     if (requestError || !availabilityRequest) return NextResponse.json({ error: "Availability request not found" }, { status: 404 });
     const { data: brief, error: briefError } = await supabase.from("briefs").select("id,event_date,status").eq("id", availabilityRequest.brief_id).single();
     if (briefError || !brief) throw new Error(briefError?.message ?? "Brief not found");
+    if (!["availability_check", "shortlisted"].includes(brief.status)) return NextResponse.json({ error: "This offer can no longer be changed from the talent link. Contact Nusantara Star." }, { status: 409 });
     const now = new Date().toISOString();
 
     if (brief.event_date && status !== "no_response") {
@@ -76,6 +77,6 @@ export async function POST(request: Request) {
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     console.error("Availability response failed", detail);
-    return NextResponse.json({ error: "Availability response failed", detail }, { status: 500 });
+    return NextResponse.json({ error: "Availability response failed" }, { status: 500 });
   }
 }

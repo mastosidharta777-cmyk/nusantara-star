@@ -24,7 +24,8 @@ function roleCanMutate(role: string, path: string) {
 }
 
 export async function middleware(request: NextRequest) {
-  if (process.env.VERCEL_ENV !== "production") return NextResponse.next();
+  // Keep local development frictionless, but enforce admin auth on every hosted Vercel environment, including Preview.
+  if (!process.env.VERCEL_ENV) return NextResponse.next();
   if (request.nextUrl.pathname === "/admin/login" || request.nextUrl.pathname.startsWith("/api/auth/")) return NextResponse.next();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

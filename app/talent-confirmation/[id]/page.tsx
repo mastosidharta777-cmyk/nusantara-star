@@ -15,8 +15,8 @@ function money(value: number | null) {
 export default async function TalentConfirmationPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ token?: string }> }) {
   const { id } = await params;
   const { token = "" } = await searchParams;
-  const production = process.env.VERCEL_ENV === "production";
-  if (production && !verifyAccessToken(token, "talent_offer", id)) notFound();
+  const hosted = Boolean(process.env.VERCEL_ENV);
+  if (hosted && !verifyAccessToken(token, "talent_offer", id)) notFound();
 
   const detail = await loadAvailabilityResponseDetail(id);
   if (!detail) notFound();
@@ -39,7 +39,7 @@ export default async function TalentConfirmationPage({ params, searchParams }: {
           {offer ? <div className="mt-6 border border-black/10 bg-[#f5f3ee] p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/45">Saved Offer Snapshot</p><div className="mt-3 grid gap-3 sm:grid-cols-2 text-sm"><p><span className="text-black/45">Availability:</span><br />{offer.availability_status}</p><p><span className="text-black/45">Event fee:</span><br />{money(offer.event_fee)}</p><p><span className="text-black/45">Payment terms:</span><br />{offer.payment_terms ?? "—"}</p><p><span className="text-black/45">Valid until:</span><br />{offer.quote_valid_until ? new Date(offer.quote_valid_until).toLocaleString("id-ID") : "—"}</p></div></div> : null}
           <AvailabilityResponseActions requestId={request.id} currentStatus={request.status} existingOffer={offer} accessToken={token} />
         </section>
-        {!production ? <Link href={`/admin/briefs/${brief.id}`} className="mt-6 inline-block text-sm font-semibold text-black/55 hover:text-black">← Back to Admin Brief</Link> : null}
+        {!hosted ? <Link href={`/admin/briefs/${brief.id}`} className="mt-6 inline-block text-sm font-semibold text-black/55 hover:text-black">← Back to Admin Brief</Link> : null}
       </div>
     </main>
   );

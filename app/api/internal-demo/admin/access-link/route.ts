@@ -19,7 +19,8 @@ export async function POST(request: Request) {
     const subjectId = typeof body?.subjectId === "string" ? body.subjectId : "";
     if (!scope || !subjectId) return NextResponse.json({ error: "Invalid secure-link request" }, { status: 400 });
 
-    if (process.env.VERCEL_ENV === "production" && request.headers.get("x-ns-admin-verified") !== "1") {
+    // Hosted Preview and Production must both pass through verified admin middleware.
+    if (process.env.VERCEL_ENV && request.headers.get("x-ns-admin-verified") !== "1") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

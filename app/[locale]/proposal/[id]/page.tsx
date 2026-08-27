@@ -29,7 +29,7 @@ export default async function ProposalPage({ params, searchParams }: { params: P
   const { locale, id } = await params;
   const { token = "" } = await searchParams;
   if (!isLocale(locale)) notFound();
-  if (process.env.VERCEL_ENV === "production" && !verifyAccessToken(token, "buyer_proposal", id)) notFound();
+  if (process.env.VERCEL_ENV && !verifyAccessToken(token, "buyer_proposal", id)) notFound();
 
   const data = await loadBuyerProposal(id);
   if (!data) notFound();

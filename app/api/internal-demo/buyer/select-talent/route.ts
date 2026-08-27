@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     const proposalItemId = typeof body?.proposalItemId === "string" ? body.proposalItemId : "";
     const accessToken = typeof body?.accessToken === "string" ? body.accessToken : null;
     if (!briefId || !talentId || !proposalItemId) return NextResponse.json({ error: "Invalid selection" }, { status: 400 });
-    if (process.env.VERCEL_ENV === "production" && !verifyAccessToken(accessToken, "buyer_proposal", briefId)) return NextResponse.json({ error: "Invalid or expired access link" }, { status: 401 });
+    if (process.env.VERCEL_ENV && !verifyAccessToken(accessToken, "buyer_proposal", briefId)) return NextResponse.json({ error: "Invalid or expired access link" }, { status: 401 });
 
     const supabase = getServerClient();
     const { data: brief, error: briefError } = await supabase.from("briefs").select("id,status").eq("id", briefId).single();
@@ -38,6 +38,11 @@ export async function POST(request: Request) {
     const nowMs = Date.now();
     if ((proposal.expires_at && new Date(proposal.expires_at).getTime() <= nowMs) || (item.offer_valid_until && new Date(item.offer_valid_until).getTime() <= nowMs)) return NextResponse.json({ error: "Proposal or talent offer has expired and requires reconfirmation" }, { status: 409 });
 
+    const { data: existingSelection, error: existingSelectionError } = await supabase.from("buyer_selections").select("talent_id,status").eq("brief_id", briefId).maybeSingle();
+    if (existingSelectionError) throw new Error(existingSelectionError.message);
+    if (existingSelection?.talent_id && existingSelection.talent_id !== talentId) return NextResponse.json({ error: "A talent selection is already recorded. Contact Nusantara Star to change it." }, { status: 409 });
+    if (existingSelection?.talent_id === talentId) return NextResponse.json({ ok: true, briefId, talentId, proposalId: proposal.id, proposalItemId, status: "buyer_selected", alreadySelected: true });
+
     const { data: claimedRows, error: claimError } = await supabase.from("briefs").update({ status: "buyer_selected" }).eq("id", briefId).in("status", ["proposal_sent", "buyer_selected"]).select("id,status");
     if (claimError) throw new Error(claimError.message);
     if (!claimedRows?.length) return NextResponse.json({ error: "Brief already advanced beyond buyer selection" }, { status: 409 });
@@ -52,6 +57,6 @@ export async function POST(request: Request) {
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     console.error("Buyer talent selection failed", detail);
-    return NextResponse.json({ error: "Buyer talent selection failed", detail }, { status: 500 });
+    return NextResponse.json({ error: "Buyer talent selection failed" }, { status: 500 });
   }
 }
