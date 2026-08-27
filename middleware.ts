@@ -18,7 +18,7 @@ function forbidden(request: NextRequest) {
 function roleCanMutate(role: string, path: string) {
   if (role === "admin") return true;
   if (role === "viewer") return false;
-  if (role === "finance") return ["/payment", "/payment-milestones", "/commercial-terms", "/deal-review", "/booking", "/settlement"].some((suffix) => path.includes(suffix));
+  if (role === "finance") return ["/payment", "/payment-milestones", "/commercial-terms", "/deal-review", "/booking", "/settlement", "/cancellation"].some((suffix) => path.includes(suffix));
   if (role === "operations") return ["/match-action", "/proposal-sent", "/booking", "/talent-commercial-profile", "/access-link", "/operations"].some((suffix) => path.includes(suffix));
   return false;
 }
