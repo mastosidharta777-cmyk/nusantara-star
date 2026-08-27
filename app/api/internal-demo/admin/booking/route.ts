@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { requiredInitialBuyerSecurity, type BuyerMilestone } from "@/lib/secure-booking";
+
 export const runtime = "nodejs";
 
 function getServerClient() {
@@ -136,19 +138,36 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Talent offer requires reconfirmation" }, { status: 409 });
     }
 
+    const [{ data: buyerMilestones, error: milestoneError }, { data: paidRows, error: paymentError }] = await Promise.all([
+      supabase.from("payment_milestones").select("sequence_no,calculation_type,percentage,amount").eq("booking_id", existing.id).eq("party", "buyer").order("sequence_no"),
+      supabase.from("payments").select("amount").eq("booking_id", existing.id).eq("status", "paid"),
+    ]);
+    if (milestoneError) throw new Error(milestoneError.message);
+    if (paymentError) throw new Error(paymentError.message);
+    if (!buyerMilestones?.length) return NextResponse.json({ error: "Buyer payment milestones are missing" }, { status: 409 });
+    const buyerPrice = Number(existing.buyer_price ?? 0);
+    if (buyerPrice <= 0) return NextResponse.json({ error: "Buyer price is invalid" }, { status: 409 });
+    const requiredCashSecurity = requiredInitialBuyerSecurity(buyerMilestones as BuyerMilestone[], buyerPrice);
+    if (requiredCashSecurity <= 0) return NextResponse.json({ error: "Initial buyer security amount is invalid" }, { status: 409 });
+    const paidBuyerTotal = (paidRows ?? []).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+    const manualSecuritySatisfied = existing.financial_security_status === "satisfied" && ["approved_po_credit", "authorized_exception"].includes(existing.financial_security_type ?? "");
+    if (!manualSecuritySatisfied && paidBuyerTotal < requiredCashSecurity) {
+      return NextResponse.json({ error: "Initial buyer payment has not satisfied booking security" }, { status: 409 });
+    }
+
     const { data: result, error: rpcError } = await supabase.rpc("ns_secure_booking_v1", { p_booking_id: existing.id });
-    if (rpcError) return NextResponse.json({ error: "Booking could not be secured", detail: rpcError.message }, { status: 409 });
+    if (rpcError) return NextResponse.json({ error: "Booking could not be secured" }, { status: 409 });
     const row = Array.isArray(result) ? result[0] : result;
     return NextResponse.json({
       ok: true,
       bookingStatus: row?.booking_status ?? "secured",
       financialSecurityType: row?.financial_security_type ?? existing.financial_security_type,
-      paidBuyerTotal: Number(row?.paid_buyer_total ?? 0),
+      paidBuyerTotal: Number(row?.paid_buyer_total ?? paidBuyerTotal),
       source: "ns_secure_booking_v1",
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     console.error("Secure booking action failed", detail);
-    return NextResponse.json({ error: "Secure booking action failed", detail }, { status: 500 });
+    return NextResponse.json({ error: "Secure booking action failed" }, { status: 500 });
   }
 }
