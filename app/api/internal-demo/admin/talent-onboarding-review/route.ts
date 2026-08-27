@@ -16,6 +16,9 @@ function ensureAdmin(request: Request) {
 function missingRiderTable(error: any) {
   return error?.code === "42P01" || error?.code === "PGRST205" || String(error?.message ?? "").includes("talent_rider_versions");
 }
+function rpcStatus(message: string) {
+  return /tidak ditemukan|belum|terlebih dahulu|belum lengkap|belum siap|berubah saat/i.test(message) ? 409 : 500;
+}
 async function buildPreviewUrl(s: ReturnType<typeof getServerClient>, asset: any) {
   if (!asset?.storage_key || asset.upload_status !== "uploaded") return null;
   if (asset.provider === "cloudflare_r2") return createR2PresignedUrl("GET", asset.storage_key, 600);
@@ -71,64 +74,29 @@ export async function PATCH(request: Request) {
       if (assetError) throw new Error(assetError.message);
       if (!asset) return NextResponse.json({ error: "Media tidak ditemukan" }, { status: 404 });
       const buyerVisible = decision === "approved" && asset.asset_type !== "rider_document";
-      const { error } = await s.from("talent_assets").update({ review_status: decision, buyer_visible: buyerVisible, reviewed_at: now, updated_at: now }).eq("id", assetId).eq("talent_id", talentId).eq("upload_status", "uploaded");
+      const { data: changed, error } = await s.from("talent_assets").update({ review_status: decision, buyer_visible: buyerVisible, reviewed_at: now, updated_at: now }).eq("id", assetId).eq("talent_id", talentId).eq("upload_status", "uploaded").select("id");
       if (error) throw new Error(error.message);
+      if (!changed?.length) return NextResponse.json({ error: "Media belum selesai diunggah atau sudah berubah" }, { status: 409 });
       return NextResponse.json({ ok: true, buyerVisible });
     }
 
     if (action === "approve_rider") {
-      const { data: rider, error: re } = await s.from("talent_rider_versions").select("id,status,missing_questions").eq("talent_id", talentId).eq("is_current", true).maybeSingle();
-      if (re) {
-        if (missingRiderTable(re)) return NextResponse.json({ error: "Fitur rider belum tersedia" }, { status: 409 });
-        throw new Error(re.message);
-      }
-      if (!rider) return NextResponse.json({ error: "Belum ada rider utama untuk ditinjau" }, { status: 404 });
-      const missing = Array.isArray(rider.missing_questions) ? rider.missing_questions : [];
-      if (rider.status === "needs_talent_input" || missing.length) return NextResponse.json({ error: "Rider belum lengkap. Minta talent melengkapi pertanyaan yang masih terbuka." }, { status: 409 });
-      if (rider.status === "admin_approved") return NextResponse.json({ ok: true, alreadyApproved: true });
-      if (rider.status !== "ready_for_admin") return NextResponse.json({ error: "Rider belum siap ditinjau admin" }, { status: 409 });
-      const { error } = await s.from("talent_rider_versions").update({ status: "admin_approved", admin_approved_at: now, updated_at: now }).eq("id", rider.id).eq("status", "ready_for_admin");
-      if (error) throw new Error(error.message);
-      return NextResponse.json({ ok: true });
+      const { data, error } = await s.rpc("ns_approve_talent_rider_v1", { p_talent_id: talentId });
+      if (error) return NextResponse.json({ error: error.message }, { status: rpcStatus(error.message) });
+      return NextResponse.json(data ?? { ok: true });
     }
 
     if (action === "reject_profile") {
       const rejectionNote = typeof body?.rejectionNote === "string" && body.rejectionNote.trim() ? body.rejectionNote.trim() : "Perlu revisi";
-      const { error } = await s.from("talent_profile_submissions").update({ status: "rejected", rejection_note: rejectionNote, reviewed_at: now, updated_at: now }).eq("talent_id", talentId);
-      if (error) throw new Error(error.message);
-      await s.from("talents").update({ onboarding_status: "rejected", public_visible: false, updated_at: now }).eq("id", talentId);
-      return NextResponse.json({ ok: true });
+      const { data, error } = await s.rpc("ns_reject_talent_profile_v1", { p_talent_id: talentId, p_rejection_note: rejectionNote });
+      if (error) return NextResponse.json({ error: error.message }, { status: rpcStatus(error.message) });
+      return NextResponse.json(data ?? { ok: true });
     }
 
     if (action === "approve_profile") {
-      const [{ data: submission, error: se }, { data: assets, error: ae }, { data: rider, error: re }] = await Promise.all([
-        s.from("talent_profile_submissions").select("*").eq("talent_id", talentId).eq("status", "submitted").maybeSingle(),
-        s.from("talent_assets").select("asset_type,review_status,buyer_visible").eq("talent_id", talentId).eq("review_status", "approved").eq("buyer_visible", true),
-        s.from("talent_rider_versions").select("id,status,missing_questions").eq("talent_id", talentId).eq("is_current", true).maybeSingle(),
-      ]);
-      if (se) throw new Error(se.message);
-      if (ae) throw new Error(ae.message);
-      if (re && !missingRiderTable(re)) throw new Error(re.message);
-      if (!submission) return NextResponse.json({ error: "Profil belum berstatus sudah dikirim" }, { status: 409 });
-      const hasPhoto = (assets ?? []).some((a) => a.asset_type === "profile_photo");
-      const hasVideo = (assets ?? []).some((a) => ["live_performance", "showreel", "event_clip"].includes(a.asset_type));
-      if (!hasPhoto || !hasVideo) return NextResponse.json({ error: "Setujui minimal 1 foto profil dan 1 video terlebih dahulu" }, { status: 409 });
-      if (rider && rider.status !== "admin_approved") return NextResponse.json({ error: "Setujui rider utama terlebih dahulu sebelum profil dipublikasikan" }, { status: 409 });
-      const publicProfile = {
-        name: submission.name, category: submission.category, act_type: submission.act_type, base_city: submission.base_city,
-        genres: submission.genres, music_styles: submission.music_styles ?? [], vibe_tags: submission.vibe_tags ?? [], capability_tags: submission.capability_tags ?? [],
-        service_cities: submission.service_cities, performance_formats: submission.performance_formats, event_types: submission.event_types,
-        bio: submission.bio, show_duration_minutes: submission.show_duration_minutes,
-        manager_name: submission.manager_name, manager_email: submission.manager_email, manager_whatsapp: submission.manager_whatsapp,
-        instagram_url: submission.instagram_url, tiktok_url: submission.tiktok_url, youtube_url: submission.youtube_url,
-        base_rider: submission.base_rider, travel_policy: submission.travel_policy, accommodation_policy: submission.accommodation_policy,
-        onboarding_status: "approved", onboarding_approved_at: now, status: "verified", public_visible: true, updated_at: now,
-      };
-      const { error: te } = await s.from("talents").update(publicProfile).eq("id", talentId);
-      if (te) throw new Error(te.message);
-      const { error: sue } = await s.from("talent_profile_submissions").update({ status: "approved", rejection_note: null, reviewed_at: now, updated_at: now }).eq("talent_id", talentId);
-      if (sue) throw new Error(sue.message);
-      return NextResponse.json({ ok: true });
+      const { data, error } = await s.rpc("ns_approve_talent_profile_v1", { p_talent_id: talentId });
+      if (error) return NextResponse.json({ error: error.message }, { status: rpcStatus(error.message) });
+      return NextResponse.json(data ?? { ok: true });
     }
 
     return NextResponse.json({ error: "Aksi tidak dikenal" }, { status: 400 });
