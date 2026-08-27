@@ -49,7 +49,7 @@ export async function GET(request: Request) {
     const enriched = await Promise.all((assets ?? []).map(async (asset) => ({ ...asset, preview_url: await buildPreviewUrl(s, asset) })));
     return NextResponse.json({ ok: true, talent, submission, assets: enriched, rider: rider ?? null, riderMigrationRequired: Boolean(re && missingRiderTable(re)) });
   } catch (e) {
-    return NextResponse.json({ error: "Gagal memuat review onboarding", detail: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    return NextResponse.json({ error: "Gagal memuat peninjauan onboarding", detail: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }
 
@@ -66,23 +66,30 @@ export async function PATCH(request: Request) {
     if (action === "review_asset") {
       const assetId = typeof body?.assetId === "string" ? body.assetId : "";
       const decision = body?.decision === "approved" ? "approved" : body?.decision === "rejected" ? "rejected" : "";
-      if (!assetId || !decision) return NextResponse.json({ error: "Review asset tidak valid" }, { status: 400 });
+      if (!assetId || !decision) return NextResponse.json({ error: "Peninjauan media tidak valid" }, { status: 400 });
       const { data: asset, error: assetError } = await s.from("talent_assets").select("id,asset_type").eq("id", assetId).eq("talent_id", talentId).maybeSingle();
       if (assetError) throw new Error(assetError.message);
-      if (!asset) return NextResponse.json({ error: "Asset tidak ditemukan" }, { status: 404 });
-      if (decision === "approved" && asset.asset_type === "rider_document") {
-        const { data: rider, error: riderError } = await s.from("talent_rider_versions").select("status,source_asset_id").eq("talent_id", talentId).eq("is_current", true).maybeSingle();
-        if (riderError && !missingRiderTable(riderError)) throw new Error(riderError.message);
-        if (rider && rider.source_asset_id === assetId && rider.status === "needs_talent_input") return NextResponse.json({ error: "Rider belum lengkap. Minta talent menjawab pertanyaan dasar terlebih dahulu." }, { status: 409 });
-      }
+      if (!asset) return NextResponse.json({ error: "Media tidak ditemukan" }, { status: 404 });
       const buyerVisible = decision === "approved" && asset.asset_type !== "rider_document";
       const { error } = await s.from("talent_assets").update({ review_status: decision, buyer_visible: buyerVisible, reviewed_at: now, updated_at: now }).eq("id", assetId).eq("talent_id", talentId).eq("upload_status", "uploaded");
       if (error) throw new Error(error.message);
-      if (asset.asset_type === "rider_document" && decision === "approved") {
-        const { error: riderUpdateError } = await s.from("talent_rider_versions").update({ status: "admin_approved", admin_approved_at: now, updated_at: now }).eq("talent_id", talentId).eq("is_current", true).neq("status", "needs_talent_input");
-        if (riderUpdateError && !missingRiderTable(riderUpdateError)) throw new Error(riderUpdateError.message);
-      }
       return NextResponse.json({ ok: true, buyerVisible });
+    }
+
+    if (action === "approve_rider") {
+      const { data: rider, error: re } = await s.from("talent_rider_versions").select("id,status,missing_questions").eq("talent_id", talentId).eq("is_current", true).maybeSingle();
+      if (re) {
+        if (missingRiderTable(re)) return NextResponse.json({ error: "Fitur rider belum tersedia" }, { status: 409 });
+        throw new Error(re.message);
+      }
+      if (!rider) return NextResponse.json({ error: "Belum ada rider utama untuk ditinjau" }, { status: 404 });
+      const missing = Array.isArray(rider.missing_questions) ? rider.missing_questions : [];
+      if (rider.status === "needs_talent_input" || missing.length) return NextResponse.json({ error: "Rider belum lengkap. Minta talent melengkapi pertanyaan yang masih terbuka." }, { status: 409 });
+      if (rider.status === "admin_approved") return NextResponse.json({ ok: true, alreadyApproved: true });
+      if (rider.status !== "ready_for_admin") return NextResponse.json({ error: "Rider belum siap ditinjau admin" }, { status: 409 });
+      const { error } = await s.from("talent_rider_versions").update({ status: "admin_approved", admin_approved_at: now, updated_at: now }).eq("id", rider.id).eq("status", "ready_for_admin");
+      if (error) throw new Error(error.message);
+      return NextResponse.json({ ok: true });
     }
 
     if (action === "reject_profile") {
@@ -94,16 +101,19 @@ export async function PATCH(request: Request) {
     }
 
     if (action === "approve_profile") {
-      const [{ data: submission, error: se }, { data: assets, error: ae }] = await Promise.all([
+      const [{ data: submission, error: se }, { data: assets, error: ae }, { data: rider, error: re }] = await Promise.all([
         s.from("talent_profile_submissions").select("*").eq("talent_id", talentId).eq("status", "submitted").maybeSingle(),
         s.from("talent_assets").select("asset_type,review_status,buyer_visible").eq("talent_id", talentId).eq("review_status", "approved").eq("buyer_visible", true),
+        s.from("talent_rider_versions").select("id,status,missing_questions").eq("talent_id", talentId).eq("is_current", true).maybeSingle(),
       ]);
       if (se) throw new Error(se.message);
       if (ae) throw new Error(ae.message);
-      if (!submission) return NextResponse.json({ error: "Profil belum berstatus submitted" }, { status: 409 });
+      if (re && !missingRiderTable(re)) throw new Error(re.message);
+      if (!submission) return NextResponse.json({ error: "Profil belum berstatus sudah dikirim" }, { status: 409 });
       const hasPhoto = (assets ?? []).some((a) => a.asset_type === "profile_photo");
       const hasVideo = (assets ?? []).some((a) => ["live_performance", "showreel", "event_clip"].includes(a.asset_type));
-      if (!hasPhoto || !hasVideo) return NextResponse.json({ error: "Approve minimal 1 foto profil dan 1 video terlebih dahulu" }, { status: 409 });
+      if (!hasPhoto || !hasVideo) return NextResponse.json({ error: "Setujui minimal 1 foto profil dan 1 video terlebih dahulu" }, { status: 409 });
+      if (rider && rider.status !== "admin_approved") return NextResponse.json({ error: "Setujui rider utama terlebih dahulu sebelum profil dipublikasikan" }, { status: 409 });
       const publicProfile = {
         name: submission.name, category: submission.category, act_type: submission.act_type, base_city: submission.base_city,
         genres: submission.genres, music_styles: submission.music_styles ?? [], vibe_tags: submission.vibe_tags ?? [], capability_tags: submission.capability_tags ?? [],
@@ -121,8 +131,8 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    return NextResponse.json({ error: "Action tidak dikenal" }, { status: 400 });
+    return NextResponse.json({ error: "Aksi tidak dikenal" }, { status: 400 });
   } catch (e) {
-    return NextResponse.json({ error: "Review onboarding gagal", detail: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    return NextResponse.json({ error: "Peninjauan onboarding gagal", detail: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }
