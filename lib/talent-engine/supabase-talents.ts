@@ -22,6 +22,8 @@ type TalentRow = {
   reliability_score: number | null;
   last_calendar_updated_at: string | null;
   status: string;
+  onboarding_status: string | null;
+  public_visible: boolean | null;
 };
 
 type AvailabilityRow = {
@@ -48,7 +50,7 @@ function normalizeActType(value: string | null): TalentActType {
 }
 
 function isOperationalTalent(row: TalentRow) {
-  return !row.name.toUpperCase().startsWith("SECURE-SMOKE-");
+  return !row.name.toUpperCase().startsWith("SECURE-SMOKE-") && row.status === "verified" && row.onboarding_status === "approved" && row.public_visible === true;
 }
 
 export async function loadEngineTalents(): Promise<{ talents: EngineTalent[]; source: "supabase" }> {
@@ -58,8 +60,10 @@ export async function loadEngineTalents(): Promise<{ talents: EngineTalent[]; so
   const [{ data: talentData, error: talentError }, { data: availabilityData, error: availabilityError }] = await Promise.all([
     supabase
       .from("talents")
-      .select("id,name,category,act_type,gender,genres,music_styles,vibe_tags,capability_tags,base_city,service_cities,performance_formats,event_types,audience_tags,budget_min,budget_max,reliability_score,last_calendar_updated_at,status")
-      .in("status", ["curated", "verified"]),
+      .select("id,name,category,act_type,gender,genres,music_styles,vibe_tags,capability_tags,base_city,service_cities,performance_formats,event_types,audience_tags,budget_min,budget_max,reliability_score,last_calendar_updated_at,status,onboarding_status,public_visible")
+      .eq("status", "verified")
+      .eq("onboarding_status", "approved")
+      .eq("public_visible", true),
     supabase.from("talent_availability").select("talent_id,event_date,status"),
   ]);
 
