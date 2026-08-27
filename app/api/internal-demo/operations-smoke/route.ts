@@ -51,6 +51,14 @@ export async function GET() {
     await supabase.from("bookings").update({ status: "pre_show" }).eq("id", bookingId);
     await supabase.from("bookings").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", bookingId);
 
+    const unfundedKey = `ops-smoke-unfunded-${stamp}`;
+    const unfunded = await supabase.rpc("ns_record_talent_settlement_v1", { p_booking_id: bookingId, p_amount: 1000000, p_provider: "smoke", p_provider_reference: `unfunded-${stamp}`, p_idempotency_key: unfundedKey, p_paid_at: new Date().toISOString(), p_notes: "must be rejected before buyer cash" });
+    const unfundedSettlementBlocked = Boolean(unfunded.error);
+    if (!unfundedSettlementBlocked) await supabase.from("talent_settlements").delete().eq("idempotency_key", unfundedKey);
+
+    const { error: buyerPaymentError } = await supabase.from("payments").insert({ booking_id: bookingId, payment_type: "buyer_full_payment", amount: 1200000, status: "paid", paid_at: new Date().toISOString(), idempotency_key: `ops-smoke-buyer-${stamp}` });
+    if (buyerPaymentError) throw new Error(buyerPaymentError.message);
+
     const key = `ops-smoke-${stamp}`;
     const first = await supabase.rpc("ns_record_talent_settlement_v1", { p_booking_id: bookingId, p_amount: 1000000, p_provider: "smoke", p_provider_reference: `ref-${stamp}`, p_idempotency_key: key, p_paid_at: new Date().toISOString(), p_notes: "smoke" });
     if (first.error) throw new Error(first.error.message);
@@ -64,13 +72,14 @@ export async function GET() {
     ]);
 
     return NextResponse.json({
-      ok: checklistCount === 8 && settlementCount === 1 && finalBooking?.status === "completed",
+      ok: checklistCount === 8 && settlementCount === 1 && finalBooking?.status === "completed" && unfundedSettlementBlocked,
       checks: {
         preShowChecklistGenerated: checklistCount === 8,
         incidentLifecycleWorks: true,
         showCompletionWorks: finalBooking?.status === "completed" && Boolean(finalBooking?.completed_at),
+        unfundedSettlementBlocked,
+        fundedTalentSettlementWorks: settlementCount === 1,
         settlementIdempotent: settlementCount === 1,
-        actualTalentSettlementRecorded: settlementCount === 1,
       },
       cleanup: "automatic",
     });
@@ -80,6 +89,7 @@ export async function GET() {
   } finally {
     if (bookingId) {
       await supabase.from("talent_settlements").delete().eq("booking_id", bookingId);
+      await supabase.from("payments").delete().eq("booking_id", bookingId);
       await supabase.from("incidents").delete().eq("booking_id", bookingId);
       await supabase.from("pre_show_checklist_items").delete().eq("booking_id", bookingId);
       await supabase.from("bookings").delete().eq("id", bookingId);
