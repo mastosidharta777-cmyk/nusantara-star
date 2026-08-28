@@ -10,6 +10,7 @@ type Candidate = {
   name: string;
   eventFee: number;
   currency: string;
+  talentPaymentTerms: string | null;
   quoteValidUntil: string | null;
 };
 
@@ -25,6 +26,7 @@ export function AdminProposalActions({ briefId, status }: { briefId: string; sta
   const [error, setError] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [buyerPrices, setBuyerPrices] = useState<Record<string, string>>({});
+  const [buyerPaymentTerms, setBuyerPaymentTerms] = useState("");
 
   useEffect(() => {
     if (sent) return;
@@ -51,6 +53,8 @@ export function AdminProposalActions({ briefId, status }: { briefId: string; sta
     setBusy(true);
     setError(null);
     try {
+      const terms = buyerPaymentTerms.trim();
+      if (!terms) throw new Error("Isi ketentuan pembayaran yang akan dilihat klien");
       const normalizedPrices: Record<string, number> = {};
       for (const candidate of candidates) {
         const price = Number(buyerPrices[candidate.talentId]);
@@ -61,7 +65,7 @@ export function AdminProposalActions({ briefId, status }: { briefId: string; sta
       const response = await fetch("/api/internal-demo/admin/proposal-sent", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ briefId, buyerPrices: normalizedPrices }),
+        body: JSON.stringify({ briefId, buyerPrices: normalizedPrices, buyerPaymentTerms: terms }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.detail ?? body?.error ?? "Gagal membuat proposal");
@@ -76,10 +80,14 @@ export function AdminProposalActions({ briefId, status }: { briefId: string; sta
   return (
     <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
       <p className="text-sm font-semibold">Proposal klien / daftar pilihan</p>
-      <p className="mt-1 text-xs text-black/45">Harga talent di bawah hanya untuk internal. Isi harga jual ke klien, lalu setujui dan kirim proposal. Harga buyer tidak lagi dibuat otomatis dari fee talent.</p>
+      <p className="mt-1 text-xs text-black/45">Fee dan terms talent di bawah hanya untuk internal. Tetapkan harga dan terms yang memang akan dilihat klien, lalu setujui dan kirim.</p>
 
       {!sent ? (
-        <div className="mt-5 grid gap-3">
+        <div className="mt-5 grid gap-4">
+          <label className="text-sm">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-black/45">Ketentuan pembayaran ke klien</span>
+            <textarea value={buyerPaymentTerms} onChange={(event) => setBuyerPaymentTerms(event.target.value)} className="min-h-20 w-full border border-black/20 bg-white px-3 py-2" placeholder="Contoh: jadwal pembayaran yang disepakati untuk buyer. Tidak diisi otomatis dari terms talent." />
+          </label>
           {loading ? <p className="text-sm text-black/50">Memuat kandidat proposal…</p> : null}
           {!loading && candidates.length === 0 ? <p className="text-sm text-black/50">Belum ada talent approved dengan offer confirmed yang masih berlaku.</p> : null}
           {candidates.map((candidate) => (
@@ -87,6 +95,7 @@ export function AdminProposalActions({ briefId, status }: { briefId: string; sta
               <div>
                 <p className="font-semibold">{candidate.name}</p>
                 <p className="mt-1 text-xs text-black/50">Fee talent internal: {money(candidate.eventFee)}</p>
+                <p className="mt-1 text-xs text-black/50">Terms talent internal: {candidate.talentPaymentTerms ?? "—"}</p>
                 {candidate.quoteValidUntil ? <p className="mt-1 text-xs text-black/40">Offer berlaku sampai {new Date(candidate.quoteValidUntil).toLocaleString("id-ID")}</p> : null}
               </div>
               <label className="text-sm">
