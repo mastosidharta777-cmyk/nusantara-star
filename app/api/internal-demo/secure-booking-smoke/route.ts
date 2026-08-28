@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { POST as bookingAction } from "@/app/api/internal-demo/admin/booking/route";
+import { POST as paymentAction } from "@/app/api/internal-demo/admin/payment/route";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -17,22 +20,22 @@ function futureDate(days: number) {
   return d.toISOString().slice(0, 10);
 }
 
-async function post(origin: string, path: string, body: Record<string, unknown>) {
-  const response = await fetch(`${origin}${path}`, {
+type Handler = (request: Request) => Promise<Response>;
+
+async function post(handler: Handler, body: Record<string, unknown>) {
+  const response = await handler(new Request("http://internal", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-    cache: "no-store",
-  });
+  }));
   const json = await response.json().catch(() => null);
   return { response, json };
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   if (process.env.VERCEL_ENV === "production") return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const supabase = getServerClient();
-  const origin = new URL(request.url).origin;
   let briefId: string | null = null;
   let talentId: string | null = null;
 
@@ -145,25 +148,25 @@ export async function GET(request: Request) {
     }).select("id").single();
     if (dealError || !deal) throw new Error(dealError?.message ?? "Deal insert failed");
 
-    const create = await post(origin, "/api/internal-demo/admin/booking", { briefId, action: "create_booking" });
+    const create = await post(bookingAction, { briefId, action: "create_booking" });
     if (!create.response.ok || create.json?.status !== "pending_security") throw new Error(`Pending security booking failed: ${JSON.stringify(create.json)}`);
     const bookingId = String(create.json.bookingId);
 
-    const prematureSecure = await post(origin, "/api/internal-demo/admin/booking", { briefId, action: "secure_booking" });
+    const prematureSecure = await post(bookingAction, { briefId, action: "secure_booking" });
     if (prematureSecure.response.ok) throw new Error("Booking secured before buyer terms/security were satisfied");
 
-    const accept = await post(origin, "/api/internal-demo/admin/booking", { briefId, action: "accept_buyer_terms" });
+    const accept = await post(bookingAction, { briefId, action: "accept_buyer_terms" });
     if (!accept.response.ok) throw new Error(`Buyer terms acceptance failed: ${JSON.stringify(accept.json)}`);
 
-    const paymentCreate = await post(origin, "/api/internal-demo/admin/payment", { bookingId, action: "create_next_buyer_payment" });
+    const paymentCreate = await post(paymentAction, { bookingId, action: "create_next_buyer_payment" });
     if (!paymentCreate.response.ok) throw new Error(`Initial payment creation failed: ${JSON.stringify(paymentCreate.json)}`);
     const payment = paymentCreate.json?.payment;
     if (Number(payment?.amount) !== 3000000) throw new Error(`Milestone amount is not 30%: ${JSON.stringify(paymentCreate.json)}`);
 
-    const paid = await post(origin, "/api/internal-demo/admin/payment", { bookingId, action: "mark_paid", paymentId: payment.id });
+    const paid = await post(paymentAction, { bookingId, action: "mark_paid", paymentId: payment.id });
     if (!paid.response.ok) throw new Error(`Payment confirmation failed: ${JSON.stringify(paid.json)}`);
 
-    const secure = await post(origin, "/api/internal-demo/admin/booking", { briefId, action: "secure_booking" });
+    const secure = await post(bookingAction, { briefId, action: "secure_booking" });
     if (!secure.response.ok || secure.json?.bookingStatus !== "secured") throw new Error(`Secure booking failed: ${JSON.stringify(secure.json)}`);
 
     const { data: finalBooking, error: finalError } = await supabase.from("bookings").select("status,buyer_terms_accepted_at,financial_security_type,financial_security_status,secured_at").eq("id", bookingId).single();
