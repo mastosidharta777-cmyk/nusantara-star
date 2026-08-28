@@ -1,0 +1,106 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { createR2PresignedUrl } from "@/lib/r2-presign";
+
+export const runtime = "nodejs";
+
+function getServerClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Supabase server environment is not configured");
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+function ensureAdmin(request: Request) {
+  return process.env.VERCEL_ENV !== "production" || request.headers.get("x-ns-admin-verified") === "1";
+}
+function missingRiderTable(error: any) {
+  return error?.code === "42P01" || error?.code === "PGRST205" || String(error?.message ?? "").includes("talent_rider_versions");
+}
+function rpcStatus(message: string) {
+  return /tidak ditemukan|belum|terlebih dahulu|belum lengkap|belum siap|berubah saat/i.test(message) ? 409 : 500;
+}
+async function buildPreviewUrl(s: ReturnType<typeof getServerClient>, asset: any) {
+  if (!asset?.storage_key || asset.upload_status !== "uploaded") return null;
+  if (asset.provider === "cloudflare_r2") return createR2PresignedUrl("GET", asset.storage_key, 600);
+  if (asset.provider === "supabase_storage") {
+    const bucket = asset.asset_type === "profile_photo" ? "talent-photos" : asset.asset_type === "rider_document" ? "talent-documents" : null;
+    if (!bucket) return null;
+    const { data, error } = await s.storage.from(bucket).createSignedUrl(asset.storage_key, 600);
+    if (error) return null;
+    return data.signedUrl;
+  }
+  return null;
+}
+
+export async function GET(request: Request) {
+  try {
+    if (!ensureAdmin(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const talentId = new URL(request.url).searchParams.get("talentId") ?? "";
+    if (!talentId) return NextResponse.json({ error: "Talent wajib dipilih" }, { status: 400 });
+    const s = getServerClient();
+    const [{ data: talent, error: te }, { data: submission, error: se }, { data: assets, error: ae }, { data: rider, error: re }] = await Promise.all([
+      s.from("talents").select("id,name,onboarding_status,public_visible,status").eq("id", talentId).maybeSingle(),
+      s.from("talent_profile_submissions").select("*").eq("talent_id", talentId).maybeSingle(),
+      s.from("talent_assets").select("id,asset_type,provider,storage_key,original_filename,mime_type,size_bytes,title,description,upload_status,review_status,buyer_visible,created_at").eq("talent_id", talentId).order("created_at", { ascending: false }),
+      s.from("talent_rider_versions").select("id,version_no,source_type,source_asset_id,source_filename,normalized_data,missing_questions,answers,normalization_source,status,is_current,updated_at").eq("talent_id", talentId).eq("is_current", true).maybeSingle(),
+    ]);
+    if (te) throw new Error(te.message);
+    if (!talent) return NextResponse.json({ error: "Talent tidak ditemukan" }, { status: 404 });
+    if (se) throw new Error(se.message);
+    if (ae) throw new Error(ae.message);
+    if (re && !missingRiderTable(re)) throw new Error(re.message);
+    const enriched = await Promise.all((assets ?? []).map(async (asset) => ({ ...asset, preview_url: await buildPreviewUrl(s, asset) })));
+    return NextResponse.json({ ok: true, talent, submission, assets: enriched, rider: rider ?? null, riderMigrationRequired: Boolean(re && missingRiderTable(re)) });
+  } catch (e) {
+    return NextResponse.json({ error: "Gagal memuat peninjauan onboarding", detail: e instanceof Error ? e.message : String(e) }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    if (!ensureAdmin(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const body = await request.json().catch(() => null);
+    const talentId = typeof body?.talentId === "string" ? body.talentId : "";
+    const action = typeof body?.action === "string" ? body.action : "";
+    if (!talentId) return NextResponse.json({ error: "Talent wajib dipilih" }, { status: 400 });
+    const s = getServerClient();
+    const now = new Date().toISOString();
+
+    if (action === "review_asset") {
+      const assetId = typeof body?.assetId === "string" ? body.assetId : "";
+      const decision = body?.decision === "approved" ? "approved" : body?.decision === "rejected" ? "rejected" : "";
+      if (!assetId || !decision) return NextResponse.json({ error: "Peninjauan media tidak valid" }, { status: 400 });
+      const { data: asset, error: assetError } = await s.from("talent_assets").select("id,asset_type").eq("id", assetId).eq("talent_id", talentId).maybeSingle();
+      if (assetError) throw new Error(assetError.message);
+      if (!asset) return NextResponse.json({ error: "Media tidak ditemukan" }, { status: 404 });
+      const buyerVisible = decision === "approved" && asset.asset_type !== "rider_document";
+      const { data: changed, error } = await s.from("talent_assets").update({ review_status: decision, buyer_visible: buyerVisible, reviewed_at: now, updated_at: now }).eq("id", assetId).eq("talent_id", talentId).eq("upload_status", "uploaded").select("id");
+      if (error) throw new Error(error.message);
+      if (!changed?.length) return NextResponse.json({ error: "Media belum selesai diunggah atau sudah berubah" }, { status: 409 });
+      return NextResponse.json({ ok: true, buyerVisible });
+    }
+
+    if (action === "approve_rider") {
+      const { data, error } = await s.rpc("ns_approve_talent_rider_v1", { p_talent_id: talentId });
+      if (error) return NextResponse.json({ error: error.message }, { status: rpcStatus(error.message) });
+      return NextResponse.json(data ?? { ok: true });
+    }
+
+    if (action === "reject_profile") {
+      const rejectionNote = typeof body?.rejectionNote === "string" && body.rejectionNote.trim() ? body.rejectionNote.trim() : "Perlu revisi";
+      const { data, error } = await s.rpc("ns_reject_talent_profile_v1", { p_talent_id: talentId, p_rejection_note: rejectionNote });
+      if (error) return NextResponse.json({ error: error.message }, { status: rpcStatus(error.message) });
+      return NextResponse.json(data ?? { ok: true });
+    }
+
+    if (action === "approve_profile") {
+      const { data, error } = await s.rpc("ns_approve_talent_profile_v1", { p_talent_id: talentId });
+      if (error) return NextResponse.json({ error: error.message }, { status: rpcStatus(error.message) });
+      return NextResponse.json(data ?? { ok: true });
+    }
+
+    return NextResponse.json({ error: "Aksi tidak dikenal" }, { status: 400 });
+  } catch (e) {
+    return NextResponse.json({ error: "Peninjauan onboarding gagal", detail: e instanceof Error ? e.message : String(e) }, { status: 500 });
+  }
+}

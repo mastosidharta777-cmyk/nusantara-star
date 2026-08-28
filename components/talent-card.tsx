@@ -1,4 +1,10 @@
 import Image from "next/image";
 import { ArrowUpRight, MapPin } from "lucide-react";
 import type { Talent } from "@/lib/data";
-export function TalentCard({ talent, priority = false }: { talent: Talent; priority?: boolean }) { return <article className="group"><div className="relative aspect-[4/5] overflow-hidden bg-sand"><Image src={talent.image} alt={`${talent.name}, ${talent.category}`} fill priority={priority} className="object-cover grayscale-[15%] transition duration-700 group-hover:scale-[1.035] group-hover:grayscale-0" sizes="(max-width: 768px) 100vw, 33vw"/><span className="absolute left-4 top-4 bg-paper px-3 py-2 text-[10px] font-bold uppercase tracking-[.15em]">{talent.category}</span></div><div className="flex items-start justify-between border-b border-black/20 py-4"><div><h3 className="font-display text-2xl">{talent.name}</h3><p className="mt-1 flex items-center gap-1 text-xs text-black/55"><MapPin size={13}/>{talent.city} · {talent.genre}</p></div><ArrowUpRight className="mt-1 transition group-hover:-translate-y-1 group-hover:translate-x-1"/></div></article> }
+import { categories } from "@/lib/data";
+
+export function TalentCard({ talent, priority = false, locale = "id" }: { talent: Talent; priority?: boolean; locale?: "id" | "en" }) {
+  const category = categories.find((item) => item.id === talent.categoryId);
+  const categoryLabel = category ? (locale === "id" ? category.labelId : category.labelEn) : talent.category;
+  return <article className="group"><div className="relative aspect-[4/5] overflow-hidden bg-sand"><Image src={talent.image} alt={`${talent.name}, ${categoryLabel}`} fill priority={priority} className="object-cover grayscale-[15%] transition duration-700 group-hover:scale-[1.035] group-hover:grayscale-0" sizes="(max-width: 768px) 100vw, 33vw"/><span className="absolute left-4 top-4 bg-paper px-3 py-2 text-[10px] font-bold uppercase tracking-[.15em]">{categoryLabel}</span></div><div className="flex items-start justify-between border-b border-black/20 py-4"><div><h3 className="font-display text-2xl">{talent.name}</h3><p className="mt-1 flex items-center gap-1 text-xs text-black/55"><MapPin size={13}/>{talent.city} · {talent.genre}</p></div><ArrowUpRight className="mt-1 transition group-hover:-translate-y-1 group-hover:translate-x-1"/></div></article>;
+}
