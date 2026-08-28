@@ -129,9 +129,11 @@ begin
       set status = 'expired', updated_at = v_now
       where availability_request_id = p_request_id and status <> 'expired';
   else
+    -- Offer lifecycle follows the manager's current response, not whether this is the first response.
+    -- This allows tentative -> confirmed to become proposal-eligible once the manager explicitly confirms.
     v_offer_status := case
+      when p_status = 'confirmed' then 'confirmed'
       when p_status = 'unavailable' then 'unavailable'
-      when v_request.status = 'pending' then 'confirmed'
       else 'changed'
     end;
     insert into public.talent_offers (
