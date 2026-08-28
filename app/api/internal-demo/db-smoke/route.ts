@@ -37,7 +37,7 @@ export async function GET() {
     const marker = `SMOKE-${Date.now()}`;
 
     const { data: talent, error: talentError } = await supabase.from("talents").insert({
-      name: marker, category: "singer", gender: "female", genres: ["pop"], base_city: "Jakarta", service_cities: ["Jakarta"], performance_formats: ["solo"], event_types: ["corporate"], audience_tags: ["pop", "corporate"], budget_min: 10000000, budget_max: 15000000, reliability_score: 90, last_calendar_updated_at: new Date().toISOString(), status: "verified", public_visible: false,
+      name: marker, category: "singer", gender: "female", genres: ["pop"], base_city: "Jakarta", service_cities: ["Jakarta"], performance_formats: ["solo"], event_types: ["corporate"], audience_tags: ["pop", "corporate"], budget_min: 10000000, budget_max: 15000000, reliability_score: 90, last_calendar_updated_at: new Date().toISOString(), status: "verified", onboarding_status: "approved", public_visible: true,
     }).select("id,name,category,base_city,genres,bio,profile_image_url").single();
     if (talentError || !talent?.id) throw new Error(`Talent insert failed: ${talentError?.message ?? "missing id"}`);
     talentId = String(talent.id);
