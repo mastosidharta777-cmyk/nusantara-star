@@ -23,6 +23,29 @@ export async function POST(request: Request) {
   if (talentError) return NextResponse.json({ error: "Gagal memeriksa talent", detail: talentError.message }, { status: 500 });
   if (!talent) return NextResponse.json({ error: "Talent tidak ditemukan" }, { status: 404 });
 
+  if (action === "update_operational_basics") {
+    const baseCity = typeof body.baseCity === "string" ? body.baseCity.trim() : "";
+    const budgetMin = Number(body.budgetMin);
+    const budgetMax = Number(body.budgetMax);
+    if (!baseCity) return NextResponse.json({ error: "Kota basis wajib diisi" }, { status: 400 });
+    if (!Number.isSafeInteger(budgetMin) || budgetMin <= 0) return NextResponse.json({ error: "Fee indikatif minimum tidak valid" }, { status: 400 });
+    if (!Number.isSafeInteger(budgetMax) || budgetMax < budgetMin) return NextResponse.json({ error: "Fee indikatif maksimum harus sama atau lebih besar dari minimum" }, { status: 400 });
+    const { data, error } = await supabase.rpc("ns_update_talent_operational_basics_v1", {
+      p_talent_id: talentId,
+      p_base_city: baseCity,
+      p_budget_min: budgetMin,
+      p_budget_max: budgetMax,
+    });
+    if (error) return NextResponse.json({ error: "Gagal menyimpan data operasional", detail: error.message }, { status: 500 });
+    return NextResponse.json(data ?? { ok: true });
+  }
+
+  if (action === "confirm_availability_review") {
+    const { data, error } = await supabase.rpc("ns_confirm_talent_availability_review_v1", { p_talent_id: talentId });
+    if (error) return NextResponse.json({ error: "Gagal mencatat konfirmasi availability", detail: error.message }, { status: 500 });
+    return NextResponse.json(data ?? { ok: true });
+  }
+
   if (action === "delete_payment_policy") {
     const policyId = typeof body.policyId === "string" ? body.policyId : "";
     if (!policyId) return NextResponse.json({ error: "Kebijakan pembayaran tidak valid" }, { status: 400 });

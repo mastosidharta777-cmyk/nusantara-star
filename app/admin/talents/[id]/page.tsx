@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { AdminTalentCommercialProfile } from "@/components/admin-talent-commercial-profile";
 import { AdminTalentOnboardingLink } from "@/components/admin-talent-onboarding-link";
 import { AdminTalentOnboardingReview } from "@/components/admin-talent-onboarding-review";
+import { AdminTalentOperationalBasics } from "@/components/admin-talent-operational-basics";
 import { loadAdminTalentDetail } from "@/lib/admin-talent-detail";
 
 function money(value: number | null) {
@@ -23,6 +24,7 @@ export default async function AdminTalentDetailPage({ params }: { params: Promis
 
     <section className="grid gap-3 py-7 sm:grid-cols-3"><article className="border border-black/10 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Rate Minimum</p><p className="mt-3 text-sm font-semibold">{money(talent.budget_min)}</p></article><article className="border border-black/10 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Rate Maksimum</p><p className="mt-3 text-sm font-semibold">{money(talent.budget_max)}</p></article><article className="border border-black/10 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Termin Pembayaran</p><p className="mt-3 text-sm font-semibold">{paymentPolicies.length ? `${paymentPolicies.length} tahap` : "Belum diatur"}</p></article></section>
 
+    <AdminTalentOperationalBasics talentId={talent.id} initialBaseCity={talent.base_city} initialBudgetMin={talent.budget_min} initialBudgetMax={talent.budget_max} lastCalendarUpdatedAt={talent.last_calendar_updated_at} />
     <AdminTalentOnboardingLink talentId={talent.id} />
     <div className="mt-5"><AdminTalentOnboardingReview talentId={talent.id} /></div>
 

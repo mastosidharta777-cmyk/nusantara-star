@@ -37,6 +37,7 @@ type TalentRow = {
   base_city: string | null;
   budget_min: number | null;
   budget_max: number | null;
+  last_calendar_updated_at: string | null;
   status: string;
 };
 
@@ -52,7 +53,7 @@ export async function loadAdminTalentDetail(talentId: string) {
   if (!supabase) throw new Error("Supabase server environment is not configured");
 
   const [{ data: talent, error: talentError }, { data: policies, error: policyError }, { data: media, error: mediaError }] = await Promise.all([
-    supabase.from("talents").select("id,name,category,base_city,budget_min,budget_max,status").eq("id", talentId).maybeSingle(),
+    supabase.from("talents").select("id,name,category,base_city,budget_min,budget_max,last_calendar_updated_at,status").eq("id", talentId).maybeSingle(),
     supabase.from("talent_payment_policy_templates").select("*").eq("talent_id", talentId).eq("is_active", true).order("sequence_no", { ascending: true }),
     supabase.from("talent_media").select("*").eq("talent_id", talentId).eq("is_active", true).order("sort_order", { ascending: true }),
   ]);

@@ -50,7 +50,16 @@ function normalizeActType(value: string | null): TalentActType {
 }
 
 function isOperationalTalent(row: TalentRow) {
-  return !row.name.toUpperCase().startsWith("SECURE-SMOKE-") && row.status === "verified" && row.onboarding_status === "approved" && row.public_visible === true;
+  const baseCity = row.base_city?.trim() ?? "";
+  const budgetMin = Number(row.budget_min ?? 0);
+  const budgetMax = Number(row.budget_max ?? 0);
+  return !row.name.toUpperCase().startsWith("SECURE-SMOKE-")
+    && row.status === "verified"
+    && row.onboarding_status === "approved"
+    && row.public_visible === true
+    && Boolean(baseCity)
+    && budgetMin > 0
+    && budgetMax >= budgetMin;
 }
 
 export async function loadEngineTalents(): Promise<{ talents: EngineTalent[]; source: "supabase" }> {
@@ -88,13 +97,13 @@ export async function loadEngineTalents(): Promise<{ talents: EngineTalent[]; so
     musicStyles: row.music_styles ?? [],
     vibeTags: row.vibe_tags ?? [],
     capabilityTags: row.capability_tags ?? [],
-    baseCity: row.base_city ?? "",
+    baseCity: row.base_city!.trim(),
     serviceCities: row.service_cities ?? [],
     performanceFormats: row.performance_formats ?? [],
     eventTypes: row.event_types ?? [],
     audienceTags: row.audience_tags ?? [],
-    budgetMin: Number(row.budget_min ?? 0),
-    budgetMax: Number(row.budget_max ?? 0),
+    budgetMin: Number(row.budget_min),
+    budgetMax: Number(row.budget_max),
     reliabilityScore: Number(row.reliability_score ?? 70),
     lastCalendarUpdatedAt: row.last_calendar_updated_at ?? "1970-01-01T00:00:00.000Z",
     availability: (availabilityByTalent.get(row.id) ?? []).map((entry) => ({ date: entry.event_date, status: entry.status })),
