@@ -1,13 +1,24 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { POST as operationsAction } from "@/app/api/internal-demo/admin/operations/route";
+import { POST as settlementAction } from "@/app/api/internal-demo/admin/settlement/route";
+
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceRoleKey) throw new Error("Supabase server environment is not configured");
   return createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+type Handler = (request: Request) => Promise<Response>;
+async function post(handler: Handler, body: Record<string, unknown>) {
+  const response = await handler(new Request("http://internal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+  const json = await response.json().catch(() => null);
+  return { response, json };
 }
 
 export async function GET() {
@@ -31,58 +42,47 @@ export async function GET() {
     if (bookingError || !booking) throw new Error(bookingError?.message ?? "Booking seed failed");
     bookingId = booking.id;
 
-    const checklistRows = [
-      ["H-14",14,"venue_pic","Venue & PIC confirmed"], ["H-14",14,"event_contacts","Buyer/talent operational contacts confirmed"],
-      ["H-7",7,"rider","Rider requirements confirmed"], ["H-7",7,"technical","Technical requirements confirmed"],
-      ["H-3",3,"transport_accommodation","Transport/accommodation confirmed"], ["H-3",3,"payment_status","Payment status reviewed"],
-      ["H-1",1,"call_time","Call time confirmed"], ["H-1",1,"performance_time","Performance time confirmed"],
-    ].map(([checkpoint, days, itemKey, label]) => {
-      const date = new Date(`${eventDate}T00:00:00.000Z`); date.setUTCDate(date.getUTCDate() - Number(days));
-      return { booking_id: bookingId, checkpoint_code: checkpoint, item_key: itemKey, label, due_date: date.toISOString().slice(0,10) };
-    });
-    const { error: checklistError } = await supabase.from("pre_show_checklist_items").insert(checklistRows);
-    if (checklistError) throw new Error(checklistError.message);
-    await supabase.from("bookings").update({ status: "pre_show", pre_show_at: new Date().toISOString() }).eq("id", bookingId);
+    const preShow = await post(operationsAction, { bookingId, action: "initialize_pre_show" });
+    if (!preShow.response.ok || preShow.json?.status !== "pre_show") throw new Error(`Pre-show failed: ${JSON.stringify(preShow.json)}`);
 
-    const { data: incident, error: incidentError } = await supabase.from("incidents").insert({ booking_id: bookingId, incident_type: "technical_failure", summary: "Smoke test incident", prior_booking_status: "pre_show" }).select("id").single();
-    if (incidentError || !incident) throw new Error(incidentError?.message ?? "Incident seed failed");
-    await supabase.from("bookings").update({ status: "incident" }).eq("id", bookingId);
-    await supabase.from("incidents").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", incident.id);
-    await supabase.from("bookings").update({ status: "pre_show" }).eq("id", bookingId);
-    await supabase.from("bookings").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", bookingId);
+    const incident = await post(operationsAction, { bookingId, action: "report_incident", incidentType: "technical_failure", summary: "Smoke test incident" });
+    if (!incident.response.ok || !incident.json?.incidentId) throw new Error(`Incident report failed: ${JSON.stringify(incident.json)}`);
+    const resolved = await post(operationsAction, { bookingId, action: "resolve_incident", incidentId: incident.json.incidentId, resolutionNotes: "Resolved in smoke" });
+    if (!resolved.response.ok) throw new Error(`Incident resolution failed: ${JSON.stringify(resolved.json)}`);
+
+    const completed = await post(operationsAction, { bookingId, action: "complete_show" });
+    if (!completed.response.ok || completed.json?.bookingStatus !== "completed") throw new Error(`Completion failed: ${JSON.stringify(completed.json)}`);
 
     const unfundedKey = `ops-smoke-unfunded-${stamp}`;
-    const unfunded = await supabase.rpc("ns_record_talent_settlement_v1", { p_booking_id: bookingId, p_amount: 1000000, p_provider: "smoke", p_provider_reference: `unfunded-${stamp}`, p_idempotency_key: unfundedKey, p_paid_at: new Date().toISOString(), p_notes: "must be rejected before buyer cash" });
-    const unfundedSettlementBlocked = Boolean(unfunded.error);
-    if (!unfundedSettlementBlocked) await supabase.from("talent_settlements").delete().eq("idempotency_key", unfundedKey);
+    const unfunded = await post(settlementAction, { bookingId, amount: 1000000, provider: "smoke", providerReference: `unfunded-${stamp}`, idempotencyKey: unfundedKey, notes: "must be rejected before buyer cash" });
+    const unfundedSettlementBlocked = !unfunded.response.ok;
 
     const { error: buyerPaymentError } = await supabase.from("payments").insert({ booking_id: bookingId, payment_type: "buyer_full_payment", amount: 1200000, status: "paid", paid_at: new Date().toISOString(), idempotency_key: `ops-smoke-buyer-${stamp}` });
     if (buyerPaymentError) throw new Error(buyerPaymentError.message);
 
     const key = `ops-smoke-${stamp}`;
-    const first = await supabase.rpc("ns_record_talent_settlement_v1", { p_booking_id: bookingId, p_amount: 1000000, p_provider: "smoke", p_provider_reference: `ref-${stamp}`, p_idempotency_key: key, p_paid_at: new Date().toISOString(), p_notes: "smoke" });
-    if (first.error) throw new Error(first.error.message);
-    const second = await supabase.rpc("ns_record_talent_settlement_v1", { p_booking_id: bookingId, p_amount: 1000000, p_provider: "smoke", p_provider_reference: `ref-${stamp}`, p_idempotency_key: key, p_paid_at: new Date().toISOString(), p_notes: "smoke retry" });
-    if (second.error) throw new Error(second.error.message);
+    const first = await post(settlementAction, { bookingId, amount: 1000000, provider: "smoke", providerReference: `ref-${stamp}`, idempotencyKey: key, notes: "smoke" });
+    if (!first.response.ok) throw new Error(`Settlement failed: ${JSON.stringify(first.json)}`);
+    const second = await post(settlementAction, { bookingId, amount: 1000000, provider: "smoke", providerReference: `ref-${stamp}`, idempotencyKey: key, notes: "smoke retry" });
+    if (!second.response.ok) throw new Error(`Settlement retry failed: ${JSON.stringify(second.json)}`);
 
-    const [{ count: checklistCount }, { count: settlementCount }, { data: finalBooking }] = await Promise.all([
+    const [{ count: checklistCount }, { count: settlementCount }, { data: finalBooking }, { data: finalBrief }] = await Promise.all([
       supabase.from("pre_show_checklist_items").select("id", { count: "exact", head: true }).eq("booking_id", bookingId),
       supabase.from("talent_settlements").select("id", { count: "exact", head: true }).eq("booking_id", bookingId).eq("status", "paid"),
       supabase.from("bookings").select("status,completed_at").eq("id", bookingId).single(),
+      supabase.from("briefs").select("status").eq("id", briefId).single(),
     ]);
 
-    return NextResponse.json({
-      ok: checklistCount === 8 && settlementCount === 1 && finalBooking?.status === "completed" && unfundedSettlementBlocked,
-      checks: {
-        preShowChecklistGenerated: checklistCount === 8,
-        incidentLifecycleWorks: true,
-        showCompletionWorks: finalBooking?.status === "completed" && Boolean(finalBooking?.completed_at),
-        unfundedSettlementBlocked,
-        fundedTalentSettlementWorks: settlementCount === 1,
-        settlementIdempotent: settlementCount === 1,
-      },
-      cleanup: "automatic",
-    });
+    const checks = {
+      preShowChecklistGenerated: checklistCount === 8,
+      incidentLifecycleWorks: resolved.json?.incidentStatus === "resolved",
+      showCompletionWorks: finalBooking?.status === "completed" && Boolean(finalBooking?.completed_at),
+      legacyBriefClosed: finalBrief?.status === "closed",
+      unfundedSettlementBlocked,
+      fundedTalentSettlementWorks: settlementCount === 1,
+      settlementIdempotent: settlementCount === 1,
+    };
+    return NextResponse.json({ ok: Object.values(checks).every(Boolean), checks, cleanup: "automatic" });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ ok: false, error: detail }, { status: 500 });

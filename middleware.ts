@@ -18,13 +18,12 @@ function forbidden(request: NextRequest) {
 function roleCanMutate(role: string, path: string) {
   if (role === "admin") return true;
   if (role === "viewer") return false;
-  if (role === "finance") return ["/payment", "/payment-milestones", "/commercial-terms", "/deal-review", "/booking", "/settlement", "/cancellation"].some((suffix) => path.includes(suffix));
-  if (role === "operations") return ["/match-action", "/proposal-sent", "/booking", "/talent-commercial-profile", "/access-link", "/operations"].some((suffix) => path.includes(suffix));
+  if (role === "finance") return ["/proposal-sent", "/payment", "/payment-milestones", "/commercial-terms", "/deal-review", "/booking", "/settlement", "/cancellation"].some((suffix) => path.includes(suffix));
+  if (role === "operations") return ["/match-action", "/talent-commercial-profile", "/access-link", "/operations"].some((suffix) => path.includes(suffix));
   return false;
 }
 
 export async function middleware(request: NextRequest) {
-  // Keep local development frictionless, but enforce admin auth on every hosted Vercel environment, including Preview.
   if (!process.env.VERCEL_ENV) return NextResponse.next();
   if (request.nextUrl.pathname === "/admin/login" || request.nextUrl.pathname.startsWith("/api/auth/")) return NextResponse.next();
 
@@ -50,12 +49,18 @@ export async function middleware(request: NextRequest) {
   if (isAdminApi && MUTATION_METHODS.has(request.method) && !roleCanMutate(role, request.nextUrl.pathname)) return forbidden(request);
 
   if (isAdminApi && MUTATION_METHODS.has(request.method)) {
-    await fetch(`${supabaseUrl}/rest/v1/audit_logs`, {
-      method: "POST",
-      headers: { ...authHeaders, Prefer: "return=minimal" },
-      body: JSON.stringify({ actor_user_id: user.id, actor_role: role, action: `${request.method} ${request.nextUrl.pathname}`, entity_type: "api_route", metadata: { path: request.nextUrl.pathname } }),
-      cache: "no-store",
-    }).catch(() => null);
+    let auditResponse: Response | null = null;
+    try {
+      auditResponse = await fetch(`${supabaseUrl}/rest/v1/audit_logs`, {
+        method: "POST",
+        headers: { ...authHeaders, Prefer: "return=minimal" },
+        body: JSON.stringify({ actor_user_id: user.id, actor_role: role, action: `${request.method} ${request.nextUrl.pathname}`, entity_type: "api_route", metadata: { path: request.nextUrl.pathname } }),
+        cache: "no-store",
+      });
+    } catch {
+      auditResponse = null;
+    }
+    if (!auditResponse?.ok) return NextResponse.json({ error: "Audit logging unavailable" }, { status: 503 });
   }
 
   const headers = new Headers(request.headers);
