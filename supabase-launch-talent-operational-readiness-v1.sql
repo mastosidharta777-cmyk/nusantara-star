@@ -1,0 +1,3 @@
+-- Nusantara Star — Launch Readiness: Talent Operational Basics V1
+-- Run after the existing onboarding / atomic approval migrations.
+-- Baseline fee is internal matching guidance only. Event-specific confirmed fee remains sourced from Talent Offer.
