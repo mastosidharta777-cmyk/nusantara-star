@@ -20,12 +20,51 @@ function getServerClient() {
 export async function GET() {
   if (isProduction()) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const marker = `LAUNCH-SMOKE-${Date.now()}`;
-  const email = `launch-smoke-${Date.now()}@example.com`;
+  const stamp = Date.now();
+  const marker = `LAUNCH-SMOKE-${stamp}`;
+  const talentMarker = `LAUNCH-SMOKE-TALENT-${stamp}`;
+  const email = `launch-smoke-${stamp}@example.com`;
+  const eventDate = "2026-09-30";
   const supabase = getServerClient();
   let briefId: string | null = null;
+  let talentId: string | null = null;
 
   try {
+    const { data: talent, error: talentError } = await supabase
+      .from("talents")
+      .insert({
+        name: talentMarker,
+        category: "singer",
+        genres: ["pop"],
+        music_styles: ["pop"],
+        vibe_tags: ["corporate"],
+        capability_tags: [],
+        base_city: "Jakarta",
+        service_cities: ["Jakarta"],
+        performance_formats: ["solo"],
+        event_types: ["corporate"],
+        audience_tags: ["corporate"],
+        budget_min: 10000000,
+        budget_max: 15000000,
+        reliability_score: 90,
+        last_calendar_updated_at: new Date().toISOString(),
+        status: "verified",
+        onboarding_status: "approved",
+        public_visible: true,
+      })
+      .select("id")
+      .single();
+    if (talentError || !talent?.id) throw new Error(`QA talent insert failed: ${talentError?.message ?? "missing id"}`);
+    talentId = String(talent.id);
+
+    const { error: availabilityError } = await supabase.from("talent_availability").insert({
+      talent_id: talentId,
+      event_date: eventDate,
+      status: "available",
+      notes: "Temporary launch-readiness QA talent; automatic cleanup",
+    });
+    if (availabilityError) throw new Error(`QA availability insert failed: ${availabilityError.message}`);
+
     const request = new Request("https://preview.local/api/brief", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -35,7 +74,7 @@ export async function GET() {
         whatsapp: "+6281111111111",
         email,
         eventType: "Corporate event",
-        date: "2026-09-30",
+        date: eventDate,
         city: "Jakarta",
         venue: "Preview QA Venue",
         audience: "250",
@@ -49,7 +88,7 @@ export async function GET() {
     });
 
     const response = await submitPublicBrief(request);
-    const payload = await response.json().catch(() => null) as { ok?: boolean; received?: boolean; briefId?: string; error?: string } | null;
+    const payload = (await response.json().catch(() => null)) as { ok?: boolean; received?: boolean; briefId?: string; error?: string } | null;
     if (!response.ok || !payload?.briefId) {
       return NextResponse.json({ ok: false, step: "submission", status: response.status, error: payload?.error ?? "missing brief id" }, { status: 500 });
     }
@@ -63,7 +102,7 @@ export async function GET() {
         .single(),
       supabase
         .from("match_results")
-        .select("id,engine_version,generated_at")
+        .select("id,talent_id,engine_version,generated_at")
         .eq("brief_id", briefId),
     ]);
 
@@ -72,6 +111,7 @@ export async function GET() {
 
     const row = briefResult.data;
     const matches = matchesResult.data ?? [];
+    const qaMatch = matches.find((item) => item.talent_id === talentId);
     const checks = {
       submissionAccepted: payload.ok === true && payload.received === true,
       contactPersisted:
@@ -81,7 +121,8 @@ export async function GET() {
         row?.buyer_email === email,
       sourceTextExcludesContact: Boolean(row?.source_text) && !String(row.source_text).includes(marker) && !String(row.source_text).includes(email),
       briefStartsNew: row?.status === "new",
-      frozenMatchSnapshot: matches.length > 0 && matches.every((item) => Boolean(item.engine_version && item.generated_at)),
+      qaTalentMatched: Boolean(qaMatch),
+      frozenMatchSnapshot: Boolean(qaMatch?.engine_version && qaMatch?.generated_at),
     };
 
     return NextResponse.json({ ok: Object.values(checks).every(Boolean), checks, matchCount: matches.length, cleanup: "automatic" });
@@ -91,6 +132,11 @@ export async function GET() {
     if (briefId) {
       const { error } = await supabase.from("briefs").delete().eq("id", briefId);
       if (error) console.error("Public brief smoke cleanup failed", error.message);
+    }
+    if (talentId) {
+      await supabase.from("talent_availability").delete().eq("talent_id", talentId);
+      const { error } = await supabase.from("talents").delete().eq("id", talentId);
+      if (error) console.error("Public brief QA talent cleanup failed", error.message);
     }
   }
 }
