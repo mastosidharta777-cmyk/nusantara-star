@@ -2,6 +2,13 @@ import { createClient } from "@supabase/supabase-js";
 
 import type { StructuredBrief } from "@/lib/talent-engine/types";
 
+export type BuyerBriefContact = {
+  name: string;
+  company?: string | null;
+  whatsapp: string;
+  email: string;
+};
+
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -15,7 +22,7 @@ function getServerClient() {
   });
 }
 
-export async function persistBrief(brief: StructuredBrief) {
+export async function persistBrief(brief: StructuredBrief, contact?: BuyerBriefContact) {
   const supabase = getServerClient();
 
   const { data, error } = await supabase
@@ -35,6 +42,10 @@ export async function persistBrief(brief: StructuredBrief) {
       special_requirements: brief.specialRequirements,
       source_text: brief.sourceText ?? null,
       field_evidence: brief.fieldEvidence ?? {},
+      buyer_name: contact?.name ?? null,
+      buyer_company: contact?.company ?? null,
+      buyer_whatsapp: contact?.whatsapp ?? null,
+      buyer_email: contact?.email ?? null,
       status: "new",
     })
     .select("id")
