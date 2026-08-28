@@ -41,7 +41,7 @@ function resolveDueDate(row: DealMilestone, input: FundingInput) {
 
 function resolveAmounts(rows: DealMilestone[], total: number) {
   let used = 0;
-  return rows.map((row) => {
+  return [...rows].sort((a, b) => a.sequence_no - b.sequence_no).map((row) => {
     let amount = 0;
     if (row.calculation_type === "percentage") amount = Math.round(total * ((row.percentage ?? 0) / 100));
     if (row.calculation_type === "fixed_amount") amount = row.amount ?? 0;
@@ -64,13 +64,40 @@ export function computeDealReview(input: FundingInput) {
       : input.buyerPrice - input.talentPayable - input.directCosts - input.taxesAndPaymentFees;
   if (contribution !== null && contribution < 0) issues.push("Buyer price tidak menutup seluruh kewajiban deal");
 
+  const buyerResolved = resolveAmounts(input.buyerSchedule, input.buyerPrice);
+  const talentResolved = resolveAmounts(input.talentSchedule, input.talentPayable);
+  const buyerResolvedTotal = buyerResolved.reduce((sum, row) => sum + row.resolvedAmount, 0);
+  const talentResolvedTotal = talentResolved.reduce((sum, row) => sum + row.resolvedAmount, 0);
+  let scheduleIncomplete = false;
+
+  if (input.buyerSchedule.length && buyerResolvedTotal !== input.buyerPrice) {
+    issues.push("Jadwal pembayaran buyer belum mencakup 100% dari harga ke klien");
+    scheduleIncomplete = true;
+  }
+  if (input.talentSchedule.length && talentResolvedTotal !== input.talentPayable) {
+    issues.push("Jadwal pembayaran talent belum mencakup 100% dari fee talent");
+    scheduleIncomplete = true;
+  }
+  for (const row of buyerResolved) {
+    if (row.resolvedAmount <= 0) {
+      issues.push(`Tahap pembayaran buyer ${row.sequence_no} belum memiliki nilai positif`);
+      scheduleIncomplete = true;
+    }
+  }
+  for (const row of talentResolved) {
+    if (row.resolvedAmount <= 0) {
+      issues.push(`Tahap pembayaran talent ${row.sequence_no} belum memiliki nilai positif`);
+      scheduleIncomplete = true;
+    }
+  }
+
   const dated: Array<{ date: string; amount: number }> = [];
-  for (const row of resolveAmounts(input.buyerSchedule, input.buyerPrice)) {
+  for (const row of buyerResolved) {
     const date = resolveDueDate(row, input);
     if (!date) issues.push(`Tanggal kontraktual buyer tahap ${row.sequence_no} belum tersedia`);
     else dated.push({ date, amount: row.resolvedAmount });
   }
-  for (const row of resolveAmounts(input.talentSchedule, input.talentPayable)) {
+  for (const row of talentResolved) {
     const date = resolveDueDate(row, input);
     if (!date) issues.push(`Tanggal kontraktual talent tahap ${row.sequence_no} belum tersedia`);
     else dated.push({ date, amount: -row.resolvedAmount });
@@ -86,7 +113,12 @@ export function computeDealReview(input: FundingInput) {
   }
 
   const uniqueIssues = [...new Set(issues)];
-  if (uniqueIssues.some((issue) => issue.includes("Tanggal kontraktual") || issue.includes("Tanggal jatuh tempo")) || !input.buyerSchedule.length || !input.talentSchedule.length) {
+  if (
+    scheduleIncomplete ||
+    uniqueIssues.some((issue) => issue.includes("Tanggal kontraktual") || issue.includes("Tanggal jatuh tempo")) ||
+    !input.buyerSchedule.length ||
+    !input.talentSchedule.length
+  ) {
     return { contribution, fundingGapAmount: null, fundingGapStatus: "unknown" as const, unresolvedIssues: uniqueIssues };
   }
 
