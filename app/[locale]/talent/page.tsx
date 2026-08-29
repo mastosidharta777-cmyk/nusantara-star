@@ -11,7 +11,7 @@ export default async function TalentPage({params,searchParams}:{params:Promise<{
   if(!isLocale(locale)) notFound();
   const {category,genre}=await searchParams;
   const allTalents=await loadPublicTalents();
-  const selectedCategory=categories.some(item=>item.id===category)?category:null;
+  const selectedCategory:string|null=category&&categories.some(item=>item.id===category)?category:null;
   const selectedLabel=selectedCategory?categories.find(item=>item.id===selectedCategory):null;
 
   const categoryPool=selectedCategory?allTalents.filter(t=>publicCategoryId(t.category)===selectedCategory):allTalents;
