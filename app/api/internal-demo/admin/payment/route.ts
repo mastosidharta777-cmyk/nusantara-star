@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { commercialIntegrityReady } from "@/lib/commercial-integrity";
 import { resolveMilestoneAmounts, type BuyerMilestone } from "@/lib/secure-booking";
 
 export const runtime = "nodejs";
@@ -70,6 +71,9 @@ export async function POST(request: Request) {
     const provider = typeof body?.provider === "string" ? body.provider.trim() : "";
     const providerReference = typeof body?.providerReference === "string" ? body.providerReference.trim() : "";
     if (!paymentId || !provider || !providerReference) return NextResponse.json({ error: "Payment ID, provider/bank, and transaction reference are required" }, { status: 400 });
+    if (!(await commercialIntegrityReady(supabase))) {
+      return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
+    }
 
     const { data, error } = await supabase.rpc("ns_record_buyer_payment_v1", {
       p_booking_id: bookingId,

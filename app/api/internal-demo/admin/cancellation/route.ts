@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { commercialIntegrityReady } from "@/lib/commercial-integrity";
+
 export const runtime = "nodejs";
 
 function getServerClient() {
@@ -19,6 +21,9 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null);
     const action = text(body?.action);
     const supabase = getServerClient();
+    if (!(await commercialIntegrityReady(supabase))) {
+      return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
+    }
 
     if (action === "approve_case") {
       const bookingId = text(body?.bookingId);

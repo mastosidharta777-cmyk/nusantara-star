@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { commercialIntegrityReady } from "@/lib/commercial-integrity";
 import { signAccessToken, type SignedAccessScope } from "@/lib/signed-access";
 
 export const runtime = "nodejs";
@@ -38,6 +39,9 @@ export async function POST(request: Request) {
       if (proposalExpiry < expiresAt) expiresAt = proposalExpiry;
       path = `/id/proposal/${encodeURIComponent(subjectId)}`;
     } else if (scope === "buyer_terms") {
+      if (!(await commercialIntegrityReady(supabase))) {
+        return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
+      }
       const { data: booking, error: bookingError } = await supabase.from("bookings").select("id,deal_id,status,buyer_terms_accepted_at,buyer_terms_accepted_deal_id,buyer_terms_acceptance_source").eq("id", subjectId).maybeSingle();
       if (bookingError) throw new Error(bookingError.message);
       if (!booking || !booking.deal_id) return NextResponse.json({ error: "Booking is not available for buyer terms" }, { status: 404 });

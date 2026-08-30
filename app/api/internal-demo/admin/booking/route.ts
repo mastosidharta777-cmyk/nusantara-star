@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { commercialIntegrityReady } from "@/lib/commercial-integrity";
 import { requiredInitialBuyerSecurity, type BuyerMilestone } from "@/lib/secure-booking";
 
 export const runtime = "nodejs";
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
     const supabase = getServerClient();
     const { data: existing, error: existingError } = await supabase
       .from("bookings")
-      .select("id,brief_id,deal_id,status,buyer_price,buyer_terms_accepted_at,buyer_terms_accepted_deal_id,buyer_terms_acceptance_source,financial_security_type,financial_security_status")
+      .select("id,brief_id,deal_id,status,buyer_price,buyer_terms_accepted_at,financial_security_type,financial_security_status")
       .eq("brief_id", briefId)
       .maybeSingle();
     if (existingError) throw new Error(existingError.message);
@@ -112,6 +113,16 @@ export async function POST(request: Request) {
     }
 
     if (action !== "secure_booking") return NextResponse.json({ error: "Invalid booking action" }, { status: 400 });
+    if (!(await commercialIntegrityReady(supabase))) {
+      return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
+    }
+
+    const { data: acceptanceEvidence, error: acceptanceError } = await supabase
+      .from("bookings")
+      .select("buyer_terms_accepted_deal_id,buyer_terms_acceptance_source")
+      .eq("id", existing.id)
+      .single();
+    if (acceptanceError || !acceptanceEvidence) return NextResponse.json({ error: "Buyer acceptance evidence is unavailable" }, { status: 503 });
 
     const { data: deal, error: dealError } = await supabase
       .from("deals")
@@ -121,7 +132,7 @@ export async function POST(request: Request) {
     if (dealError || !deal) return NextResponse.json({ error: "Deal not found" }, { status: 404 });
     if (deal.status !== "locked") return NextResponse.json({ error: "Deal is not locked" }, { status: 409 });
     if (deal.talent_terms_status !== "confirmed") return NextResponse.json({ error: "Talent terms are unresolved" }, { status: 409 });
-    const buyerAcceptanceValid = Boolean(existing.buyer_terms_accepted_at && existing.buyer_terms_accepted_deal_id === existing.deal_id && existing.buyer_terms_acceptance_source === "signed_buyer_link" && deal.buyer_terms_status === "accepted");
+    const buyerAcceptanceValid = Boolean(existing.buyer_terms_accepted_at && acceptanceEvidence.buyer_terms_accepted_deal_id === existing.deal_id && acceptanceEvidence.buyer_terms_acceptance_source === "signed_buyer_link" && deal.buyer_terms_status === "accepted");
     if (!buyerAcceptanceValid) return NextResponse.json({ error: "Buyer terms have not been accepted through a verified buyer link" }, { status: 409 });
     if (deal.funding_gap_status !== "safe") return NextResponse.json({ error: "Funding gap is unresolved" }, { status: 409 });
 
@@ -137,7 +148,7 @@ export async function POST(request: Request) {
 
     const [{ data: buyerMilestones, error: milestoneError }, { data: paidRows, error: paymentError }] = await Promise.all([
       supabase.from("payment_milestones").select("sequence_no,calculation_type,percentage,amount").eq("booking_id", existing.id).eq("party", "buyer").order("sequence_no"),
-      supabase.from("payments").select("amount,provider,provider_reference").eq("booking_id", existing.id).eq("status", "paid"),
+      supabase.from("payments").select("amount,provider,provider_reference,evidence_key").eq("booking_id", existing.id).eq("status", "paid"),
     ]);
     if (milestoneError) throw new Error(milestoneError.message);
     if (paymentError) throw new Error(paymentError.message);
@@ -146,7 +157,7 @@ export async function POST(request: Request) {
     if (buyerPrice <= 0) return NextResponse.json({ error: "Buyer price is invalid" }, { status: 409 });
     const requiredCashSecurity = requiredInitialBuyerSecurity(buyerMilestones as BuyerMilestone[], buyerPrice);
     if (requiredCashSecurity <= 0) return NextResponse.json({ error: "Initial buyer security amount is invalid" }, { status: 409 });
-    const paidBuyerTotal = (paidRows ?? []).filter((row) => Boolean(row.provider?.trim()) && Boolean(row.provider_reference?.trim())).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+    const paidBuyerTotal = (paidRows ?? []).filter((row) => Boolean(row.provider?.trim()) && Boolean(row.provider_reference?.trim()) && Boolean(row.evidence_key?.trim())).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
     const manualSecuritySatisfied = existing.financial_security_status === "satisfied" && ["approved_po_credit", "authorized_exception"].includes(existing.financial_security_type ?? "");
     if (!manualSecuritySatisfied && paidBuyerTotal < requiredCashSecurity) {
       return NextResponse.json({ error: "Initial buyer payment has not satisfied booking security" }, { status: 409 });

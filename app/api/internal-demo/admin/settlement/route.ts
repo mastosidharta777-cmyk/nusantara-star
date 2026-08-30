@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { commercialIntegrityReady } from "@/lib/commercial-integrity";
+
 export const runtime = "nodejs";
 
 function getServerClient() {
@@ -24,6 +26,9 @@ export async function POST(request: Request) {
     }
 
     const supabase = getServerClient();
+    if (!(await commercialIntegrityReady(supabase))) {
+      return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
+    }
     const { data, error } = await supabase.rpc("ns_record_talent_settlement_v1", {
       p_booking_id: bookingId,
       p_amount: amount,
