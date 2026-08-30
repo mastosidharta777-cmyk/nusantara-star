@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const STATEFUL_QA_PATHS = new Set([
+  "/api/internal-demo/atomic-workflow-smoke",
+  "/api/internal-demo/booking-smoke",
+  "/api/internal-demo/cancellation-smoke",
+  "/api/internal-demo/db-smoke",
+  "/api/internal-demo/deal-copilot-smoke",
+  "/api/internal-demo/direct-inquiry-smoke",
+  "/api/internal-demo/onboarding-approval-smoke",
+  "/api/internal-demo/operations-smoke",
+  "/api/internal-demo/public-brief-smoke",
+  "/api/internal-demo/secure-booking-smoke",
+  "/api/internal-demo/smart-proposal-smoke",
+  "/api/internal-demo/talent-offer-transition-smoke",
+]);
 
 function unauthorized(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -15,6 +29,19 @@ function forbidden(request: NextRequest) {
   return new NextResponse("Forbidden", { status: 403 });
 }
 
+function statefulQaIsSafe() {
+  if (process.env.VERCEL_ENV === "production") return false;
+  if (process.env.QA_MUTATIONS_ENABLED !== "true") return false;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const qaProjectRef = (process.env.QA_SUPABASE_PROJECT_REF ?? "").trim();
+  if (!qaProjectRef) return false;
+  try {
+    return new URL(supabaseUrl).hostname === `${qaProjectRef}.supabase.co`;
+  } catch {
+    return false;
+  }
+}
+
 function roleCanMutate(role: string, path: string) {
   if (role === "admin") return true;
   if (role === "viewer") return false;
@@ -24,8 +51,19 @@ function roleCanMutate(role: string, path: string) {
 }
 
 export async function middleware(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+
+  if (STATEFUL_QA_PATHS.has(path)) {
+    if (!statefulQaIsSafe()) {
+      return NextResponse.json({
+        error: "Stateful QA is disabled until Preview uses an explicitly approved QA Supabase project.",
+      }, { status: 412 });
+    }
+    return NextResponse.next();
+  }
+
   if (!process.env.VERCEL_ENV) return NextResponse.next();
-  if (request.nextUrl.pathname === "/admin/login" || request.nextUrl.pathname.startsWith("/api/auth/")) return NextResponse.next();
+  if (path === "/admin/login" || path.startsWith("/api/auth/")) return NextResponse.next();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -45,8 +83,8 @@ export async function middleware(request: NextRequest) {
   const role = roles[0]?.role;
   if (!role) return forbidden(request);
 
-  const isAdminApi = request.nextUrl.pathname.startsWith("/api/internal-demo/admin/");
-  if (isAdminApi && MUTATION_METHODS.has(request.method) && !roleCanMutate(role, request.nextUrl.pathname)) return forbidden(request);
+  const isAdminApi = path.startsWith("/api/internal-demo/admin/");
+  if (isAdminApi && MUTATION_METHODS.has(request.method) && !roleCanMutate(role, path)) return forbidden(request);
 
   if (isAdminApi && MUTATION_METHODS.has(request.method)) {
     let auditResponse: Response | null = null;
@@ -54,7 +92,7 @@ export async function middleware(request: NextRequest) {
       auditResponse = await fetch(`${supabaseUrl}/rest/v1/audit_logs`, {
         method: "POST",
         headers: { ...authHeaders, Prefer: "return=minimal" },
-        body: JSON.stringify({ actor_user_id: user.id, actor_role: role, action: `${request.method} ${request.nextUrl.pathname}`, entity_type: "api_route", metadata: { path: request.nextUrl.pathname } }),
+        body: JSON.stringify({ actor_user_id: user.id, actor_role: role, action: `${request.method} ${path}`, entity_type: "api_route", metadata: { path } }),
         cache: "no-store",
       });
     } catch {
@@ -70,4 +108,21 @@ export async function middleware(request: NextRequest) {
   return NextResponse.next({ request: { headers } });
 }
 
-export const config = { matcher: ["/admin/:path*", "/api/internal-demo/admin/:path*"] };
+export const config = {
+  matcher: [
+    "/admin/:path*",
+    "/api/internal-demo/admin/:path*",
+    "/api/internal-demo/atomic-workflow-smoke",
+    "/api/internal-demo/booking-smoke",
+    "/api/internal-demo/cancellation-smoke",
+    "/api/internal-demo/db-smoke",
+    "/api/internal-demo/deal-copilot-smoke",
+    "/api/internal-demo/direct-inquiry-smoke",
+    "/api/internal-demo/onboarding-approval-smoke",
+    "/api/internal-demo/operations-smoke",
+    "/api/internal-demo/public-brief-smoke",
+    "/api/internal-demo/secure-booking-smoke",
+    "/api/internal-demo/smart-proposal-smoke",
+    "/api/internal-demo/talent-offer-transition-smoke",
+  ],
+};

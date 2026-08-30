@@ -12,6 +12,15 @@ function money(value: number | null) {
   return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(value);
 }
 
+function formatRequirement(items: string[] | null | undefined) {
+  const row = (items ?? []).find((item) => /^format penampilan\s*:/i.test(item));
+  return row ? row.replace(/^format penampilan\s*:/i, "").trim() : null;
+}
+
+function otherRequirements(items: string[] | null | undefined) {
+  return (items ?? []).filter((item) => !/^format penampilan\s*:/i.test(item));
+}
+
 export default async function TalentConfirmationPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ token?: string }> }) {
   const { id } = await params;
   const { token = "" } = await searchParams;
@@ -21,6 +30,8 @@ export default async function TalentConfirmationPage({ params, searchParams }: {
   const detail = await loadAvailabilityResponseDetail(id);
   if (!detail) notFound();
   const { request, brief, talent, offer } = detail;
+  const requestedFormat = formatRequirement(brief.special_requirements);
+  const requirements = otherRequirements(brief.special_requirements);
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
@@ -30,13 +41,37 @@ export default async function TalentConfirmationPage({ params, searchParams }: {
         <p className="mt-3 text-sm leading-6 text-black/55">Konfirmasi untuk event ini mencakup availability dan commercial offer. Ini belum merupakan kontrak atau booking final.</p>
         <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
           <div className="grid gap-4 sm:grid-cols-2">
-            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Event</p><p className="mt-2 font-semibold">{brief.event_type ?? "—"}</p></div>
-            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Date</p><p className="mt-2 font-semibold">{brief.event_date ?? "—"}</p></div>
-            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">City</p><p className="mt-2 font-semibold">{brief.city ?? "—"}</p></div>
-            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Venue</p><p className="mt-2 font-semibold">{brief.venue ?? "—"}</p></div>
-            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Category</p><p className="mt-2 font-semibold">{brief.talent_category ?? "—"}</p></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Acara</p><p className="mt-2 font-semibold">{brief.event_type ?? "—"}</p></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Tanggal</p><p className="mt-2 font-semibold">{brief.event_date ?? "—"}</p></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Kota</p><p className="mt-2 font-semibold">{brief.city ?? "—"}</p></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Venue</p><p className="mt-2 font-semibold">{brief.venue ?? "Belum diinformasikan"}</p></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Kategori</p><p className="mt-2 font-semibold">{brief.talent_category ?? "—"}</p></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Format penampilan</p><p className="mt-2 font-semibold">{requestedFormat ?? "Belum ditentukan"}</p></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Durasi</p><p className="mt-2 font-semibold">{brief.performance_duration_minutes ? `${brief.performance_duration_minutes} menit` : "Belum ditentukan"}</p></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Audiens</p><p className="mt-2 font-semibold">{brief.audience_size != null ? `${brief.audience_size} orang` : "Belum diinformasikan"}</p></div>
           </div>
-          {offer ? <div className="mt-6 border border-black/10 bg-[#f5f3ee] p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/45">Saved Offer Snapshot</p><div className="mt-3 grid gap-3 sm:grid-cols-2 text-sm"><p><span className="text-black/45">Availability:</span><br />{offer.availability_status}</p><p><span className="text-black/45">Event fee:</span><br />{money(offer.event_fee)}</p><p><span className="text-black/45">Payment terms:</span><br />{offer.payment_terms ?? "—"}</p><p><span className="text-black/45">Valid until:</span><br />{offer.quote_valid_until ? new Date(offer.quote_valid_until).toLocaleString("id-ID") : "—"}</p></div></div> : null}
+
+          {requirements.length ? (
+            <div className="mt-6 border-t border-black/10 pt-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Kebutuhan / catatan buyer</p>
+              <ul className="mt-3 space-y-2 text-sm leading-6 text-black/65">
+                {requirements.map((item) => <li key={item}>• {item.replace(/^catatan buyer\s*:/i, "").trim()}</li>)}
+              </ul>
+            </div>
+          ) : null}
+
+          {offer ? (
+            <div className="mt-6 border border-black/10 bg-[#f5f3ee] p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/45">Saved Offer Snapshot</p>
+              <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                <p><span className="text-black/45">Availability:</span><br />{offer.availability_status}</p>
+                <p><span className="text-black/45">Event fee:</span><br />{money(offer.event_fee)}</p>
+                <p><span className="text-black/45">Payment terms:</span><br />{offer.payment_terms ?? "—"}</p>
+                <p><span className="text-black/45">Valid until:</span><br />{offer.quote_valid_until ? new Date(offer.quote_valid_until).toLocaleString("id-ID") : "—"}</p>
+              </div>
+            </div>
+          ) : null}
+
           <AvailabilityResponseActions requestId={request.id} currentStatus={request.status} existingOffer={offer} accessToken={token} />
         </section>
         {!hosted ? <Link href={`/admin/briefs/${brief.id}`} className="mt-6 inline-block text-sm font-semibold text-black/55 hover:text-black">← Back to Admin Brief</Link> : null}

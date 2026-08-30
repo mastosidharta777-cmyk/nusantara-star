@@ -21,7 +21,14 @@ function rpcStatus(message: string) {
 }
 async function buildPreviewUrl(s: ReturnType<typeof getServerClient>, asset: any) {
   if (!asset?.storage_key || asset.upload_status !== "uploaded") return null;
-  if (asset.provider === "cloudflare_r2") return createR2PresignedUrl("GET", asset.storage_key, 600);
+  if (asset.provider === "cloudflare_r2") {
+    try {
+      return createR2PresignedUrl("GET", asset.storage_key, 600);
+    } catch (error) {
+      console.error("Admin R2 media preview unavailable", error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  }
   if (asset.provider === "supabase_storage") {
     const bucket = asset.asset_type === "profile_photo" ? "talent-photos" : asset.asset_type === "rider_document" ? "talent-documents" : null;
     if (!bucket) return null;

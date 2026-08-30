@@ -43,6 +43,7 @@ export async function GET() {
     const eventDate = futureDate(30);
     const now = new Date().toISOString();
     const marker = `SECURE-SMOKE-${Date.now()}`;
+    const quoteValidUntil = new Date(Date.now() + 7 * 86400000).toISOString();
 
     const { data: talent, error: talentError } = await supabase.from("talents").insert({
       name: marker,
@@ -88,13 +89,13 @@ export async function GET() {
       availability_status: "confirmed",
       event_fee: 10000000,
       currency: "IDR",
-      quote_valid_until: new Date(Date.now() + 7 * 86400000).toISOString(),
+      quote_valid_until: quoteValidUntil,
       confirmation_source: "manager_portal",
       confirmed_at: now,
     }).select("id").single();
     if (offerError || !offer) throw new Error(offerError?.message ?? "Offer insert failed");
 
-    const { data: proposal, error: proposalError } = await supabase.from("proposals").insert({ brief_id: briefId, version: 1, status: "selected", sent_at: now }).select("id").single();
+    const { data: proposal, error: proposalError } = await supabase.from("proposals").insert({ brief_id: briefId, version: 1, status: "selected", expires_at: quoteValidUntil, sent_at: now }).select("id").single();
     if (proposalError || !proposal) throw new Error(proposalError?.message ?? "Proposal insert failed");
 
     const { data: item, error: itemError } = await supabase.from("proposal_items").insert({
@@ -105,6 +106,7 @@ export async function GET() {
       buyer_price: 10000000,
       currency: "IDR",
       availability_status: "confirmed",
+      offer_valid_until: quoteValidUntil,
       talent_name_snapshot: marker,
       talent_category_snapshot: "singer",
       talent_base_city_snapshot: "Jakarta",
@@ -142,6 +144,7 @@ export async function GET() {
       funding_gap_status: "safe",
       talent_terms_status: "confirmed",
       buyer_terms_status: "recommended",
+      cancellation_terms: "Smoke cancellation terms",
       unresolved_issues: [],
       exception_status: "none",
       locked_at: now,
@@ -155,21 +158,21 @@ export async function GET() {
     const prematureSecure = await post(bookingAction, { briefId, action: "secure_booking" });
     if (prematureSecure.response.ok) throw new Error("Booking secured before buyer terms/security were satisfied");
 
-    const accept = await post(bookingAction, { briefId, action: "accept_buyer_terms" });
-    if (!accept.response.ok) throw new Error(`Buyer terms acceptance failed: ${JSON.stringify(accept.json)}`);
+    const accept = await supabase.rpc("ns_accept_buyer_terms_v1", { p_booking_id: bookingId });
+    if (accept.error) throw new Error(`Buyer terms acceptance failed: ${accept.error.message}`);
 
     const paymentCreate = await post(paymentAction, { bookingId, action: "create_next_buyer_payment" });
     if (!paymentCreate.response.ok) throw new Error(`Initial payment creation failed: ${JSON.stringify(paymentCreate.json)}`);
     const payment = paymentCreate.json?.payment;
     if (Number(payment?.amount) !== 3000000) throw new Error(`Milestone amount is not 30%: ${JSON.stringify(paymentCreate.json)}`);
 
-    const paid = await post(paymentAction, { bookingId, action: "mark_paid", paymentId: payment.id });
+    const paid = await post(paymentAction, { bookingId, action: "mark_paid", paymentId: payment.id, provider: "smoke-bank", providerReference: `secure-${Date.now()}` });
     if (!paid.response.ok) throw new Error(`Payment confirmation failed: ${JSON.stringify(paid.json)}`);
 
     const secure = await post(bookingAction, { briefId, action: "secure_booking" });
     if (!secure.response.ok || secure.json?.bookingStatus !== "secured") throw new Error(`Secure booking failed: ${JSON.stringify(secure.json)}`);
 
-    const { data: finalBooking, error: finalError } = await supabase.from("bookings").select("status,buyer_terms_accepted_at,financial_security_type,financial_security_status,secured_at").eq("id", bookingId).single();
+    const { data: finalBooking, error: finalError } = await supabase.from("bookings").select("status,buyer_terms_accepted_at,buyer_terms_accepted_deal_id,buyer_terms_acceptance_source,financial_security_type,financial_security_status,secured_at").eq("id", bookingId).single();
     if (finalError || !finalBooking) throw new Error(finalError?.message ?? "Final booking read failed");
 
     return NextResponse.json({
@@ -177,8 +180,10 @@ export async function GET() {
       checks: {
         buyerSelectedIsNotBooked: create.json.status === "pending_security",
         buyerTermsRequired: !prematureSecure.response.ok,
+        buyerTermsEvidenceBoundToDeal: finalBooking.buyer_terms_accepted_deal_id === deal.id && finalBooking.buyer_terms_acceptance_source === "signed_buyer_link",
         noUniversalFiftyPercent: Number(payment.amount) === 3000000,
         milestoneDrivenPayment: paymentCreate.json?.source === "booking_payment_milestone",
+        paymentEvidenceRequired: paid.response.ok,
         financialSecuritySatisfied: finalBooking.financial_security_status === "satisfied",
         secureBookingGate: finalBooking.status === "secured" && Boolean(finalBooking.buyer_terms_accepted_at) && Boolean(finalBooking.secured_at),
       },
