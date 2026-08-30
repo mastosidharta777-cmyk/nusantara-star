@@ -26,11 +26,15 @@ export async function POST(request: Request) {
     if (!["pending_security", "secured", "pre_show"].includes(booking.status)) return NextResponse.json({ error: "Booking is not active for buyer payments" }, { status: 409 });
     const buyerPrice = Number(booking.buyer_price ?? 0);
     if (buyerPrice <= 0) return NextResponse.json({ error: "Booking buyer price is invalid" }, { status: 409 });
+    const integrityReady = await commercialIntegrityReady(supabase);
 
     if (action === "create_next_buyer_payment") {
+      const activePaymentSelect = integrityReady
+        ? "id,payment_type,amount,status,idempotency_key,provider,provider_reference,evidence_key"
+        : "id,payment_type,amount,status,idempotency_key";
       const [{ data: milestones, error: milestoneError }, { data: activePayments, error: paymentError }] = await Promise.all([
         supabase.from("payment_milestones").select("sequence_no,milestone_type,calculation_type,percentage,amount,status").eq("booking_id", bookingId).eq("party", "buyer").order("sequence_no"),
-        supabase.from("payments").select("id,payment_type,amount,status,idempotency_key").eq("booking_id", bookingId).in("status", ["pending", "paid"]).order("created_at"),
+        supabase.from("payments").select(activePaymentSelect).eq("booking_id", bookingId).in("status", ["pending", "paid"]).order("created_at"),
       ]);
       if (milestoneError) throw new Error(milestoneError.message);
       if (paymentError) throw new Error(paymentError.message);
@@ -40,7 +44,12 @@ export async function POST(request: Request) {
       if (pending) return NextResponse.json({ ok: true, payment: pending, reused: true });
 
       const resolved = resolveMilestoneAmounts(milestones as BuyerMilestone[], buyerPrice);
-      const paidTotal = (activePayments ?? []).filter((row) => row.status === "paid").reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+      const paidTotal = (activePayments ?? []).filter((row) => {
+        if (row.status !== "paid") return false;
+        if (!integrityReady) return true;
+        const evidenceRow = row as typeof row & { provider?: string | null; provider_reference?: string | null; evidence_key?: string | null };
+        return Boolean(evidenceRow.provider?.trim()) && Boolean(evidenceRow.provider_reference?.trim()) && Boolean(evidenceRow.evidence_key?.trim());
+      }).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
       let cumulative = 0;
       let next = resolved[0];
       for (const row of resolved) {
@@ -71,7 +80,7 @@ export async function POST(request: Request) {
     const provider = typeof body?.provider === "string" ? body.provider.trim() : "";
     const providerReference = typeof body?.providerReference === "string" ? body.providerReference.trim() : "";
     if (!paymentId || !provider || !providerReference) return NextResponse.json({ error: "Payment ID, provider/bank, and transaction reference are required" }, { status: 400 });
-    if (!(await commercialIntegrityReady(supabase))) {
+    if (!integrityReady) {
       return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
     }
 
