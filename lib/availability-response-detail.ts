@@ -20,7 +20,7 @@ export async function loadAvailabilityResponseDetail(id: string) {
   const [briefResult, talentResult, offerResult] = await Promise.all([
     supabase
       .from("briefs")
-      .select("id,event_type,event_date,city,venue,talent_category,budget_min,budget_max,status")
+      .select("id,event_type,event_date,city,venue,audience_size,talent_category,performance_duration_minutes,special_requirements,status")
       .eq("id", request.brief_id)
       .single(),
     supabase

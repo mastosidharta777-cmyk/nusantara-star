@@ -115,7 +115,11 @@ async function loadReadyCandidates(supabase: SupabaseClient, briefId: string, mo
   if (talentError) throw new Error(talentError.message);
 
   const nowMs = Date.now();
-  const offerMap = new Map((offers ?? []).filter((offer) => !offer.quote_valid_until || new Date(offer.quote_valid_until).getTime() > nowMs).map((offer) => [offer.talent_id, offer]));
+  const offerMap = new Map(
+    (offers ?? [])
+      .filter((offer) => Boolean(offer.quote_valid_until) && new Date(String(offer.quote_valid_until)).getTime() > nowMs)
+      .map((offer) => [offer.talent_id, offer]),
+  );
   const talentMap = new Map((talents ?? []).map((talent) => [talent.id, talent]));
 
   if (mode.request_mode === "direct_talent") {

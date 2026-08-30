@@ -38,6 +38,9 @@ export async function POST(request: Request) {
       if (parsed.getTime() <= Date.now()) return NextResponse.json({ error: "Quote validity must be in the future" }, { status: 409 });
       quoteValidUntil = parsed.toISOString();
     }
+    if (status === "confirmed" && !quoteValidUntil) {
+      return NextResponse.json({ error: "Confirmed offer requires a future quote validity" }, { status: 409 });
+    }
 
     const supabase = getServerClient();
     const { data, error } = await supabase.rpc("ns_record_availability_response_v1", {

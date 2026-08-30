@@ -49,6 +49,13 @@ function mergeExplicitStyles(aiStyles: string[], genre: string) {
   return [...new Set([...explicit, ...aiStyles].map((item) => item.trim()).filter(Boolean))];
 }
 
+function directRequirements(performanceFormat: string, notes: string) {
+  return [
+    performanceFormat ? `Format penampilan: ${performanceFormat}` : "",
+    notes ? `Catatan buyer: ${notes}` : "",
+  ].filter(Boolean);
+}
+
 function applyStructuredFormTruth(
   parsed: StructuredBrief,
   input: {
@@ -59,15 +66,19 @@ function applyStructuredFormTruth(
     audience: string;
     category: string;
     genre: string;
+    performanceFormat: string;
     budget: string;
     duration: string;
+    notes: string;
     sourceText: string;
+    isDirectInquiry: boolean;
   },
   budgetBand: { min: number | null; max: number | null },
 ): StructuredBrief {
   const evidence = { ...(parsed.fieldEvidence ?? {}) } as NonNullable<StructuredBrief["fieldEvidence"]>;
   const audienceSize = parseAudience(input.audience);
   const durationMinutes = parseDurationBand(input.duration);
+  const explicitDirectRequirements = input.isDirectInquiry ? directRequirements(input.performanceFormat, input.notes) : [];
 
   evidence.eventType = { status: "explicit", sourceExcerpt: input.eventType };
   evidence.eventDate = { status: "normalized", sourceExcerpt: input.date };
@@ -79,6 +90,16 @@ function applyStructuredFormTruth(
   evidence.budgetMin = budgetBand.min != null ? { status: "normalized", sourceExcerpt: input.budget } : { status: "missing", sourceExcerpt: null };
   evidence.budgetMax = budgetBand.max != null ? { status: "normalized", sourceExcerpt: input.budget } : { status: "missing", sourceExcerpt: null };
   evidence.performanceDurationMinutes = durationMinutes != null ? { status: "normalized", sourceExcerpt: input.duration } : { status: "missing", sourceExcerpt: null };
+  if (input.isDirectInquiry) {
+    const excerpt = input.performanceFormat
+      ? `Format penampilan yang diminta ${input.performanceFormat}`
+      : input.notes
+        ? `Catatan: ${input.notes}`
+        : null;
+    evidence.specialRequirements = explicitDirectRequirements.length
+      ? { status: "explicit", sourceExcerpt: excerpt }
+      : { status: "missing", sourceExcerpt: null };
+  }
 
   return {
     ...parsed,
@@ -92,6 +113,7 @@ function applyStructuredFormTruth(
     budgetMin: budgetBand.min,
     budgetMax: budgetBand.max,
     performanceDurationMinutes: durationMinutes,
+    specialRequirements: input.isDirectInquiry ? explicitDirectRequirements : parsed.specialRequirements ?? [],
     sourceText: input.sourceText,
     fieldEvidence: evidence,
   };
@@ -107,6 +129,7 @@ export async function POST(request: Request) {
     const name = textValue(input.name, 120), company = textValue(input.company, 160), whatsapp = textValue(input.whatsapp, 50), email = textValue(input.email, 180).toLowerCase();
     const eventType = textValue(input.eventType, 120), date = textValue(input.date, 20), city = textValue(input.city, 120), venue = textValue(input.venue, 180), audience = textValue(input.audience, 30);
     const category = textValue(input.category, 120), genre = textValue(input.genre, 180), budget = textValue(input.budget, 80), duration = textValue(input.duration, 80), notes = textValue(input.notes, 1500);
+    let performanceFormat = textValue(input.performanceFormat, 160);
     const requestedTalentId = textValue(input.requestedTalentId, 100);
 
     if (!name || !whatsapp || !email || !eventType || !date || !city || !category || !budget) return NextResponse.json({ error: "Mohon lengkapi semua kolom wajib" }, { status: 400 });
@@ -119,16 +142,27 @@ export async function POST(request: Request) {
     if (duration && parseDurationBand(duration) == null) return NextResponse.json({ error: "Pilihan durasi tampil tidak valid" }, { status: 400 });
 
     const roster = await loadEngineTalents();
-    const requestedTalent = requestedTalentId ? roster.talents.find(t => t.id === requestedTalentId) ?? null : null;
+    const requestedTalent = requestedTalentId ? roster.talents.find((talent) => talent.id === requestedTalentId) ?? null : null;
     if (requestedTalentId && !requestedTalent) {
       return NextResponse.json({ error: "Talent yang dipilih tidak valid atau tidak lagi tersedia untuk inquiry" }, { status: 400 });
     }
+    if (!requestedTalent && performanceFormat) {
+      return NextResponse.json({ error: "Format penampilan khusus hanya berlaku untuk direct talent inquiry" }, { status: 400 });
+    }
+    if (requestedTalent?.performanceFormats.length) {
+      if (!performanceFormat) return NextResponse.json({ error: "Pilih format penampilan yang diminta" }, { status: 400 });
+      const canonicalFormat = requestedTalent.performanceFormats.find((format) => format.trim().toLowerCase() === performanceFormat.trim().toLowerCase());
+      if (!canonicalFormat) return NextResponse.json({ error: "Format penampilan tidak valid untuk talent yang dipilih" }, { status: 400 });
+      performanceFormat = canonicalFormat;
+    }
+
     const requestMode = requestedTalent ? "direct_talent" as const : "discovery" as const;
 
     const sourceText = [
       `${eventType} pada ${date} di ${city}${venue ? `, venue ${venue}` : ""}.`,
       audience ? `Jumlah audiens ${audience} orang.` : "",
       `Butuh ${category}${genre ? `, genre/style ${genre}` : ""}.`,
+      performanceFormat ? `Format penampilan yang diminta ${performanceFormat}.` : "",
       `Budget ${budget}.`,
       duration ? `Durasi tampil ${duration}.` : "",
       requestedTalent ? `Buyer secara eksplisit memilih talent ${requestedTalent.name} dari profil Nusantara Star.` : "",
@@ -136,7 +170,21 @@ export async function POST(request: Request) {
     ].filter(Boolean).join(" ");
 
     const { brief: aiBrief } = await parseBriefWithAI(sourceText);
-    const brief = applyStructuredFormTruth(aiBrief, { eventType, date, city, venue, audience, category, genre, budget, duration, sourceText }, budgetBand);
+    const brief = applyStructuredFormTruth(aiBrief, {
+      eventType,
+      date,
+      city,
+      venue,
+      audience,
+      category,
+      genre,
+      performanceFormat,
+      budget,
+      duration,
+      notes,
+      sourceText,
+      isDirectInquiry: Boolean(requestedTalent),
+    }, budgetBand);
     const matches = requestedTalent ? [] : rankTalents(roster.talents, brief, 5);
     const persisted = await persistBrief(
       brief,
@@ -145,7 +193,7 @@ export async function POST(request: Request) {
     );
     if (!requestedTalent) await persistMatchSnapshot(persisted.id, matches);
 
-    const recommendations = matches.map(match => {
+    const recommendations = matches.map((match) => {
       const reasons: string[] = [];
       if (match.breakdown.categoryGenre >= 80) reasons.push("Kategori/genre sesuai");
       if (brief.city && match.talent.baseCity.trim().toLowerCase() === brief.city.trim().toLowerCase()) reasons.push("Berbasis di kota acara");
