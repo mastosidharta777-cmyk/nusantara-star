@@ -4,6 +4,7 @@ import { persistMatchSnapshot } from "@/lib/match-persistence";
 import { parseBriefWithAI } from "@/lib/talent-engine/ai-brief";
 import { rankTalents } from "@/lib/talent-engine/matching";
 import { loadEngineTalents } from "@/lib/talent-engine/supabase-talents";
+import type { StructuredBrief } from "@/lib/talent-engine/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,90 @@ export const dynamic = "force-dynamic";
 function textValue(value: unknown, max = 500) { return typeof value === "string" ? value.trim().slice(0, max) : ""; }
 function validEmail(value: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
 function validWhatsapp(value: string) { return value.replace(/\D/g, "").length >= 8; }
+
+function normalizedBudgetLabel(value: string) {
+  return value.replace(/\s+/g, " ").replace(/[–—]/g, "-").trim();
+}
+
+function parseBudgetBand(value: string): { min: number | null; max: number | null } | null {
+  switch (normalizedBudgetLabel(value)) {
+    case "< Rp10 jt": return { min: null, max: 10_000_000 };
+    case "Rp10-25 jt": return { min: 10_000_000, max: 25_000_000 };
+    case "Rp25-50 jt": return { min: 25_000_000, max: 50_000_000 };
+    case "Rp50-100 jt": return { min: 50_000_000, max: 100_000_000 };
+    case "Rp100 jt+": return { min: 100_000_000, max: null };
+    default: return null;
+  }
+}
+
+function parseAudience(value: string) {
+  if (!value) return null;
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n >= 0 && n <= 10_000_000 ? n : null;
+}
+
+function parseDurationBand(value: string) {
+  if (!value) return null;
+  const normalized = value.replace(/[–—]/g, "-");
+  if (/^15-30\s*minutes?$/i.test(normalized)) return 30;
+  if (/^30-60\s*minutes?$/i.test(normalized)) return 60;
+  if (/^60-90\s*minutes?$/i.test(normalized)) return 90;
+  if (/^90\+\s*minutes?$/i.test(normalized)) return 90;
+  return null;
+}
+
+function mergeExplicitStyles(aiStyles: string[], genre: string) {
+  const explicit = genre.split(/[;,]+/).map((item) => item.trim()).filter(Boolean);
+  return [...new Set([...explicit, ...aiStyles].map((item) => item.trim()).filter(Boolean))];
+}
+
+function applyStructuredFormTruth(
+  parsed: StructuredBrief,
+  input: {
+    eventType: string;
+    date: string;
+    city: string;
+    venue: string;
+    audience: string;
+    category: string;
+    genre: string;
+    budget: string;
+    duration: string;
+    sourceText: string;
+  },
+  budgetBand: { min: number | null; max: number | null },
+): StructuredBrief {
+  const evidence = { ...(parsed.fieldEvidence ?? {}) } as NonNullable<StructuredBrief["fieldEvidence"]>;
+  const audienceSize = parseAudience(input.audience);
+  const durationMinutes = parseDurationBand(input.duration);
+
+  evidence.eventType = { status: "explicit", sourceExcerpt: input.eventType };
+  evidence.eventDate = { status: "normalized", sourceExcerpt: input.date };
+  evidence.city = { status: "explicit", sourceExcerpt: input.city };
+  evidence.venue = input.venue ? { status: "explicit", sourceExcerpt: input.venue } : { status: "missing", sourceExcerpt: null };
+  evidence.audienceSize = audienceSize != null ? { status: "normalized", sourceExcerpt: input.audience } : { status: "missing", sourceExcerpt: null };
+  evidence.talentCategory = { status: "explicit", sourceExcerpt: input.category };
+  evidence.genreStyle = input.genre ? { status: "explicit", sourceExcerpt: input.genre } : (evidence.genreStyle ?? { status: "missing", sourceExcerpt: null });
+  evidence.budgetMin = budgetBand.min != null ? { status: "normalized", sourceExcerpt: input.budget } : { status: "missing", sourceExcerpt: null };
+  evidence.budgetMax = budgetBand.max != null ? { status: "normalized", sourceExcerpt: input.budget } : { status: "missing", sourceExcerpt: null };
+  evidence.performanceDurationMinutes = durationMinutes != null ? { status: "normalized", sourceExcerpt: input.duration } : { status: "missing", sourceExcerpt: null };
+
+  return {
+    ...parsed,
+    eventType: input.eventType,
+    eventDate: input.date,
+    city: input.city,
+    venue: input.venue || null,
+    audienceSize,
+    talentCategory: input.category,
+    genreStyle: mergeExplicitStyles(parsed.genreStyle ?? [], input.genre),
+    budgetMin: budgetBand.min,
+    budgetMax: budgetBand.max,
+    performanceDurationMinutes: durationMinutes,
+    sourceText: input.sourceText,
+    fieldEvidence: evidence,
+  };
+}
 
 export async function POST(request: Request) {
   try {
@@ -28,6 +113,10 @@ export async function POST(request: Request) {
     if (!validEmail(email)) return NextResponse.json({ error: "Format email tidak valid" }, { status: 400 });
     if (!validWhatsapp(whatsapp)) return NextResponse.json({ error: "Nomor WhatsApp tidak valid" }, { status: 400 });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ error: "Tanggal acara tidak valid" }, { status: 400 });
+    const budgetBand = parseBudgetBand(budget);
+    if (!budgetBand) return NextResponse.json({ error: "Pilihan budget tidak valid" }, { status: 400 });
+    if (audience && parseAudience(audience) == null) return NextResponse.json({ error: "Jumlah audiens tidak valid" }, { status: 400 });
+    if (duration && parseDurationBand(duration) == null) return NextResponse.json({ error: "Pilihan durasi tampil tidak valid" }, { status: 400 });
 
     const roster = await loadEngineTalents();
     const requestedTalent = requestedTalentId ? roster.talents.find(t => t.id === requestedTalentId) ?? null : null;
@@ -46,7 +135,8 @@ export async function POST(request: Request) {
       notes ? `Catatan: ${notes}.` : "",
     ].filter(Boolean).join(" ");
 
-    const { brief } = await parseBriefWithAI(sourceText);
+    const { brief: aiBrief } = await parseBriefWithAI(sourceText);
+    const brief = applyStructuredFormTruth(aiBrief, { eventType, date, city, venue, audience, category, genre, budget, duration, sourceText }, budgetBand);
     const matches = requestedTalent ? [] : rankTalents(roster.talents, brief, 5);
     const persisted = await persistBrief(
       brief,
