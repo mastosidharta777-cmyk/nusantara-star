@@ -26,6 +26,8 @@ type BriefRow = {
   special_requirements: string[] | null;
   source_text: string | null;
   field_evidence: Record<string, unknown> | null;
+  request_mode: string | null;
+  requested_talent_id: string | null;
   status: string;
   created_at: string;
 };
@@ -151,7 +153,7 @@ export async function loadAdminBriefDetail(id: string) {
   const [{ data, error }, persistedMatchesResult, availabilityRequestsResult, buyerSelectionResult, commercialTermsResult, bookingResult] = await Promise.all([
     supabase
       .from("briefs")
-      .select("id,event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,source_text,field_evidence,status,created_at")
+      .select("id,event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,source_text,field_evidence,request_mode,requested_talent_id,status,created_at")
       .eq("id", id)
       .single(),
     supabase
@@ -224,31 +226,41 @@ export async function loadAdminBriefDetail(id: string) {
   const persistedRows = (persistedMatchesResult.data ?? []) as PersistedMatch[];
   const frozenRows = persistedRows.filter((item) => Boolean(item.engine_version && item.generated_at));
   const usesPersistedSnapshot = frozenRows.length > 0;
+  const availabilityRows = (availabilityRequestsResult.data ?? []) as AvailabilityRequest[];
+  const requestedAvailabilityStatus = row.request_mode === "direct_talent" && row.requested_talent_id
+    ? availabilityRows.find((item) => item.talent_id === row.requested_talent_id)?.status ?? null
+    : null;
+  const directFallbackAllowed = row.request_mode !== "direct_talent"
+    || ["unavailable", "no_response"].includes(requestedAvailabilityStatus ?? "");
 
-  const matches = usesPersistedSnapshot
-    ? frozenRows.flatMap((item) => {
-        const talent = roster.talents.find((candidate) => candidate.id === item.talent_id);
-        if (!talent || !item.score_breakdown) return [];
-        return [
-          {
-            talent,
-            score: item.score,
-            tier: item.tier as MatchTier,
-            breakdown: item.score_breakdown,
-            availabilityStatus: item.availability_status as AvailabilityStatus | "unknown",
-            freshness: item.availability_freshness as AvailabilityFreshness,
-            requiresLiveConfirmation: item.requires_live_confirmation,
-            reasons: item.reasons ?? [],
-            blockedReasons: [] as string[],
-          },
-        ];
-      })
-    : rankTalents(roster.talents, brief, 5);
+  const candidateMatches = !directFallbackAllowed
+    ? []
+    : usesPersistedSnapshot
+      ? frozenRows.flatMap((item) => {
+          const talent = roster.talents.find((candidate) => candidate.id === item.talent_id);
+          if (!talent || !item.score_breakdown) return [];
+          return [
+            {
+              talent,
+              score: item.score,
+              tier: item.tier as MatchTier,
+              breakdown: item.score_breakdown,
+              availabilityStatus: item.availability_status as AvailabilityStatus | "unknown",
+              freshness: item.availability_freshness as AvailabilityFreshness,
+              requiresLiveConfirmation: item.requires_live_confirmation,
+              reasons: item.reasons ?? [],
+              blockedReasons: [] as string[],
+            },
+          ];
+        })
+      : rankTalents(roster.talents, brief, 5);
+
+  const matches = row.request_mode === "direct_talent" && row.requested_talent_id
+    ? candidateMatches.filter((match) => match.talent.id !== row.requested_talent_id)
+    : candidateMatches;
 
   const persistedMap = new Map(persistedRows.map((item) => [item.talent_id, item]));
-  const requestMap = new Map(
-    ((availabilityRequestsResult.data ?? []) as AvailabilityRequest[]).map((item) => [item.talent_id, item]),
-  );
+  const requestMap = new Map(availabilityRows.map((item) => [item.talent_id, item]));
   const buyerSelection = (buyerSelectionResult.data ?? null) as BuyerSelection | null;
   const selectedTalent = buyerSelection ? roster.talents.find((talent) => talent.id === buyerSelection.talent_id) ?? null : null;
 
