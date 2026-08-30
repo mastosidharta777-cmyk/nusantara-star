@@ -57,7 +57,9 @@ export async function GET() {
     const unfunded = await post(settlementAction, { bookingId, amount: 1000000, provider: "smoke", providerReference: `unfunded-${stamp}`, idempotencyKey: unfundedKey, notes: "must be rejected before buyer cash" });
     const unfundedSettlementBlocked = !unfunded.response.ok;
 
-    const { error: buyerPaymentError } = await supabase.from("payments").insert({ booking_id: bookingId, payment_type: "buyer_full_payment", amount: 1200000, status: "paid", paid_at: new Date().toISOString(), idempotency_key: `ops-smoke-buyer-${stamp}` });
+    const buyerProvider = "smoke-bank";
+    const buyerReference = `buyer-${stamp}`;
+    const { error: buyerPaymentError } = await supabase.from("payments").insert({ booking_id: bookingId, payment_type: "buyer_full_payment", amount: 1200000, provider: buyerProvider, provider_reference: buyerReference, evidence_key: `${buyerProvider}:${buyerReference}`.toLowerCase(), status: "paid", paid_at: new Date().toISOString(), idempotency_key: `ops-smoke-buyer-${stamp}` });
     if (buyerPaymentError) throw new Error(buyerPaymentError.message);
 
     const key = `ops-smoke-${stamp}`;

@@ -67,17 +67,19 @@ export async function POST(request: Request) {
     }
 
     const paymentId = typeof body?.paymentId === "string" ? body.paymentId : "";
-    if (!paymentId) return NextResponse.json({ error: "Payment ID is required" }, { status: 400 });
-    const { data: payment, error: paymentError } = await supabase.from("payments").select("id,booking_id,status").eq("id", paymentId).single();
-    if (paymentError || !payment) return NextResponse.json({ error: "Payment not found" }, { status: 404 });
-    if (payment.booking_id !== bookingId) return NextResponse.json({ error: "Payment does not belong to booking" }, { status: 409 });
-    if (payment.status === "paid") return NextResponse.json({ ok: true, paymentStatus: "paid", bookingStatus: booking.status, reused: true });
-    if (payment.status !== "pending") return NextResponse.json({ error: "Payment is not pending" }, { status: 409 });
+    const provider = typeof body?.provider === "string" ? body.provider.trim() : "";
+    const providerReference = typeof body?.providerReference === "string" ? body.providerReference.trim() : "";
+    if (!paymentId || !provider || !providerReference) return NextResponse.json({ error: "Payment ID, provider/bank, and transaction reference are required" }, { status: 400 });
 
-    const now = new Date().toISOString();
-    const { error: paidError } = await supabase.from("payments").update({ status: "paid", paid_at: now, updated_at: now }).eq("id", paymentId).eq("status", "pending");
-    if (paidError) throw new Error(paidError.message);
-    return NextResponse.json({ ok: true, paymentStatus: "paid", bookingStatus: booking.status });
+    const { data, error } = await supabase.rpc("ns_record_buyer_payment_v1", {
+      p_booking_id: bookingId,
+      p_payment_id: paymentId,
+      p_provider: provider,
+      p_provider_reference: providerReference,
+      p_paid_at: new Date().toISOString(),
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 409 });
+    return NextResponse.json({ ok: true, payment: data, paymentStatus: "paid", bookingStatus: booking.status });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     console.error("Payment action failed", detail);

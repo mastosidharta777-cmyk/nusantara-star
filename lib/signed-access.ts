@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-export type SignedAccessScope = "buyer_proposal" | "talent_offer" | "talent_onboarding";
+export type SignedAccessScope = "buyer_proposal" | "buyer_terms" | "talent_offer" | "talent_onboarding";
 
 type Payload = {
   scope: SignedAccessScope;

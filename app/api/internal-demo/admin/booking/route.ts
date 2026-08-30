@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     const supabase = getServerClient();
     const { data: existing, error: existingError } = await supabase
       .from("bookings")
-      .select("id,brief_id,deal_id,status,buyer_price,buyer_terms_accepted_at,financial_security_type,financial_security_status")
+      .select("id,brief_id,deal_id,status,buyer_price,buyer_terms_accepted_at,buyer_terms_accepted_deal_id,buyer_terms_acceptance_source,financial_security_type,financial_security_status")
       .eq("brief_id", briefId)
       .maybeSingle();
     if (existingError) throw new Error(existingError.message);
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
       const [{ data: brief, error: briefError }, { data: selection, error: selectionError }, { data: deal, error: dealError }] = await Promise.all([
         supabase.from("briefs").select("id,status,event_date,venue,city").eq("id", briefId).single(),
         supabase.from("buyer_selections").select("talent_id,status").eq("brief_id", briefId).eq("status", "selected").single(),
-        supabase.from("deals").select("id,talent_id,status,buyer_price,talent_payable,direct_costs,buyer_payment_schedule,talent_payment_schedule").eq("brief_id", briefId).single(),
+        supabase.from("deals").select("id,talent_id,talent_offer_id,status,buyer_price,talent_payable,direct_costs,buyer_payment_schedule,talent_payment_schedule").eq("brief_id", briefId).single(),
       ]);
       if (briefError || !brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
       if (selectionError || !selection) return NextResponse.json({ error: "Buyer selection not found" }, { status: 409 });
@@ -41,6 +41,11 @@ export async function POST(request: Request) {
       if (deal.status !== "locked") return NextResponse.json({ error: "Deal must be locked before booking security starts" }, { status: 409 });
       if (!brief.event_date) return NextResponse.json({ error: "Event date is required before booking" }, { status: 409 });
       if (selection.talent_id !== deal.talent_id) return NextResponse.json({ error: "Selected talent does not match locked deal" }, { status: 409 });
+
+      const { data: offer, error: offerError } = await supabase.from("talent_offers").select("status,availability_status,quote_valid_until").eq("id", deal.talent_offer_id).single();
+      if (offerError || !offer || offer.status !== "confirmed" || offer.availability_status !== "confirmed" || !offer.quote_valid_until || new Date(offer.quote_valid_until).getTime() <= Date.now()) {
+        return NextResponse.json({ error: "Talent offer requires reconfirmation before booking security starts" }, { status: 409 });
+      }
 
       const buyerSchedule = Array.isArray(deal.buyer_payment_schedule) ? deal.buyer_payment_schedule : [];
       const talentSchedule = Array.isArray(deal.talent_payment_schedule) ? deal.talent_payment_schedule : [];
@@ -93,15 +98,6 @@ export async function POST(request: Request) {
     if (!existing) return NextResponse.json({ error: "Booking not found" }, { status: 404 });
     if (existing.status !== "pending_security") return NextResponse.json({ error: "Booking is not pending security" }, { status: 409 });
 
-    if (action === "accept_buyer_terms") {
-      const now = new Date().toISOString();
-      const { error: bookingError } = await supabase.from("bookings").update({ buyer_terms_accepted_at: now, updated_at: now }).eq("id", existing.id).eq("status", "pending_security");
-      if (bookingError) throw new Error(bookingError.message);
-      const { error: dealError } = await supabase.from("deals").update({ buyer_terms_status: "accepted", updated_at: now }).eq("id", existing.deal_id).eq("status", "locked");
-      if (dealError) throw new Error(dealError.message);
-      return NextResponse.json({ ok: true, buyerTermsAccepted: true });
-    }
-
     if (action === "set_security") {
       const securityType = typeof body?.securityType === "string" ? body.securityType : "";
       const reference = typeof body?.reference === "string" ? body.reference.trim() : "";
@@ -125,7 +121,8 @@ export async function POST(request: Request) {
     if (dealError || !deal) return NextResponse.json({ error: "Deal not found" }, { status: 404 });
     if (deal.status !== "locked") return NextResponse.json({ error: "Deal is not locked" }, { status: 409 });
     if (deal.talent_terms_status !== "confirmed") return NextResponse.json({ error: "Talent terms are unresolved" }, { status: 409 });
-    if (!existing.buyer_terms_accepted_at || deal.buyer_terms_status !== "accepted") return NextResponse.json({ error: "Buyer terms are not accepted" }, { status: 409 });
+    const buyerAcceptanceValid = Boolean(existing.buyer_terms_accepted_at && existing.buyer_terms_accepted_deal_id === existing.deal_id && existing.buyer_terms_acceptance_source === "signed_buyer_link" && deal.buyer_terms_status === "accepted");
+    if (!buyerAcceptanceValid) return NextResponse.json({ error: "Buyer terms have not been accepted through a verified buyer link" }, { status: 409 });
     if (deal.funding_gap_status !== "safe") return NextResponse.json({ error: "Funding gap is unresolved" }, { status: 409 });
 
     const { data: offer, error: offerError } = await supabase
@@ -134,13 +131,13 @@ export async function POST(request: Request) {
       .eq("id", deal.talent_offer_id)
       .single();
     if (offerError || !offer) return NextResponse.json({ error: "Talent offer not found" }, { status: 404 });
-    if (offer.status !== "confirmed" || offer.availability_status !== "confirmed" || (offer.quote_valid_until && new Date(offer.quote_valid_until).getTime() <= Date.now())) {
+    if (offer.status !== "confirmed" || offer.availability_status !== "confirmed" || !offer.quote_valid_until || new Date(offer.quote_valid_until).getTime() <= Date.now()) {
       return NextResponse.json({ error: "Talent offer requires reconfirmation" }, { status: 409 });
     }
 
     const [{ data: buyerMilestones, error: milestoneError }, { data: paidRows, error: paymentError }] = await Promise.all([
       supabase.from("payment_milestones").select("sequence_no,calculation_type,percentage,amount").eq("booking_id", existing.id).eq("party", "buyer").order("sequence_no"),
-      supabase.from("payments").select("amount").eq("booking_id", existing.id).eq("status", "paid"),
+      supabase.from("payments").select("amount,provider,provider_reference").eq("booking_id", existing.id).eq("status", "paid"),
     ]);
     if (milestoneError) throw new Error(milestoneError.message);
     if (paymentError) throw new Error(paymentError.message);
@@ -149,7 +146,7 @@ export async function POST(request: Request) {
     if (buyerPrice <= 0) return NextResponse.json({ error: "Buyer price is invalid" }, { status: 409 });
     const requiredCashSecurity = requiredInitialBuyerSecurity(buyerMilestones as BuyerMilestone[], buyerPrice);
     if (requiredCashSecurity <= 0) return NextResponse.json({ error: "Initial buyer security amount is invalid" }, { status: 409 });
-    const paidBuyerTotal = (paidRows ?? []).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+    const paidBuyerTotal = (paidRows ?? []).filter((row) => Boolean(row.provider?.trim()) && Boolean(row.provider_reference?.trim())).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
     const manualSecuritySatisfied = existing.financial_security_status === "satisfied" && ["approved_po_credit", "authorized_exception"].includes(existing.financial_security_type ?? "");
     if (!manualSecuritySatisfied && paidBuyerTotal < requiredCashSecurity) {
       return NextResponse.json({ error: "Initial buyer payment has not satisfied booking security" }, { status: 409 });
@@ -168,6 +165,6 @@ export async function POST(request: Request) {
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     console.error("Secure booking action failed", detail);
-    return NextResponse.json({ error: "Secure booking action failed" }, { status: 500 });
+    return NextResponse.json({ error: "Secure booking action failed", detail }, { status: 500 });
   }
 }

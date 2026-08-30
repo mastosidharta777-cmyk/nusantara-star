@@ -92,7 +92,7 @@ export async function loadBuyerProposal(briefId: string) {
   }
 
   const proposalRow = proposal as ProposalRow;
-  if (proposalRow.status === "expired" || (proposalRow.expires_at && new Date(proposalRow.expires_at).getTime() <= Date.now())) {
+  if (proposalRow.status === "expired" || !proposalRow.expires_at || new Date(proposalRow.expires_at).getTime() <= Date.now()) {
     if (proposalRow.status !== "expired") await supabase.from("proposals").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", proposalRow.id).in("status", ["sent", "viewed"]);
     return { brief: brief as BriefRow, proposal: { ...proposalRow, status: "expired" }, talents: [], selectedTalentId: selection ? (selection as BuyerSelectionRow).talent_id : null };
   }
@@ -108,13 +108,15 @@ export async function loadBuyerProposal(briefId: string) {
   if (itemError) throw new Error(itemError.message);
 
   const selectedTalentId = selection ? (selection as BuyerSelectionRow).talent_id : null;
-  const talents = ((items ?? []) as ProposalItemRow[]).map((item) => {
+  const nowMs = Date.now();
+  const talents = ((items ?? []) as ProposalItemRow[]).flatMap((item) => {
+    if (item.availability_status !== "confirmed" || !item.offer_valid_until || new Date(item.offer_valid_until).getTime() <= nowMs) return [];
     const whyFit = item.why_fit_snapshot ?? {};
     const media = Array.isArray(item.media_snapshot) ? item.media_snapshot.flatMap((asset) => {
       if (asset?.provider !== "cloudflare_r2" || !asset.storage_key) return [];
       return [{ id: asset.id, title: asset.title, description: asset.description, asset_type: asset.asset_type, url: createR2PresignedUrl("GET", asset.storage_key, 3600) }];
     }) : [];
-    return {
+    return [{
       id: item.talent_id,
       proposalItemId: item.id,
       name: item.talent_name_snapshot,
@@ -135,7 +137,7 @@ export async function loadBuyerProposal(briefId: string) {
       tier: item.match_tier_snapshot,
       why_fit: { id: Array.isArray(whyFit.id) ? whyFit.id : [], en: Array.isArray(whyFit.en) ? whyFit.en : [] },
       media,
-    };
+    }];
   });
 
   return { brief: brief as BriefRow, proposal: proposalRow, talents, selectedTalentId };

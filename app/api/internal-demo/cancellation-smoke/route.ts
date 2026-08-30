@@ -35,7 +35,9 @@ export async function GET() {
     if (bookingError || !booking) throw new Error(bookingError?.message ?? "Booking seed failed");
     bookingId = booking.id;
 
-    const { data: payment, error: paymentError } = await supabase.from("payments").insert({ booking_id: bookingId, payment_type: "buyer_full_payment", amount: 1200000, status: "paid", paid_at: new Date().toISOString(), idempotency_key: `cancel-smoke-buyer-${stamp}` }).select("id").single();
+    const buyerProvider = "smoke-bank";
+    const buyerReference = `buyer-${stamp}`;
+    const { data: payment, error: paymentError } = await supabase.from("payments").insert({ booking_id: bookingId, payment_type: "buyer_full_payment", amount: 1200000, provider: buyerProvider, provider_reference: buyerReference, evidence_key: `${buyerProvider}:${buyerReference}`.toLowerCase(), status: "paid", paid_at: new Date().toISOString(), idempotency_key: `cancel-smoke-buyer-${stamp}` }).select("id").single();
     if (paymentError || !payment) throw new Error(paymentError?.message ?? "Buyer payment seed failed");
     paymentId = payment.id;
 
