@@ -20,6 +20,8 @@ type BriefRow = {
   talent_category: string | null;
   budget_min: number | null;
   budget_max: number | null;
+  request_mode: "discovery" | "direct_talent";
+  requested_talent_id: string | null;
   status: string;
   created_at: string;
 };
@@ -27,6 +29,10 @@ type BriefRow = {
 export type AdminTalent = TalentRow & {
   freshness: "fresh" | "needs_confirmation" | "stale" | "never_updated";
   daysSinceCalendarUpdate: number | null;
+};
+
+export type AdminBrief = BriefRow & {
+  requested_talent_name: string | null;
 };
 
 function getServerClient() {
@@ -65,7 +71,7 @@ export async function loadAdminDashboardData() {
       .order("name"),
     supabase
       .from("briefs")
-      .select("id,event_type,event_date,city,talent_category,budget_min,budget_max,status,created_at")
+      .select("id,event_type,event_date,city,talent_category,budget_min,budget_max,request_mode,requested_talent_id,status,created_at")
       .order("created_at", { ascending: false })
       .limit(20),
   ]);
@@ -78,8 +84,11 @@ export async function loadAdminDashboardData() {
     ...talent,
     ...getFreshness(talent.last_calendar_updated_at),
   }));
-
-  const briefRows = (briefs ?? []) as BriefRow[];
+  const talentNameMap = new Map(adminTalents.map((talent) => [talent.id, talent.name]));
+  const briefRows: AdminBrief[] = ((briefs ?? []) as BriefRow[]).map((brief) => ({
+    ...brief,
+    requested_talent_name: brief.requested_talent_id ? talentNameMap.get(brief.requested_talent_id) ?? null : null,
+  }));
 
   return {
     talents: adminTalents,

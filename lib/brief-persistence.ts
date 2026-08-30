@@ -9,6 +9,11 @@ export type BuyerBriefContact = {
   email: string;
 };
 
+export type BriefRequestContext = {
+  requestMode?: "discovery" | "direct_talent";
+  requestedTalentId?: string | null;
+};
+
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -22,8 +27,17 @@ function getServerClient() {
   });
 }
 
-export async function persistBrief(brief: StructuredBrief, contact?: BuyerBriefContact) {
+export async function persistBrief(brief: StructuredBrief, contact?: BuyerBriefContact, context?: BriefRequestContext) {
   const supabase = getServerClient();
+  const requestedTalentId = context?.requestedTalentId ?? null;
+  const requestMode = context?.requestMode ?? (requestedTalentId ? "direct_talent" : "discovery");
+
+  if (requestMode === "direct_talent" && !requestedTalentId) {
+    throw new Error("Direct talent inquiry requires a requested talent id");
+  }
+  if (requestMode === "discovery" && requestedTalentId) {
+    throw new Error("Discovery brief cannot persist a requested talent id");
+  }
 
   const { data, error } = await supabase
     .from("briefs")
@@ -46,6 +60,8 @@ export async function persistBrief(brief: StructuredBrief, contact?: BuyerBriefC
       buyer_company: contact?.company ?? null,
       buyer_whatsapp: contact?.whatsapp ?? null,
       buyer_email: contact?.email ?? null,
+      request_mode: requestMode,
+      requested_talent_id: requestedTalentId,
       status: "new",
     })
     .select("id")

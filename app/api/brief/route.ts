@@ -31,6 +31,11 @@ export async function POST(request: Request) {
 
     const roster = await loadEngineTalents();
     const requestedTalent = requestedTalentId ? roster.talents.find(t => t.id === requestedTalentId) ?? null : null;
+    if (requestedTalentId && !requestedTalent) {
+      return NextResponse.json({ error: "Talent yang dipilih tidak valid atau tidak lagi tersedia untuk inquiry" }, { status: 400 });
+    }
+    const requestMode = requestedTalent ? "direct_talent" as const : "discovery" as const;
+
     const sourceText = [
       `${eventType} pada ${date} di ${city}${venue ? `, venue ${venue}` : ""}.`,
       audience ? `Jumlah audiens ${audience} orang.` : "",
@@ -42,9 +47,13 @@ export async function POST(request: Request) {
     ].filter(Boolean).join(" ");
 
     const { brief } = await parseBriefWithAI(sourceText);
-    const matches = rankTalents(roster.talents, brief, 5);
-    const persisted = await persistBrief(brief, { name, company: company || null, whatsapp, email });
-    await persistMatchSnapshot(persisted.id, matches);
+    const matches = requestedTalent ? [] : rankTalents(roster.talents, brief, 5);
+    const persisted = await persistBrief(
+      brief,
+      { name, company: company || null, whatsapp, email },
+      { requestMode, requestedTalentId: requestedTalent?.id ?? null },
+    );
+    if (!requestedTalent) await persistMatchSnapshot(persisted.id, matches);
 
     const recommendations = matches.map(match => {
       const reasons: string[] = [];
@@ -64,7 +73,14 @@ export async function POST(request: Request) {
       };
     });
 
-    return NextResponse.json({ ok: true, received: true, briefId: persisted.id, requestedTalent: requestedTalent ? { id: requestedTalent.id, name: requestedTalent.name } : null, recommendations }, { status: 201 });
+    return NextResponse.json({
+      ok: true,
+      received: true,
+      briefId: persisted.id,
+      requestMode,
+      requestedTalent: requestedTalent ? { id: requestedTalent.id, name: requestedTalent.name } : null,
+      recommendations,
+    }, { status: 201 });
   } catch (error) {
     console.error("Public brief submission failed", error instanceof Error ? error.message : String(error));
     return NextResponse.json({ error: "Brief belum dapat dikirim. Silakan coba lagi." }, { status: 500 });

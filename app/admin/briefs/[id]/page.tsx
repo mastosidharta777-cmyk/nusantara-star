@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { AdminBookingActions } from "@/components/admin-booking-actions";
 import { AdminDealReview } from "@/components/admin-deal-review";
 import { AdminDealSheetForm } from "@/components/admin-deal-sheet-form";
+import { AdminDirectInquiryPanel } from "@/components/admin-direct-inquiry-panel";
 import { AdminMatchActions } from "@/components/admin-match-actions";
 import { AdminOperations } from "@/components/admin-operations";
 import { AdminPaymentMilestones } from "@/components/admin-payment-milestones";
@@ -50,7 +51,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
   const supabase = getServerClient();
   const { data: buyerContact, error: buyerContactError } = await supabase
     .from("briefs")
-    .select("buyer_name,buyer_company,buyer_whatsapp,buyer_email")
+    .select("buyer_name,buyer_company,buyer_whatsapp,buyer_email,request_mode")
     .eq("id", id)
     .single();
   if (buyerContactError) throw new Error(`Buyer contact load failed: ${buyerContactError.message}`);
@@ -61,6 +62,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
   const operations = await loadOperationsData(booking?.id ?? null);
   const whatsappDigits = buyerContact?.buyer_whatsapp?.replace(/\D/g, "") ?? "";
   const hasBuyerContact = Boolean(buyerContact?.buyer_name || buyerContact?.buyer_company || buyerContact?.buyer_whatsapp || buyerContact?.buyer_email);
+  const isDirectInquiry = buyerContact?.request_mode === "direct_talent";
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
@@ -96,8 +98,10 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
           ) : <div className="px-5 py-7 text-sm text-black/50">Brief ini tidak memiliki kontak buyer tersimpan.</div>}
         </section>
 
-        <section className="border border-black/10 bg-white">
-          <div className="border-b border-black/10 px-5 py-4"><p className="text-sm font-semibold">Rekomendasi Pencocokan</p><p className="mt-1 text-xs text-black/45">Rekomendasi ini adalah snapshot saat diproses. Konfirmasi langsung tetap menjadi acuan komersial.</p></div>
+        <AdminDirectInquiryPanel briefId={row.id} />
+
+        {(!isDirectInquiry || matches.length > 0) ? <section className="border border-black/10 bg-white">
+          <div className="border-b border-black/10 px-5 py-4"><p className="text-sm font-semibold">{isDirectInquiry ? "Alternatif Pencocokan" : "Rekomendasi Pencocokan"}</p><p className="mt-1 text-xs text-black/45">Rekomendasi ini adalah snapshot saat diproses. Konfirmasi langsung tetap menjadi acuan komersial.</p></div>
           {matches.length === 0 ? <div className="px-5 py-10 text-sm text-black/50">Tidak ada kandidat yang memenuhi aturan daftar pilihan saat ini.</div> : (
             <div className="divide-y divide-black/10">{matches.map((match, index) => (
               <article key={match.talent.id} className="p-5 md:p-6">
@@ -116,7 +120,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
               </article>
             ))}</div>
           )}
-        </section>
+        </section> : null}
 
         {!selectedTalent && ["shortlisted", "proposal_sent"].includes(row.status) ? <AdminProposalActions briefId={row.id} status={row.status} /> : null}
         {selectedTalent ? <AdminDealReview briefId={row.id} deal={deal} /> : null}

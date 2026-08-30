@@ -25,6 +25,8 @@ type BriefRow = {
   performance_duration_minutes: number | null;
   event_vibe: string[] | null;
   special_requirements: string[] | null;
+  request_mode: "discovery" | "direct_talent";
+  requested_talent_id: string | null;
   status: string;
 };
 
@@ -65,7 +67,7 @@ export async function POST(request: Request) {
 
     const supabase = getServerClient();
     const [{ data: briefData, error: briefError }, { data: existingMatch, error: existingMatchError }] = await Promise.all([
-      supabase.from("briefs").select("id,event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,status").eq("id", briefId).single(),
+      supabase.from("briefs").select("id,event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,request_mode,requested_talent_id,status").eq("id", briefId).single(),
       supabase.from("match_results").select("id,score,tier,availability_status,availability_freshness,requires_live_confirmation,score_breakdown,reasons,engine_version,generated_at").eq("brief_id", briefId).eq("talent_id", talentId).maybeSingle(),
     ]);
 
@@ -74,6 +76,28 @@ export async function POST(request: Request) {
 
     const brief = briefData as BriefRow;
     if (["proposal_sent", "buyer_selected", "terms_agreed", "booked", "closed", "cancelled"].includes(brief.status)) return NextResponse.json({ error: "Matching review is locked after proposal stage" }, { status: 409 });
+
+    const isDirectTarget = brief.request_mode === "direct_talent" && brief.requested_talent_id === talentId;
+    if (brief.request_mode === "direct_talent") {
+      if (!isDirectTarget) return NextResponse.json({ error: "Talent does not match the direct inquiry target" }, { status: 409 });
+      if (action !== "request_live_confirmation") return NextResponse.json({ error: "Direct inquiry is not a matching approve/reject decision" }, { status: 409 });
+
+      const now = new Date().toISOString();
+      const { data: availabilityRequest, error: requestError } = await supabase
+        .from("availability_requests")
+        .upsert({ brief_id: briefId, talent_id: talentId, match_result_id: null, status: "pending", requested_at: now, responded_at: null }, { onConflict: "brief_id,talent_id" })
+        .select("id")
+        .single();
+      if (requestError || !availabilityRequest?.id) throw new Error(requestError?.message ?? "Failed to create direct availability request");
+
+      const nextBriefStatus = forwardOnlyBriefStatus(brief.status, "availability_check");
+      if (nextBriefStatus !== brief.status) {
+        const { error: briefUpdateError } = await supabase.from("briefs").update({ status: nextBriefStatus }).eq("id", briefId).eq("status", brief.status);
+        if (briefUpdateError) throw new Error(briefUpdateError.message);
+      }
+
+      return NextResponse.json({ ok: true, action, briefId, talentId, availabilityRequestId: String(availabilityRequest.id), matchResultId: null, briefStatus: nextBriefStatus, requestMode: "direct_talent" });
+    }
 
     let availabilityStatus: string | null = null;
     if (action === "approve") {
@@ -122,7 +146,7 @@ export async function POST(request: Request) {
       if (briefUpdateError) throw new Error(briefUpdateError.message);
     }
 
-    return NextResponse.json({ ok: true, action, briefId, talentId, matchResultId, briefStatus: nextBriefStatus });
+    return NextResponse.json({ ok: true, action, briefId, talentId, matchResultId, briefStatus: nextBriefStatus, requestMode: "discovery" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Admin match action failed", message);

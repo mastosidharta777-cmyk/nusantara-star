@@ -12,33 +12,40 @@ type MediaSnapshot = {
   description: string | null;
   asset_type: string;
 };
-
+type MatchSnapshot = { talent_id: string; score: number; tier: string; score_breakdown: Record<string, unknown> | null };
+type OfferSnapshot = {
+  id: string;
+  talent_id: string;
+  status: string;
+  availability_status: string;
+  event_fee: number;
+  currency: string | null;
+  included_costs: string | null;
+  excluded_costs: string | null;
+  payment_terms: string | null;
+  rider_exceptions: string | null;
+  quote_valid_until: string | null;
+};
+type TalentSnapshot = {
+  id: string;
+  name: string;
+  category: string;
+  base_city: string | null;
+  genres: string[] | null;
+  bio: string | null;
+  profile_image_url: string | null;
+};
 type ReadyCandidate = {
-  match: { talent_id: string; score: number; tier: string; score_breakdown: Record<string, unknown> | null };
-  offer: {
-    id: string;
-    talent_id: string;
-    status: string;
-    availability_status: string;
-    event_fee: number;
-    currency: string | null;
-    included_costs: string | null;
-    excluded_costs: string | null;
-    payment_terms: string | null;
-    rider_exceptions: string | null;
-    quote_valid_until: string | null;
-  };
-  talent: {
-    id: string;
-    name: string;
-    category: string;
-    base_city: string | null;
-    genres: string[] | null;
-    bio: string | null;
-    profile_image_url: string | null;
-  };
+  match: MatchSnapshot | null;
+  offer: OfferSnapshot;
+  talent: TalentSnapshot;
   whyFit: WhyFitSnapshot;
   media: MediaSnapshot[];
+};
+
+type BriefMode = {
+  request_mode: "discovery" | "direct_talent";
+  requested_talent_id: string | null;
 };
 
 function getServerClient() {
@@ -57,38 +64,24 @@ function buildWhyFit(breakdown: Record<string, unknown> | null): WhyFitSnapshot 
   const id: string[] = [];
   const en: string[] = [];
   const add = (idText: string, enText: string) => { id.push(idText); en.push(enText); };
-
   if (scorePart(breakdown, "categoryGenre") >= 80) add("Kategori dan gaya musik sesuai brief.", "Category and music style align with the brief.");
   if (scorePart(breakdown, "taxonomyFit") >= 70) add("Format penampilan sesuai kebutuhan acara.", "Performance format aligns with the event needs.");
   if (scorePart(breakdown, "eventFit") >= 80) add("Profil talent cocok untuk jenis acara ini.", "The talent profile fits this type of event.");
   if (scorePart(breakdown, "location") >= 90) add("Lokasi dan jangkauan layanan mendukung kebutuhan event.", "Location and service coverage support the event requirements.");
   if (!id.length) add("Dipilih sebagai kandidat terkurasi berdasarkan brief Anda.", "Selected as a curated candidate based on your brief.");
-
   return { id: id.slice(0, 3), en: en.slice(0, 3) };
 }
 
-async function loadReadyCandidates(supabase: SupabaseClient, briefId: string): Promise<ReadyCandidate[]> {
-  const [{ data: approvedMatches, error: matchError }, { data: offers, error: offerError }, { data: talents, error: talentError }] = await Promise.all([
-    supabase.from("match_results").select("talent_id,score,tier,score_breakdown").eq("brief_id", briefId).eq("admin_approved", true).eq("admin_rejected", false).order("score", { ascending: false }),
-    supabase.from("talent_offers").select("id,talent_id,status,availability_status,event_fee,currency,included_costs,excluded_costs,payment_terms,rider_exceptions,quote_valid_until").eq("brief_id", briefId).eq("status", "confirmed").eq("availability_status", "confirmed"),
-    supabase.from("talents").select("id,name,category,base_city,genres,bio,profile_image_url"),
-  ]);
-  if (matchError) throw new Error(matchError.message);
-  if (offerError) throw new Error(offerError.message);
-  if (talentError) throw new Error(talentError.message);
+function buildDirectWhyFit(): WhyFitSnapshot {
+  return {
+    id: ["Talent ini Anda minta secara langsung.", "Ketersediaan dan penawaran telah dikonfirmasi khusus untuk acara ini."],
+    en: ["You requested this talent directly.", "Availability and offer were confirmed specifically for this event."],
+  };
+}
 
-  const nowMs = Date.now();
-  const offerMap = new Map((offers ?? []).filter((offer) => !offer.quote_valid_until || new Date(offer.quote_valid_until).getTime() > nowMs).map((offer) => [offer.talent_id, offer]));
-  const talentMap = new Map((talents ?? []).map((talent) => [talent.id, talent]));
-  const base = (approvedMatches ?? []).flatMap((match) => {
-    const offer = offerMap.get(match.talent_id);
-    const talent = talentMap.get(match.talent_id);
-    if (!offer || !talent || !offer.event_fee || Number(offer.event_fee) <= 0) return [];
-    return [{ match, offer: { ...offer, event_fee: Number(offer.event_fee) }, talent }];
-  }).slice(0, 5);
-
-  if (!base.length) return [];
-  const talentIds = base.map((item) => item.talent.id);
+async function attachMedia(supabase: SupabaseClient, candidates: Omit<ReadyCandidate, "media">[]): Promise<ReadyCandidate[]> {
+  if (!candidates.length) return [];
+  const talentIds = candidates.map((item) => item.talent.id);
   const { data: assets, error: assetError } = await supabase
     .from("talent_assets")
     .select("id,talent_id,provider,storage_key,title,description,asset_type,sort_order")
@@ -108,11 +101,49 @@ async function loadReadyCandidates(supabase: SupabaseClient, briefId: string): P
     mediaByTalent.set(asset.talent_id, current);
   }
 
-  return base.map((item) => ({
-    ...item,
-    whyFit: buildWhyFit((item.match.score_breakdown ?? null) as Record<string, unknown> | null),
-    media: mediaByTalent.get(item.talent.id) ?? [],
-  })) as ReadyCandidate[];
+  return candidates.map((item) => ({ ...item, media: mediaByTalent.get(item.talent.id) ?? [] }));
+}
+
+async function loadReadyCandidates(supabase: SupabaseClient, briefId: string, mode: BriefMode): Promise<ReadyCandidate[]> {
+  const [{ data: approvedMatches, error: matchError }, { data: offers, error: offerError }, { data: talents, error: talentError }] = await Promise.all([
+    supabase.from("match_results").select("talent_id,score,tier,score_breakdown").eq("brief_id", briefId).eq("admin_approved", true).eq("admin_rejected", false).order("score", { ascending: false }),
+    supabase.from("talent_offers").select("id,talent_id,status,availability_status,event_fee,currency,included_costs,excluded_costs,payment_terms,rider_exceptions,quote_valid_until").eq("brief_id", briefId).eq("status", "confirmed").eq("availability_status", "confirmed"),
+    supabase.from("talents").select("id,name,category,base_city,genres,bio,profile_image_url"),
+  ]);
+  if (matchError) throw new Error(matchError.message);
+  if (offerError) throw new Error(offerError.message);
+  if (talentError) throw new Error(talentError.message);
+
+  const nowMs = Date.now();
+  const offerMap = new Map((offers ?? []).filter((offer) => !offer.quote_valid_until || new Date(offer.quote_valid_until).getTime() > nowMs).map((offer) => [offer.talent_id, offer]));
+  const talentMap = new Map((talents ?? []).map((talent) => [talent.id, talent]));
+
+  if (mode.request_mode === "direct_talent") {
+    if (!mode.requested_talent_id) return [];
+    const offer = offerMap.get(mode.requested_talent_id);
+    const talent = talentMap.get(mode.requested_talent_id);
+    if (!offer || !talent || !offer.event_fee || Number(offer.event_fee) <= 0) return [];
+    return attachMedia(supabase, [{
+      match: null,
+      offer: { ...offer, event_fee: Number(offer.event_fee) } as OfferSnapshot,
+      talent: talent as TalentSnapshot,
+      whyFit: buildDirectWhyFit(),
+    }]);
+  }
+
+  const base = (approvedMatches ?? []).flatMap((match) => {
+    const offer = offerMap.get(match.talent_id);
+    const talent = talentMap.get(match.talent_id);
+    if (!offer || !talent || !offer.event_fee || Number(offer.event_fee) <= 0) return [];
+    return [{
+      match: match as MatchSnapshot,
+      offer: { ...offer, event_fee: Number(offer.event_fee) } as OfferSnapshot,
+      talent: talent as TalentSnapshot,
+      whyFit: buildWhyFit((match.score_breakdown ?? null) as Record<string, unknown> | null),
+    }];
+  }).slice(0, 5);
+
+  return attachMedia(supabase, base);
 }
 
 export async function GET(request: Request) {
@@ -121,13 +152,14 @@ export async function GET(request: Request) {
     if (!briefId) return NextResponse.json({ error: "Invalid brief id" }, { status: 400 });
 
     const supabase = getServerClient();
-    const { data: brief, error: briefError } = await supabase.from("briefs").select("id,status").eq("id", briefId).single();
+    const { data: brief, error: briefError } = await supabase.from("briefs").select("id,status,request_mode,requested_talent_id").eq("id", briefId).single();
     if (briefError || !brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
     if (!["shortlisted", "proposal_sent"].includes(brief.status)) return NextResponse.json({ error: "Brief is not ready for proposal" }, { status: 409 });
 
-    const ready = await loadReadyCandidates(supabase, briefId);
+    const ready = await loadReadyCandidates(supabase, briefId, brief as BriefMode);
     return NextResponse.json({
       ok: true,
+      requestMode: brief.request_mode,
       candidates: ready.map(({ talent, offer }) => ({
         talentId: talent.id,
         name: talent.name,
@@ -153,12 +185,12 @@ export async function POST(request: Request) {
     if (!buyerPaymentTerms || buyerPaymentTerms.length > 1200) return NextResponse.json({ error: "Buyer-facing payment terms are required" }, { status: 400 });
 
     const supabase = getServerClient();
-    const { data: brief, error: briefError } = await supabase.from("briefs").select("id,status").eq("id", briefId).single();
+    const { data: brief, error: briefError } = await supabase.from("briefs").select("id,status,request_mode,requested_talent_id").eq("id", briefId).single();
     if (briefError || !brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
     if (!["shortlisted", "proposal_sent"].includes(brief.status)) return NextResponse.json({ error: "Brief is not ready for proposal" }, { status: 409 });
 
-    const ready = await loadReadyCandidates(supabase, briefId);
-    if (!ready.length) return NextResponse.json({ error: "No approved talent with a valid confirmed event offer" }, { status: 409 });
+    const ready = await loadReadyCandidates(supabase, briefId, brief as BriefMode);
+    if (!ready.length) return NextResponse.json({ error: "No valid confirmed event offer is ready for proposal" }, { status: 409 });
 
     const { data: current, error: currentError } = await supabase.from("proposals").select("id,version,status").eq("brief_id", briefId).order("version", { ascending: false }).limit(1).maybeSingle();
     if (currentError) throw new Error(currentError.message);
@@ -198,8 +230,8 @@ export async function POST(request: Request) {
       talent_genres_snapshot: talent.genres ?? [],
       talent_bio_snapshot: talent.bio,
       talent_profile_image_url_snapshot: talent.profile_image_url,
-      match_score_snapshot: match.score,
-      match_tier_snapshot: match.tier,
+      match_score_snapshot: match?.score ?? null,
+      match_tier_snapshot: match?.tier ?? null,
       why_fit_snapshot: whyFit,
       media_snapshot: media,
     }));
@@ -217,7 +249,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Brief already advanced beyond proposal stage" }, { status: 409 });
     }
 
-    return NextResponse.json({ ok: true, briefId, proposalId: proposal.id, version: proposal.version, status: "proposal_sent", readyTalentCount: itemRows.length });
+    return NextResponse.json({ ok: true, briefId, proposalId: proposal.id, version: proposal.version, status: "proposal_sent", readyTalentCount: itemRows.length, requestMode: brief.request_mode });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     console.error("Proposal snapshot action failed", detail);
