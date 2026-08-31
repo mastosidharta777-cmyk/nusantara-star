@@ -7,6 +7,8 @@ type TalentRow = {
   name: string;
   category: string;
   act_type: string | null;
+  willing_to_perform_covers: boolean | null;
+  accepts_song_requests: boolean | null;
   gender: string | null;
   genres: string[] | null;
   music_styles: string[] | null;
@@ -45,7 +47,8 @@ function normalizeGender(value: string | null): TalentGender {
 }
 
 function normalizeActType(value: string | null): TalentActType {
-  if (value === "original_artist" || value === "cover_entertainment") return value;
+  if (value === "original_artist" || value === "cover_performer" || value === "mixed") return value;
+  if (value === "cover_entertainment") return "cover_performer";
   return null;
 }
 
@@ -69,7 +72,7 @@ export async function loadEngineTalents(): Promise<{ talents: EngineTalent[]; so
   const [{ data: talentData, error: talentError }, { data: availabilityData, error: availabilityError }] = await Promise.all([
     supabase
       .from("talents")
-      .select("id,name,category,act_type,gender,genres,music_styles,vibe_tags,capability_tags,base_city,service_cities,performance_formats,event_types,audience_tags,budget_min,budget_max,reliability_score,last_calendar_updated_at,status,onboarding_status,public_visible")
+      .select("id,name,category,act_type,willing_to_perform_covers,accepts_song_requests,gender,genres,music_styles,vibe_tags,capability_tags,base_city,service_cities,performance_formats,event_types,audience_tags,budget_min,budget_max,reliability_score,last_calendar_updated_at,status,onboarding_status,public_visible")
       .eq("status", "verified")
       .eq("onboarding_status", "approved")
       .eq("public_visible", true),
@@ -92,6 +95,8 @@ export async function loadEngineTalents(): Promise<{ talents: EngineTalent[]; so
     name: row.name,
     category: row.category,
     actType: normalizeActType(row.act_type),
+    willingToPerformCovers: row.willing_to_perform_covers,
+    acceptsSongRequests: row.accepts_song_requests,
     gender: normalizeGender(row.gender),
     genres: row.genres ?? [],
     musicStyles: row.music_styles ?? [],

@@ -11,12 +11,16 @@ function money(value: number | null) {
   if (value == null) return "—";
   return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(value);
 }
-
+function humanAvailability(value: string | null | undefined) {
+  if (value === "confirmed") return "Tersedia";
+  if (value === "unavailable") return "Tidak tersedia";
+  if (value === "tentative") return "Belum final (data lama)";
+  return "Menunggu konfirmasi";
+}
 function formatRequirement(items: string[] | null | undefined) {
   const row = (items ?? []).find((item) => /^format penampilan\s*:/i.test(item));
   return row ? row.replace(/^format penampilan\s*:/i, "").trim() : null;
 }
-
 function otherRequirements(items: string[] | null | undefined) {
   return (items ?? []).filter((item) => !/^format penampilan\s*:/i.test(item));
 }
@@ -36,9 +40,9 @@ export default async function TalentConfirmationPage({ params, searchParams }: {
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
       <div className="mx-auto max-w-[760px] px-5 py-8 md:px-10 md:py-12">
-        <p className="eyebrow mb-3">Nusantara Star · Talent Offer</p>
+        <p className="eyebrow mb-3">Nusantara Star · Permintaan Event</p>
         <h1 className="text-3xl font-semibold tracking-[-0.03em] md:text-5xl">{talent.name}</h1>
-        <p className="mt-3 text-sm leading-6 text-black/55">Konfirmasi untuk event ini mencakup availability dan commercial offer. Ini belum merupakan kontrak atau booking final.</p>
+        <p className="mt-3 text-sm leading-6 text-black/55">Periksa detail acara. Jika jadwal sudah pasti, jawab tersedia atau tidak tersedia. Jika tersedia, kirim penawaran khusus untuk event ini. Ini belum merupakan booking final.</p>
         <section className="mt-7 border border-black/10 bg-white p-5 md:p-6">
           <div className="grid gap-4 sm:grid-cols-2">
             <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Acara</p><p className="mt-2 font-semibold">{brief.event_type ?? "—"}</p></div>
@@ -62,12 +66,12 @@ export default async function TalentConfirmationPage({ params, searchParams }: {
 
           {offer ? (
             <div className="mt-6 border border-black/10 bg-[#f5f3ee] p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/45">Saved Offer Snapshot</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/45">Jawaban terakhir</p>
               <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-                <p><span className="text-black/45">Availability:</span><br />{offer.availability_status}</p>
-                <p><span className="text-black/45">Event fee:</span><br />{money(offer.event_fee)}</p>
-                <p><span className="text-black/45">Payment terms:</span><br />{offer.payment_terms ?? "—"}</p>
-                <p><span className="text-black/45">Valid until:</span><br />{offer.quote_valid_until ? new Date(offer.quote_valid_until).toLocaleString("id-ID") : "—"}</p>
+                <p><span className="text-black/45">Ketersediaan:</span><br />{humanAvailability(offer.availability_status)}</p>
+                <p><span className="text-black/45">Fee event:</span><br />{money(offer.event_fee)}</p>
+                <p><span className="text-black/45">Ketentuan pembayaran:</span><br />{offer.payment_terms ?? "—"}</p>
+                <p><span className="text-black/45">Penawaran berlaku sampai:</span><br />{offer.quote_valid_until ? new Date(offer.quote_valid_until).toLocaleString("id-ID") : "—"}</p>
               </div>
             </div>
           ) : null}
