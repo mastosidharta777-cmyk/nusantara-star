@@ -38,25 +38,32 @@ function taxonomy(t:EngineTalent,b:StructuredBrief){
 function tier(score:number,b:MatchBreakdown):MatchTier{const tx=b.taxonomyFit??70;if(score>=88&&b.budget>=90&&b.categoryGenre>=80&&b.availability>=60&&tx>=70)return"strong_match";if(score>=74&&b.budget>=65&&b.categoryGenre>=80&&b.availability>=30&&tx>=55)return"acceptable_alternative";return"do_not_offer"}
 function explicitEligibilityBlocks(t:EngineTalent,b:StructuredBrief){
  const text=n([b.sourceText??"",...b.specialRequirements].join(" ")),blocks:string[]=[];
- if(/\b(band cover|cover band|talent cover|cover performer|entertainment band)\b/.test(text)&&!isCoverCapable(t))blocks.push("Brief secara eksplisit meminta talent yang dapat membawakan cover");
- if(/\b(original artist|artis original)\b/.test(text)&&!isOriginalCapable(t))blocks.push("Brief secara eksplisit meminta original artist");
- if(/\b(request song|request lagu|request lagu khusus)\b/.test(text)&&t.acceptsSongRequests!==true)blocks.push("Brief secara eksplisit meminta talent yang menerima request lagu");
- if(/\bfull band\b/.test(text)&&!intersects(t.performanceFormats,["full band"]))blocks.push("Format full band wajib tetapi tidak tersedia");
- if(/\b(bisa|format|set|tampil|performance)?\s*(acoustic|akustik)\b/.test(text)&&!intersects(t.performanceFormats,["acoustic","semi acoustic"]))blocks.push("Format acoustic/akustik wajib tetapi tidak tersedia");
+ if(/\b(band cover|cover band|talent cover|cover performer|entertainment band)\b/.test(text)&&!isCoverCapable(t))blocks.push("Permintaan klien secara jelas membutuhkan talent yang dapat membawakan lagu cover");
+ if(/\b(original artist|artis original)\b/.test(text)&&!isOriginalCapable(t))blocks.push("Permintaan klien secara jelas membutuhkan artis dengan lagu original");
+ if(/\b(request song|request lagu|request lagu khusus)\b/.test(text)&&t.acceptsSongRequests!==true)blocks.push("Permintaan klien membutuhkan talent yang menerima permintaan lagu");
+ if(/\bfull band\b/.test(text)&&!intersects(t.performanceFormats,["full band"]))blocks.push("Klien meminta format full band, tetapi format tersebut tidak tersedia");
+ if(/\b(bisa|format|set|tampil|performance)?\s*(acoustic|akustik)\b/.test(text)&&!intersects(t.performanceFormats,["acoustic","semi acoustic"]))blocks.push("Klien meminta format akustik, tetapi format tersebut tidak tersedia");
  return blocks;
 }
 
 export function scoreTalent(t:EngineTalent,b:StructuredBrief,now=new Date()):TalentMatch{
  const av=availabilityConfidence(t,b.eventDate,now),blockedReasons:string[]=explicitEligibilityBlocks(t,b),reasons:string[]=[];
  if(av.hardBlocked)blockedReasons.push(`Tidak tersedia pada ${b.eventDate??"tanggal acara"}`);
- const rc=canonicalCategory(b.talentCategory),tc=canonicalCategory(t.category);if(rc&&rc!==tc)blockedReasons.push(`Kategori tidak sesuai: meminta ${b.talentCategory}`);
- const g=requestedGender(b);if(g&&t.gender&&!['unknown','mixed',g].includes(t.gender))blockedReasons.push(`Gender talent tidak sesuai: meminta ${g}`);
+ const rc=canonicalCategory(b.talentCategory),tc=canonicalCategory(t.category);if(rc&&rc!==tc)blockedReasons.push(`Kategori tidak sesuai: klien meminta ${b.talentCategory}`);
+ const g=requestedGender(b);if(g&&t.gender&&!['unknown','mixed',g].includes(t.gender))blockedReasons.push(`Gender talent tidak sesuai dengan permintaan klien`);
  const breakdown:MatchBreakdown={availability:av.score,budget:budget(t,b),categoryGenre:categoryGenre(t,b),eventFit:eventFit(t,b),location:location(t,b),reliability:t.reliabilityScore,audienceVibe:audienceVibe(t,b),taxonomyFit:taxonomy(t,b)};
- if(breakdown.budget<65)blockedReasons.push("Indikasi fee talent berada di luar toleransi budget buyer");
+ if(breakdown.budget<65)blockedReasons.push("Indikasi fee talent terlalu jauh di atas anggaran klien");
  const raw=Math.round(breakdown.availability*.23+breakdown.budget*.19+breakdown.categoryGenre*.18+breakdown.eventFit*.09+breakdown.location*.09+breakdown.reliability*.08+breakdown.audienceVibe*.06+(breakdown.taxonomyFit??70)*.08);
  const score=blockedReasons.length?0:raw;const mt=blockedReasons.length?"do_not_offer":tier(score,breakdown);
- if(b.budgetMax==null&&b.budgetMin!=null)reasons.push("buyer tidak menetapkan batas maksimum budget");else if(breakdown.budget>=90)reasons.push("budget sesuai");else if(breakdown.budget>=65)reasons.push("sedikit di atas budget; hanya sebagai stretch alternative");
- if(breakdown.categoryGenre>=90)reasons.push("kategori/genre sesuai");if((breakdown.taxonomyFit??0)>=85)reasons.push("format/style entertainment sesuai brief");if(b.city&&n(t.baseCity)===n(b.city))reasons.push("berbasis di kota event");else if(b.city)reasons.push("transport dari kota asal perlu dihitung");if(breakdown.eventFit>=90)reasons.push("cocok untuk jenis acara");if(t.reliabilityScore>=85)reasons.push("reliability tinggi");if(av.freshness!=="fresh")reasons.push("availability perlu dikonfirmasi ulang");if(!av.hardBlocked)reasons.push("live confirmation wajib sebelum shortlist final");if(mt==="acceptable_alternative")reasons.push("alternatif layak, bukan exact match");
+ if(b.budgetMax==null&&b.budgetMin!=null)reasons.push("klien belum menetapkan batas maksimum anggaran");else if(breakdown.budget>=90)reasons.push("anggaran sesuai");else if(breakdown.budget>=65)reasons.push("sedikit di atas anggaran; tampilkan hanya sebagai alternatif");
+ if(breakdown.categoryGenre>=90)reasons.push("kategori dan genre sesuai");
+ if((breakdown.taxonomyFit??0)>=85)reasons.push("format dan gaya penampilan sesuai kebutuhan");
+ if(b.city&&n(t.baseCity)===n(b.city))reasons.push("berbasis di kota acara");else if(b.city)reasons.push("biaya perjalanan dari kota asal perlu dihitung");
+ if(breakdown.eventFit>=90)reasons.push("cocok untuk jenis acara");
+ if(t.reliabilityScore>=85)reasons.push("rekam jejak operasional baik");
+ if(av.freshness!=="fresh")reasons.push("ketersediaan perlu dikonfirmasi ulang");
+ if(!av.hardBlocked)reasons.push("konfirmasi langsung wajib sebelum pilihan final");
+ if(mt==="acceptable_alternative")reasons.push("alternatif layak, tetapi bukan kecocokan utama");
  return{talent:t,score,tier:mt,breakdown,availabilityStatus:av.status,freshness:av.freshness,requiresLiveConfirmation:av.requiresLiveConfirmation,reasons,blockedReasons};
 }
 export function rankTalents(talents:EngineTalent[],brief:StructuredBrief,limit=5,now=new Date()){return talents.map(t=>scoreTalent(t,brief,now)).filter(m=>!m.blockedReasons.length&&m.tier!=="do_not_offer").sort((a,b)=>a.tier!==b.tier?(a.tier==="strong_match"?-1:1):b.score-a.score).slice(0,limit)}

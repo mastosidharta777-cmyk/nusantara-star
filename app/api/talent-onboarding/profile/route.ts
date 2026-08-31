@@ -26,21 +26,21 @@ async function normalizeRider(input:{baseRider:string|null;travelPolicy:string|n
 export async function GET(request:Request){
  try{
   const u=new URL(request.url);const talentId=u.searchParams.get("talentId")??"";const token=u.searchParams.get("token")??"";
-  if(!talentId||!verifyAccessToken(token,"talent_onboarding",talentId))return NextResponse.json({error:"Invalid or expired onboarding link"},{status:401});
+  if(!talentId||!verifyAccessToken(token,"talent_onboarding",talentId))return NextResponse.json({error:"Tautan pendaftaran tidak valid atau sudah kedaluwarsa"},{status:401});
   const s=getServerClient();
   const[{data:talent,error:te},{data:submission,error:se},{data:assets,error:ae}]=await Promise.all([
    s.from("talents").select("id,name,category,act_type,willing_to_perform_covers,accepts_song_requests,sample_repertoire,repertoire_genres,repertoire_styles,repertoire_eras,repertoire_ai_status,base_city,genres,music_styles,vibe_tags,capability_tags,performance_formats,event_types,bio,show_duration_minutes,manager_name,manager_email,manager_whatsapp,instagram_url,tiktok_url,youtube_url,base_rider,travel_policy,accommodation_policy,onboarding_status").eq("id",talentId).maybeSingle(),
    s.from("talent_profile_submissions").select("*").eq("talent_id",talentId).maybeSingle(),
    s.from("talent_assets").select("id,asset_type,provider,original_filename,mime_type,size_bytes,title,description,upload_status,review_status,buyer_visible,created_at").eq("talent_id",talentId).order("created_at",{ascending:false})
   ]);
-  if(te)throw new Error(te.message);if(!talent)return NextResponse.json({error:"Talent not found"},{status:404});if(se)throw new Error(se.message);if(ae)throw new Error(ae.message);
+  if(te)throw new Error(te.message);if(!talent)return NextResponse.json({error:"Talent tidak ditemukan"},{status:404});if(se)throw new Error(se.message);if(ae)throw new Error(ae.message);
   return NextResponse.json({ok:true,talent,submission,assets:assets??[]});
- }catch(e){return NextResponse.json({error:"Onboarding data failed",detail:e instanceof Error?e.message:String(e)},{status:500})}
+ }catch(e){return NextResponse.json({error:"Gagal memuat data pendaftaran",detail:e instanceof Error?e.message:String(e)},{status:500})}
 }
 
 export async function PUT(request:Request){
  try{
-  const body=await request.json().catch(()=>null);const{talentId,ok}=auth(body);if(!ok)return NextResponse.json({error:"Invalid or expired onboarding link"},{status:401});
+  const body=await request.json().catch(()=>null);const{talentId,ok}=auth(body);if(!ok)return NextResponse.json({error:"Tautan pendaftaran tidak valid atau sudah kedaluwarsa"},{status:401});
   const name=text(body?.name),category=text(body?.category);if(!name||!category)return NextResponse.json({error:"Nama dan kategori wajib diisi"},{status:400});
   const showDuration=body?.showDurationMinutes==null||body?.showDurationMinutes===""?null:Number(body.showDurationMinutes);if(showDuration!=null&&(!Number.isInteger(showDuration)||showDuration<=0||showDuration>600))return NextResponse.json({error:"Durasi tampil tidak valid"},{status:400});
 
@@ -73,32 +73,32 @@ export async function PUT(request:Request){
   const sourceText=[rawRider.baseRider?`BASE RIDER\n${rawRider.baseRider}`:"",rawRider.travelPolicy?`TRAVEL\n${rawRider.travelPolicy}`:"",rawRider.accommodationPolicy?`ACCOMMODATION\n${rawRider.accommodationPolicy}`:""].filter(Boolean).join("\n\n");
   if(sourceText){try{await persistRiderVersion(s,{talentId,sourceType:"form_text",sourceText,talentName:name,baseCity:payload.base_city,category})}catch(e){console.error("Master rider version save failed",e)}}
   return NextResponse.json({ok:true,submission:data});
- }catch(e){return NextResponse.json({error:"Save onboarding profile failed",detail:e instanceof Error?e.message:String(e)},{status:500})}
+ }catch(e){return NextResponse.json({error:"Gagal menyimpan profil",detail:e instanceof Error?e.message:String(e)},{status:500})}
 }
 
 export async function POST(request:Request){
  try{
-  const body=await request.json().catch(()=>null);const{talentId,ok}=auth(body);if(!ok)return NextResponse.json({error:"Invalid or expired onboarding link"},{status:401});
+  const body=await request.json().catch(()=>null);const{talentId,ok}=auth(body);if(!ok)return NextResponse.json({error:"Tautan pendaftaran tidak valid atau sudah kedaluwarsa"},{status:401});
   const s=getServerClient();const[{data:submission,error:se},{data:assets,error:ae}]=await Promise.all([
    s.from("talent_profile_submissions").select("id,name,category,act_type,willing_to_perform_covers,accepts_song_requests,sample_repertoire,bio,manager_name,manager_email,manager_whatsapp,status").eq("talent_id",talentId).maybeSingle(),
    s.from("talent_assets").select("asset_type,upload_status").eq("talent_id",talentId).eq("upload_status","uploaded")
   ]);
   if(se)throw new Error(se.message);if(ae)throw new Error(ae.message);if(!submission)return NextResponse.json({error:"Simpan profil terlebih dahulu"},{status:409});if(submission.status==="submitted")return NextResponse.json({ok:true,alreadySubmitted:true});
-  const missing:string[]=[];if(!submission.name)missing.push("Nama talent");if(!submission.category)missing.push("Kategori");if(!submission.bio)missing.push("Bio");if(!submission.manager_name)missing.push("Manajer/PIC");if(!submission.manager_email&&!submission.manager_whatsapp)missing.push("Kontak manajer (WhatsApp atau email)");
+  const missing:string[]=[];if(!submission.name)missing.push("Nama talent");if(!submission.category)missing.push("Kategori");if(!submission.bio)missing.push("Bio singkat");if(!submission.manager_name)missing.push("Manajer/PIC");if(!submission.manager_email&&!submission.manager_whatsapp)missing.push("Kontak manajer (WhatsApp atau email)");
 
   if(isSongActCategory(submission.category)){
    const type=actType(submission.act_type);if(!type)missing.push("Jenis musisi");
    const willing=bool(submission.willing_to_perform_covers);if(type==="original_artist"&&willing===null)missing.push("Kesediaan membawakan lagu cover");
    const canCover=coverCapable(type,willing);
    if(canCover){
-    if(bool(submission.accepts_song_requests)===null)missing.push("Pilihan menerima request lagu buyer");
-    const repertoire=sanitizeRepertoire(submission.sample_repertoire);if(!repertoireIsComplete(repertoire))missing.push("Sample repertoire 10–20 lagu (Judul Lagu + Artis)");
+    if(bool(submission.accepts_song_requests)===null)missing.push("Pilihan menerima permintaan lagu dari klien");
+    const repertoire=sanitizeRepertoire(submission.sample_repertoire);if(!repertoireIsComplete(repertoire))missing.push("Contoh daftar lagu 10–20 lagu (Judul Lagu + Artis)");
    }
   }
   if(missing.length)return NextResponse.json({error:`Lengkapi: ${missing.join(", ")}`,missingFields:missing},{status:409});
 
   const hasPhoto=(assets??[]).some(a=>a.asset_type==="profile_photo");const hasVideo=(assets??[]).some(a=>["live_performance","showreel","event_clip"].includes(a.asset_type));
-  if(!hasPhoto&&!hasVideo)return NextResponse.json({error:"Unggah minimal 1 foto profil dan 1 video sebelum dikirim"},{status:409});if(!hasPhoto)return NextResponse.json({error:"Unggah minimal 1 foto profil sebelum dikirim"},{status:409});if(!hasVideo)return NextResponse.json({error:"Unggah minimal 1 video live/showreel sebelum dikirim"},{status:409});
+  if(!hasPhoto&&!hasVideo)return NextResponse.json({error:"Unggah minimal 1 foto profil dan 1 video sebelum dikirim"},{status:409});if(!hasPhoto)return NextResponse.json({error:"Unggah minimal 1 foto profil sebelum dikirim"},{status:409});if(!hasVideo)return NextResponse.json({error:"Unggah minimal 1 video penampilan atau showreel sebelum dikirim"},{status:409});
   const now=new Date().toISOString();const{error:ue}=await s.from("talent_profile_submissions").update({status:"submitted",submitted_at:now,updated_at:now}).eq("talent_id",talentId);if(ue)throw new Error(ue.message);const{error:tue}=await s.from("talents").update({onboarding_status:"submitted",updated_at:now}).eq("id",talentId);if(tue)throw new Error(tue.message);return NextResponse.json({ok:true});
- }catch(e){return NextResponse.json({error:"Submit onboarding failed",detail:e instanceof Error?e.message:String(e)},{status:500})}
+ }catch(e){return NextResponse.json({error:"Gagal mengirim profil untuk ditinjau",detail:e instanceof Error?e.message:String(e)},{status:500})}
 }
