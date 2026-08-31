@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AdminMusicOnboardingReview } from "@/components/admin-music-onboarding-review";
 import { AdminTalentCommercialProfile } from "@/components/admin-talent-commercial-profile";
 import { AdminTalentOnboardingLink } from "@/components/admin-talent-onboarding-link";
 import { AdminTalentOnboardingReview } from "@/components/admin-talent-onboarding-review";
@@ -26,7 +27,7 @@ export default async function AdminTalentDetailPage({ params }: { params: Promis
 
     <AdminTalentOperationalBasics talentId={talent.id} initialBaseCity={talent.base_city} initialBudgetMin={talent.budget_min} initialBudgetMax={talent.budget_max} lastCalendarUpdatedAt={talent.last_calendar_updated_at} />
     <AdminTalentOnboardingLink talentId={talent.id} />
-    <div className="mt-5"><AdminTalentOnboardingReview talentId={talent.id} /></div>
+    <div className="mt-5"><AdminMusicOnboardingReview talentId={talent.id} /><AdminTalentOnboardingReview talentId={talent.id} /></div>
 
     <details className="border border-black/10 bg-white p-5">
       <summary className="cursor-pointer text-sm font-semibold">Pengaturan komersial <span className="font-normal text-black/45">(opsional, internal)</span></summary>
