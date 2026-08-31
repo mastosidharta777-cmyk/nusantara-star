@@ -60,7 +60,7 @@ export async function PUT(request:Request){
    if(classification){repertoireGenres=classification.genres;repertoireStyles=classification.styles;repertoireEras=classification.eras;repertoireAiStatus="suggested"}
   }
 
-  const rawRider={baseRider:text(body?.baseRider),travelPolicy:text(body?.travelPolicy),accommodationPolicy:text(body?.accommodationPolicy)};const normalized=await normalizeRider(rawRider);
+  const rawRider={baseRider:text(body?.baseRider),travelPolicy:null,accommodationPolicy:null};const normalized=await normalizeRider(rawRider);
   const suppliedGenres=textArray(body?.genres);const suppliedStyles=textArray(body?.musicStyles);
   const payload={
    talent_id:talentId,name,category,act_type:requestedActType,willing_to_perform_covers:willing,accepts_song_requests:acceptsRequests,
@@ -72,7 +72,7 @@ export async function PUT(request:Request){
   };
   const s=getServerClient();const{data,error}=await s.from("talent_profile_submissions").upsert(payload,{onConflict:"talent_id"}).select("*").single();if(error)throw new Error(error.message);
   await s.from("talents").update({onboarding_status:"in_progress",updated_at:new Date().toISOString()}).eq("id",talentId).neq("onboarding_status","approved");
-  const sourceText=[rawRider.baseRider?`BASE RIDER\n${rawRider.baseRider}`:"",rawRider.travelPolicy?`TRAVEL\n${rawRider.travelPolicy}`:"",rawRider.accommodationPolicy?`ACCOMMODATION\n${rawRider.accommodationPolicy}`:""].filter(Boolean).join("\n\n");
+  const sourceText=rawRider.baseRider?`BASE RIDER\n${rawRider.baseRider}`:"";
   if(sourceText){try{await persistRiderVersion(s,{talentId,sourceType:"form_text",sourceText,talentName:name,baseCity:payload.base_city,category})}catch(e){console.error("Master rider version save failed",e)}}
   return NextResponse.json({ok:true,submission:data});
  }catch(e){return NextResponse.json({error:"Gagal menyimpan profil",detail:e instanceof Error?e.message:String(e)},{status:500})}
