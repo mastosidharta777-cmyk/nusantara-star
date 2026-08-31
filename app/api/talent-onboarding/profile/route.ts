@@ -9,6 +9,7 @@ export const runtime = "nodejs";
 
 function getServerClient(){const url=process.env.NEXT_PUBLIC_SUPABASE_URL;const key=process.env.SUPABASE_SERVICE_ROLE_KEY;if(!url||!key)throw new Error("Supabase server environment is not configured");return createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}})}
 function text(v:unknown){return typeof v==="string"&&v.trim()?v.trim():null}
+function optionalHttpUrl(v:unknown){const value=text(v);if(!value)return null;try{const url=new URL(value);return url.protocol==="http:"||url.protocol==="https:"?url.toString():undefined}catch{return undefined}}
 function textArray(v:unknown){if(!Array.isArray(v))return[];return Array.from(new Set(v.filter((x):x is string=>typeof x==="string").map(x=>x.trim()).filter(Boolean))).slice(0,30)}
 function auth(body:any){const talentId=typeof body?.talentId==="string"?body.talentId:"";const token=typeof body?.token==="string"?body.token:"";return{talentId,ok:Boolean(talentId&&verifyAccessToken(token,"talent_onboarding",talentId))}}
 function bool(v:unknown){return typeof v==="boolean"?v:null}
@@ -29,7 +30,7 @@ export async function GET(request:Request){
   if(!talentId||!verifyAccessToken(token,"talent_onboarding",talentId))return NextResponse.json({error:"Tautan pendaftaran tidak valid atau sudah kedaluwarsa"},{status:401});
   const s=getServerClient();
   const[{data:talent,error:te},{data:submission,error:se},{data:assets,error:ae}]=await Promise.all([
-   s.from("talents").select("id,name,category,act_type,willing_to_perform_covers,accepts_song_requests,sample_repertoire,repertoire_genres,repertoire_styles,repertoire_eras,repertoire_ai_status,base_city,genres,music_styles,vibe_tags,capability_tags,performance_formats,event_types,bio,show_duration_minutes,manager_name,manager_email,manager_whatsapp,instagram_url,tiktok_url,youtube_url,base_rider,travel_policy,accommodation_policy,onboarding_status").eq("id",talentId).maybeSingle(),
+   s.from("talents").select("id,name,category,act_type,willing_to_perform_covers,accepts_song_requests,sample_repertoire,repertoire_genres,repertoire_styles,repertoire_eras,repertoire_ai_status,base_city,genres,music_styles,vibe_tags,capability_tags,performance_formats,event_types,bio,show_duration_minutes,manager_name,manager_email,manager_whatsapp,portfolio_url,base_rider,travel_policy,accommodation_policy,onboarding_status").eq("id",talentId).maybeSingle(),
    s.from("talent_profile_submissions").select("*").eq("talent_id",talentId).maybeSingle(),
    s.from("talent_assets").select("id,asset_type,provider,original_filename,mime_type,size_bytes,title,description,upload_status,review_status,buyer_visible,created_at").eq("talent_id",talentId).order("created_at",{ascending:false})
   ]);
@@ -42,6 +43,7 @@ export async function PUT(request:Request){
  try{
   const body=await request.json().catch(()=>null);const{talentId,ok}=auth(body);if(!ok)return NextResponse.json({error:"Tautan pendaftaran tidak valid atau sudah kedaluwarsa"},{status:401});
   const name=text(body?.name),category=text(body?.category);if(!name||!category)return NextResponse.json({error:"Nama dan kategori wajib diisi"},{status:400});
+  const portfolioUrl=optionalHttpUrl(body?.portfolioUrl);if(portfolioUrl===undefined)return NextResponse.json({error:"Link media/portofolio utama tidak valid"},{status:400});
   const showDuration=body?.showDurationMinutes==null||body?.showDurationMinutes===""?null:Number(body.showDurationMinutes);if(showDuration!=null&&(!Number.isInteger(showDuration)||showDuration<=0||showDuration>600))return NextResponse.json({error:"Durasi tampil tidak valid"},{status:400});
 
   const songAct=isSongActCategory(category);
@@ -65,7 +67,7 @@ export async function PUT(request:Request){
    sample_repertoire:repertoire,repertoire_genres:repertoireGenres,repertoire_styles:repertoireStyles,repertoire_eras:repertoireEras,repertoire_ai_status:repertoireAiStatus,repertoire_ai_updated_at:repertoireAiStatus==="suggested"?new Date().toISOString():null,
    base_city:text(body?.baseCity),genres:requestedActType==="cover_performer"?[]:suppliedGenres,music_styles:requestedActType==="cover_performer"?[]:suppliedStyles,
    vibe_tags:textArray(body?.vibeTags),capability_tags:withoutLegacyRequestTag(textArray(body?.capabilityTags)),service_cities:[],performance_formats:textArray(body?.performanceFormats),event_types:textArray(body?.eventTypes),bio:text(body?.bio),show_duration_minutes:showDuration,
-   manager_name:text(body?.managerName),manager_email:text(body?.managerEmail),manager_whatsapp:text(body?.managerWhatsapp),instagram_url:text(body?.instagramUrl),tiktok_url:text(body?.tiktokUrl),youtube_url:text(body?.youtubeUrl),
+   manager_name:text(body?.managerName),manager_email:text(body?.managerEmail),manager_whatsapp:text(body?.managerWhatsapp),portfolio_url:portfolioUrl,
    base_rider:normalized.baseRider,travel_policy:normalized.travelPolicy,accommodation_policy:normalized.accommodationPolicy,status:"draft",rejection_note:null,updated_at:new Date().toISOString()
   };
   const s=getServerClient();const{data,error}=await s.from("talent_profile_submissions").upsert(payload,{onConflict:"talent_id"}).select("*").single();if(error)throw new Error(error.message);
