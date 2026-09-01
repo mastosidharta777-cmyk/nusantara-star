@@ -40,8 +40,10 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ ok: true, bio });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Gagal memproses dokumen bio";
+    console.error(JSON.stringify({ level: "error", message: "Talent bio processing failed", route: "/api/talent-onboarding/bio", detail: message }));
     return NextResponse.json({
-      error: error instanceof Error ? error.message : "Gagal memproses dokumen bio",
-    }, { status: 422 });
+      error: message,
+    }, { status: message.includes("sedang dibatasi") ? 503 : 422 });
   }
 }
