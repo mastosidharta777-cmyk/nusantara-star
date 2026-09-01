@@ -31,6 +31,7 @@ export async function requestOpenAIStructured(input: StructuredRequest) {
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
+        reasoning_effort: "none",
         messages: [
           { role: "system", content: input.systemPrompt },
           { role: "user", content: input.userContent },
@@ -46,9 +47,15 @@ export async function requestOpenAIStructured(input: StructuredRequest) {
 
     if (response.ok) {
       const payload = await response.json();
-      const raw = payload?.choices?.[0]?.message?.content;
+      const choice = payload?.choices?.[0];
+      const raw = choice?.message?.content;
       if (typeof raw !== "string" || !raw) throw new Error(`OpenAI ${model} tidak mengembalikan hasil`);
-      return JSON.parse(raw);
+      try {
+        return JSON.parse(raw);
+      } catch (error) {
+        console.warn(JSON.stringify({ level: "warning", message: "OpenAI structured output invalid", model, finishReason: choice?.finish_reason ?? null, rawLength: raw.length, detail: error instanceof Error ? error.message : String(error) }));
+        throw error;
+      }
     }
 
     lastStatus = response.status;
