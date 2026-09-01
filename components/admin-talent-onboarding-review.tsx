@@ -92,6 +92,7 @@ export function AdminTalentOnboardingReview({ talentId }: { talentId: string }) 
       <div className="md:col-span-2"><b>Bio</b><p className="mt-1 whitespace-pre-wrap text-black/60">{data.submission.bio || "—"}</p></div>
       <div><b>Manajer / PIC</b><p>{data.submission.manager_name || "—"}</p></div><div><b>Kontak internal</b><p>{data.submission.manager_whatsapp || data.submission.manager_email || "—"}</p></div>
       <div className="md:col-span-2"><b>Link media/portofolio utama</b><p>{data.submission.portfolio_url ? <a href={data.submission.portfolio_url} target="_blank" rel="noreferrer" className="break-all underline">{data.submission.portfolio_url}</a> : "—"}</p></div>
+      <div className="md:col-span-2"><b>Batasan booking</b><p className="mt-1 whitespace-pre-wrap text-black/60">{data.submission.booking_limitations || "Tidak ada batasan yang dicantumkan."}</p></div>
     </div> : <p className="mt-5 text-sm text-black/50">Belum ada profil onboarding yang disimpan.</p>}
 
     {data?.rider ? <div className="mt-5 border border-black/10 bg-[#f8f7f3] p-4 text-sm">

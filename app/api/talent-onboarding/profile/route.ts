@@ -30,7 +30,7 @@ export async function GET(request:Request){
   if(!talentId||!verifyAccessToken(token,"talent_onboarding",talentId))return NextResponse.json({error:"Tautan pendaftaran tidak valid atau sudah kedaluwarsa"},{status:401});
   const s=getServerClient();
   const[{data:talent,error:te},{data:submission,error:se},{data:assets,error:ae}]=await Promise.all([
-   s.from("talents").select("id,name,category,act_type,willing_to_perform_covers,accepts_song_requests,sample_repertoire,repertoire_genres,repertoire_styles,repertoire_eras,repertoire_ai_status,base_city,genres,music_styles,vibe_tags,capability_tags,performance_formats,event_types,bio,show_duration_minutes,manager_name,manager_email,manager_whatsapp,portfolio_url,base_rider,travel_policy,accommodation_policy,onboarding_status").eq("id",talentId).maybeSingle(),
+   s.from("talents").select("id,name,category,act_type,willing_to_perform_covers,accepts_song_requests,sample_repertoire,repertoire_genres,repertoire_styles,repertoire_eras,repertoire_ai_status,base_city,genres,music_styles,vibe_tags,capability_tags,performance_formats,bio,manager_name,manager_email,manager_whatsapp,portfolio_url,base_rider,travel_policy,accommodation_policy,onboarding_status").eq("id",talentId).maybeSingle(),
    s.from("talent_profile_submissions").select("*").eq("talent_id",talentId).maybeSingle(),
    s.from("talent_assets").select("id,asset_type,provider,original_filename,mime_type,size_bytes,title,description,upload_status,review_status,buyer_visible,created_at").eq("talent_id",talentId).order("created_at",{ascending:false})
   ]);
@@ -44,7 +44,7 @@ export async function PUT(request:Request){
   const body=await request.json().catch(()=>null);const{talentId,ok}=auth(body);if(!ok)return NextResponse.json({error:"Tautan pendaftaran tidak valid atau sudah kedaluwarsa"},{status:401});
   const name=text(body?.name),category=text(body?.category);if(!name||!category)return NextResponse.json({error:"Nama dan kategori wajib diisi"},{status:400});
   const portfolioUrl=optionalHttpUrl(body?.portfolioUrl);if(portfolioUrl===undefined)return NextResponse.json({error:"Link media/portofolio utama tidak valid"},{status:400});
-  const showDuration=body?.showDurationMinutes==null||body?.showDurationMinutes===""?null:Number(body.showDurationMinutes);if(showDuration!=null&&(!Number.isInteger(showDuration)||showDuration<=0||showDuration>600))return NextResponse.json({error:"Durasi tampil tidak valid"},{status:400});
+  const bookingLimitations=text(body?.bookingLimitations);if(bookingLimitations&&bookingLimitations.length>2000)return NextResponse.json({error:"Batasan booking maksimal 2.000 karakter"},{status:400});
 
   const songAct=isSongActCategory(category);
   const requestedActType=songAct?actType(body?.actType):null;
@@ -66,7 +66,7 @@ export async function PUT(request:Request){
    talent_id:talentId,name,category,act_type:requestedActType,willing_to_perform_covers:willing,accepts_song_requests:acceptsRequests,
    sample_repertoire:repertoire,repertoire_genres:repertoireGenres,repertoire_styles:repertoireStyles,repertoire_eras:repertoireEras,repertoire_ai_status:repertoireAiStatus,repertoire_ai_updated_at:repertoireAiStatus==="suggested"?new Date().toISOString():null,
    base_city:text(body?.baseCity),genres:requestedActType==="cover_performer"?[]:suppliedGenres,music_styles:requestedActType==="cover_performer"?[]:(suppliedStyles.length?suppliedStyles:suppliedGenres),
-   vibe_tags:textArray(body?.vibeTags),capability_tags:withoutLegacyRequestTag(textArray(body?.capabilityTags)),service_cities:[],performance_formats:textArray(body?.performanceFormats),event_types:textArray(body?.eventTypes),bio:text(body?.bio),show_duration_minutes:showDuration,
+   vibe_tags:textArray(body?.vibeTags),capability_tags:withoutLegacyRequestTag(textArray(body?.capabilityTags)),service_cities:[],performance_formats:textArray(body?.performanceFormats),bio:text(body?.bio),booking_limitations:bookingLimitations,
    manager_name:text(body?.managerName),manager_email:text(body?.managerEmail),manager_whatsapp:text(body?.managerWhatsapp),portfolio_url:portfolioUrl,
    base_rider:normalized.baseRider,travel_policy:normalized.travelPolicy,accommodation_policy:normalized.accommodationPolicy,status:"draft",rejection_note:null,updated_at:new Date().toISOString()
   };

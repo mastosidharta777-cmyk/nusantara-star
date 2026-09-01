@@ -18,6 +18,7 @@ type TalentRow = {
   service_cities: string[] | null;
   performance_formats: string[] | null;
   event_types: string[] | null;
+  booking_limitations?: string | null;
   audience_tags: string[] | null;
   budget_min: number | null;
   budget_max: number | null;
@@ -65,17 +66,32 @@ function isOperationalTalent(row: TalentRow) {
     && budgetMax >= budgetMin;
 }
 
+const talentColumns = "id,name,category,act_type,willing_to_perform_covers,accepts_song_requests,gender,genres,music_styles,vibe_tags,capability_tags,base_city,service_cities,performance_formats,event_types,audience_tags,budget_min,budget_max,reliability_score,last_calendar_updated_at,status,onboarding_status,public_visible";
+
+async function loadTalentRows(supabase: NonNullable<ReturnType<typeof getServerClient>>) {
+  const rich = await supabase
+    .from("talents")
+    .select(`${talentColumns},booking_limitations`)
+    .eq("status", "verified")
+    .eq("onboarding_status", "approved")
+    .eq("public_visible", true);
+  if (!rich.error) return rich;
+  const migrationMissing = rich.error.code === "42703" || rich.error.message.includes("booking_limitations");
+  if (!migrationMissing) return rich;
+  return supabase
+    .from("talents")
+    .select(talentColumns)
+    .eq("status", "verified")
+    .eq("onboarding_status", "approved")
+    .eq("public_visible", true);
+}
+
 export async function loadEngineTalents(): Promise<{ talents: EngineTalent[]; source: "supabase" }> {
   const supabase = getServerClient();
   if (!supabase) throw new Error("Supabase server environment is not configured");
 
   const [{ data: talentData, error: talentError }, { data: availabilityData, error: availabilityError }] = await Promise.all([
-    supabase
-      .from("talents")
-      .select("id,name,category,act_type,willing_to_perform_covers,accepts_song_requests,gender,genres,music_styles,vibe_tags,capability_tags,base_city,service_cities,performance_formats,event_types,audience_tags,budget_min,budget_max,reliability_score,last_calendar_updated_at,status,onboarding_status,public_visible")
-      .eq("status", "verified")
-      .eq("onboarding_status", "approved")
-      .eq("public_visible", true),
+    loadTalentRows(supabase),
     supabase.from("talent_availability").select("talent_id,event_date,status"),
   ]);
 
@@ -106,6 +122,7 @@ export async function loadEngineTalents(): Promise<{ talents: EngineTalent[]; so
     serviceCities: row.service_cities ?? [],
     performanceFormats: row.performance_formats ?? [],
     eventTypes: row.event_types ?? [],
+    bookingLimitations: row.booking_limitations ?? null,
     audienceTags: row.audience_tags ?? [],
     budgetMin: Number(row.budget_min),
     budgetMax: Number(row.budget_max),

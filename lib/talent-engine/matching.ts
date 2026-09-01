@@ -15,7 +15,7 @@ function isOriginalCapable(t:EngineTalent){return t.actType==="original_artist"|
 // LOCKED Budget Matching Rule V1: buyer maximum is the affordability ceiling; <=10% above is stretch only; farther above is blocked. Buyer minimum is context, not a minimum acceptable talent fee.
 function budget(t:EngineTalent,b:StructuredBrief){if(b.budgetMin==null&&b.budgetMax==null)return 70;if(b.budgetMax==null)return 100;return t.budgetMin<=b.budgetMax?100:t.budgetMin<=b.budgetMax*1.1?65:20}
 function categoryGenre(t:EngineTalent,b:StructuredBrief){const r=canonicalCategory(b.talentCategory),a=canonicalCategory(t.category);if(r&&r!==a)return 0;const c=coverage([...t.genres,...arr(t.musicStyles)],genreOnly(b.genreStyle));if(!r&&c==null)return 70;if(c==null)return 90;if(c>=.75)return 100;if(c>=.4)return 80;return 60}
-function eventFit(t:EngineTalent,b:StructuredBrief){const c=n([b.eventType??"",b.venue??"",b.sourceText??""].join(" "));if(!c.trim())return 70;return t.eventTypes.some(type=>{const x=n(type);return c.includes(x)||x.includes(c)||(x==="hotel"&&/(hotel|lounge|resort)/.test(c))||(x==="corporate"&&/(corporate|perusahaan|gala dinner)/.test(c))||(x==="private event"&&/(private|party|acara privat)/.test(c))||(x==="brand activation"&&/(brand activation|aktivasi)/.test(c))})?100:55}
+function eventFit(t:EngineTalent,b:StructuredBrief){const c=n([b.eventType??"",b.venue??"",b.sourceText??""].join(" "));if(!c.trim()||!t.eventTypes.length)return 70;return t.eventTypes.some(type=>{const x=n(type);return c.includes(x)||x.includes(c)||(x==="hotel"&&/(hotel|lounge|resort)/.test(c))||(x==="corporate"&&/(corporate|perusahaan|gala dinner)/.test(c))||(x==="private event"&&/(private|party|acara privat)/.test(c))||(x==="brand activation"&&/(brand activation|aktivasi)/.test(c))})?100:70}
 function location(t:EngineTalent,b:StructuredBrief){if(!b.city)return 70;const x=n(b.city);if(n(t.baseCity)===x)return 100;if(t.serviceCities.map(n).includes(x))return 90;return 70}
 function audienceVibe(t:EngineTalent,b:StructuredBrief){const r=[...b.eventVibe,...b.genreStyle,...b.specialRequirements];if(!r.length)return 70;const tags=[...t.audienceTags,...arr(t.vibeTags),...arr(t.capabilityTags),...arr(t.musicStyles),...t.performanceFormats];return intersects(tags,r)?100:60}
 function taxonomy(t:EngineTalent,b:StructuredBrief){
@@ -61,6 +61,7 @@ export function scoreTalent(t:EngineTalent,b:StructuredBrief,now=new Date()):Tal
  if(b.city&&n(t.baseCity)===n(b.city))reasons.push("berbasis di kota acara");else if(b.city)reasons.push("biaya perjalanan dari kota asal perlu dihitung");
  if(breakdown.eventFit>=90)reasons.push("cocok untuk jenis acara");
  if(t.reliabilityScore>=85)reasons.push("rekam jejak operasional baik");
+ if(t.bookingLimitations?.trim())reasons.push("batasan booking wajib dibandingkan dengan kebutuhan klien dan dikonfirmasi admin");
  if(av.freshness!=="fresh")reasons.push("ketersediaan perlu dikonfirmasi ulang");
  if(!av.hardBlocked)reasons.push("konfirmasi langsung wajib sebelum pilihan final");
  if(mt==="acceptable_alternative")reasons.push("alternatif layak, tetapi bukan kecocokan utama");
