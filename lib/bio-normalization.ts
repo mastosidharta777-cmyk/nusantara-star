@@ -31,6 +31,7 @@ async function pause(ms: number) {
 
 async function requestBio(apiKey: string, model: string, userContent: string) {
   let lastStatus = 0;
+  let strictMode = supportsStrictSchema(model);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -42,7 +43,7 @@ async function requestBio(apiKey: string, model: string, userContent: string) {
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userContent },
         ],
-        response_format: supportsStrictSchema(model)
+        response_format: strictMode
           ? { type: "json_schema", json_schema: { name: "nusantara_star_talent_bio", strict: true, schema: BIO_SCHEMA } }
           : { type: "json_object" },
       }),
@@ -61,7 +62,11 @@ async function requestBio(apiKey: string, model: string, userContent: string) {
 
     lastStatus = response.status;
     const providerBody = (await response.text().catch(() => "")).slice(0, 300);
-    console.warn(JSON.stringify({ level: "warning", message: "Groq bio request failed", model, status: response.status, attempt: attempt + 1, retryAfter: response.headers.get("retry-after"), providerBody }));
+    console.warn(JSON.stringify({ level: "warning", message: "Groq bio request failed", model, status: response.status, attempt: attempt + 1, strictMode, retryAfter: response.headers.get("retry-after"), providerBody }));
+    if (response.status === 400 && strictMode && providerBody.includes("json_validate_failed") && attempt === 0) {
+      strictMode = false;
+      continue;
+    }
     if (!RETRYABLE_STATUSES.has(response.status) || attempt === 1) break;
     await pause(retryDelay(response, attempt));
   }
@@ -102,7 +107,7 @@ export async function normalizeTalentBio(input: {
   });
   const models = [...new Set([
     process.env.GROQ_MODEL ?? "openai/gpt-oss-20b",
-    process.env.GROQ_BIO_FALLBACK_MODEL ?? "llama-3.1-8b-instant",
+    process.env.GROQ_BIO_FALLBACK_MODEL ?? "openai/gpt-oss-120b",
   ])];
   const failures: string[] = [];
   for (const model of models) {

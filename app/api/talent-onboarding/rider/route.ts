@@ -42,7 +42,7 @@ export async function PATCH(request:Request){
    const detail=normalizationError instanceof Error?normalizationError.message:String(normalizationError);
    console.warn(JSON.stringify({level:"warning",message:"Rider stored but normalization failed",route:"/api/talent-onboarding/rider",assetId,detail}));
    await s.from("talent_assets").update({description:"Dokumen tersimpan tetapi normalisasi AI belum berhasil; tinjau file asli.",updated_at:now}).eq("id",assetId);
-   return NextResponse.json({ok:true,normalized:false,warning:"Rider sudah tersimpan. AI belum dapat membaca atau merapikannya; admin tetap dapat meninjau file asli."});
+   return NextResponse.json({ok:true,normalized:false,warning:"Rider sudah tersimpan, tetapi perapihan AI belum berhasil. Klik Coba AI lagi tanpa upload ulang."});
   }
  }catch(e){
   const detail=e instanceof Error?e.message:String(e);
