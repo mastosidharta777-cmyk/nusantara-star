@@ -36,6 +36,7 @@ export async function PATCH(request:Request){
     return NextResponse.json({error:`Dokumen terdeteksi milik ${identity.detectedArtist??"talent lain"}, bukan ${source.name}. Upload rider yang sesuai.`,sourceMismatch:true,identity},{status:409});
    }
    const riderVersion=await persistRiderVersion(s,{talentId,sourceType:"uploaded_document",sourceAssetId:assetId,sourceFilename:asset.original_filename,sourceText,talentName:source.name,baseCity:source.base_city??null,category:source.category??null});
+   await s.from("talent_assets").update({description:null,updated_at:new Date().toISOString()}).eq("id",assetId);
    return NextResponse.json({ok:true,normalized:true,riderVersion,identity});
   }catch(normalizationError){
    const detail=normalizationError instanceof Error?normalizationError.message:String(normalizationError);
