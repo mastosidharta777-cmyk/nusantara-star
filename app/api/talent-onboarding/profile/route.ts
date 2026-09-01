@@ -65,7 +65,7 @@ export async function PUT(request:Request){
   const payload={
    talent_id:talentId,name,category,act_type:requestedActType,willing_to_perform_covers:willing,accepts_song_requests:acceptsRequests,
    sample_repertoire:repertoire,repertoire_genres:repertoireGenres,repertoire_styles:repertoireStyles,repertoire_eras:repertoireEras,repertoire_ai_status:repertoireAiStatus,repertoire_ai_updated_at:repertoireAiStatus==="suggested"?new Date().toISOString():null,
-   base_city:text(body?.baseCity),genres:requestedActType==="cover_performer"?[]:suppliedGenres,music_styles:requestedActType==="cover_performer"?[]:suppliedStyles,
+   base_city:text(body?.baseCity),genres:requestedActType==="cover_performer"?[]:suppliedGenres,music_styles:requestedActType==="cover_performer"?[]:(suppliedStyles.length?suppliedStyles:suppliedGenres),
    vibe_tags:textArray(body?.vibeTags),capability_tags:withoutLegacyRequestTag(textArray(body?.capabilityTags)),service_cities:[],performance_formats:textArray(body?.performanceFormats),event_types:textArray(body?.eventTypes),bio:text(body?.bio),show_duration_minutes:showDuration,
    manager_name:text(body?.managerName),manager_email:text(body?.managerEmail),manager_whatsapp:text(body?.managerWhatsapp),portfolio_url:portfolioUrl,
    base_rider:normalized.baseRider,travel_policy:normalized.travelPolicy,accommodation_policy:normalized.accommodationPolicy,status:"draft",rejection_note:null,updated_at:new Date().toISOString()
