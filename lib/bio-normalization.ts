@@ -1,4 +1,5 @@
 import "server-only";
+import { requestOpenAIStructured } from "@/lib/openai-structured";
 
 const BIO_SCHEMA = {
   type: "object",
@@ -11,7 +12,7 @@ const SYSTEM_PROMPT = "Rapikan bahan bio talent menjadi satu bio profil standar 
 const RETRYABLE_STATUSES = new Set([429, 498, 500, 502, 503]);
 
 function supportsStrictSchema(model: string) {
-  return model === "openai/gpt-oss-20b" || model === "openai/gpt-oss-120b" || model === "qwen/qwen3.8-27b";
+  return model === "qwen/qwen3.8-27b";
 }
 
 function retryDelay(response: Response, attempt: number) {
@@ -67,6 +68,7 @@ async function requestBio(apiKey: string, model: string, userContent: string) {
       strictMode = false;
       continue;
     }
+    if (response.status === 429 && process.env.OPENAI_API_KEY) break;
     if (!RETRYABLE_STATUSES.has(response.status) || attempt === 1) break;
     await pause(retryDelay(response, attempt));
   }
@@ -98,7 +100,7 @@ export async function normalizeTalentBio(input: {
   const sourceText = input.sourceText.replace(/\u0000/g, " ").trim().slice(0, 30_000);
   if (!sourceText) throw new Error("Dokumen bio tidak memiliki teks yang dapat diproses");
   const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw new Error("AI perapihan bio belum tersedia");
+  if (!apiKey && !process.env.OPENAI_API_KEY) throw new Error("AI perapihan bio belum tersedia");
   const userContent = JSON.stringify({
     talentName: input.talentName?.trim() || null,
     category: input.category?.trim() || null,
@@ -110,13 +112,25 @@ export async function normalizeTalentBio(input: {
     process.env.GROQ_BIO_FALLBACK_MODEL ?? "openai/gpt-oss-120b",
   ])];
   const failures: string[] = [];
-  for (const model of models) {
+  if (apiKey) {
+    for (const model of models) {
+      try {
+        return await requestBio(apiKey, model, userContent);
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+  if (process.env.OPENAI_API_KEY) {
     try {
-      return await requestBio(apiKey, model, userContent);
+      const parsed = await requestOpenAIStructured({ schemaName: "nusantara_star_talent_bio", schema: BIO_SCHEMA, systemPrompt: SYSTEM_PROMPT, userContent, maxCompletionTokens: 600 });
+      const bio = typeof parsed?.bio === "string" ? parsed.bio.trim().slice(0, 2_000) : "";
+      if (bio) return bio;
+      failures.push("OpenAI tidak menghasilkan bio yang dapat digunakan");
     } catch (error) {
       failures.push(error instanceof Error ? error.message : String(error));
     }
   }
   console.error(JSON.stringify({ level: "error", message: "All bio normalization models failed", failures }));
-  throw new Error("Layanan AI perapihan bio sedang dibatasi. File tidak diubah; silakan coba lagi nanti.");
+  throw new Error("Layanan AI perapihan bio belum berhasil. File tidak diubah; silakan coba lagi nanti.");
 }

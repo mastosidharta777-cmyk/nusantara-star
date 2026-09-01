@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { requestOpenAIStructured } from "@/lib/openai-structured";
 
 export type RiderQuestion = { key: string; question: string; required: boolean };
 export type NormalizedRider = {
@@ -82,6 +83,7 @@ async function normalizeRiderChunk(apiKey:string,model:string,context:Record<str
   if(response.ok){const payload=await response.json();const raw=payload?.choices?.[0]?.message?.content;if(typeof raw!=="string"||!raw)throw new Error(`Model ${model} tidak mengembalikan hasil normalisasi`);return normalizeShape(JSON.parse(raw))}
   lastStatus=response.status;const providerBody=(await response.text().catch(()=>"")).slice(0,300);console.warn(JSON.stringify({level:"warning",message:"Groq rider request failed",model,status:response.status,attempt:attempt+1,strictMode,retryAfter:response.headers.get("retry-after"),providerBody}));
   if(response.status===400&&strictMode&&providerBody.includes("json_validate_failed")&&attempt===0){strictMode=false;continue}
+  if(response.status===429&&process.env.OPENAI_API_KEY)break;
   if(!RETRYABLE_AI_STATUSES.has(response.status)||attempt===1)break;await riderPause(riderRetryDelay(response,attempt));
  }
  throw new Error(`AI normalisasi gagal (${lastStatus||"unknown"})`);
@@ -102,10 +104,10 @@ export async function validateRiderIdentity(input:{sourceText:string;talentName:
 }
 
 export async function normalizeRiderSource(input:{sourceText:string;talentName?:string|null;baseCity?:string|null;category?:string|null;answers?:Record<string,string>|null}){
- const sourceText=input.sourceText.replace(/\u0000/g," ").trim();if(!sourceText)throw new Error("Dokumen rider tidak memiliki teks yang dapat diproses");const apiKey=process.env.GROQ_API_KEY;if(!apiKey)throw new Error("AI normalisasi rider belum tersedia");
+ const sourceText=input.sourceText.replace(/\u0000/g," ").trim();if(!sourceText)throw new Error("Dokumen rider tidak memiliki teks yang dapat diproses");const apiKey=process.env.GROQ_API_KEY;if(!apiKey&&!process.env.OPENAI_API_KEY)throw new Error("AI normalisasi rider belum tersedia");
  const chunks=splitRiderSource(sourceText);if(chunks.length>8)throw new Error("Dokumen rider terlalu panjang untuk normalisasi otomatis");
  const models=[...new Set([process.env.GROQ_MODEL??"openai/gpt-oss-20b",process.env.GROQ_RIDER_FALLBACK_MODEL??process.env.GROQ_BIO_FALLBACK_MODEL??"openai/gpt-oss-120b"])];const parts:NormalizedRider[]=[];
- for(let index=0;index<chunks.length;index+=1){let normalized:NormalizedRider|null=null;const failures:string[]=[];const preferredModels=models.map((_,offset)=>models[(index+offset)%models.length]);for(const model of preferredModels){try{normalized=await normalizeRiderChunk(apiKey,model,{talentName:input.talentName??null,talentCategory:input.category??null,baseCity:input.baseCity??null,riderPart:index+1,totalParts:chunks.length,riderSource:chunks[index],confirmedAnswers:input.answers??{}});break}catch(error){failures.push(error instanceof Error?error.message:String(error))}}if(!normalized){console.error(JSON.stringify({level:"error",message:"All rider normalization models failed",part:index+1,totalParts:chunks.length,failures}));throw new Error("Layanan AI normalisasi rider belum berhasil")}parts.push(normalized)}
+ for(let index=0;index<chunks.length;index+=1){let normalized:NormalizedRider|null=null;const failures:string[]=[];const context={talentName:input.talentName??null,talentCategory:input.category??null,baseCity:input.baseCity??null,riderPart:index+1,totalParts:chunks.length,riderSource:chunks[index],confirmedAnswers:input.answers??{}};if(apiKey){const preferredModels=models.map((_,offset)=>models[(index+offset)%models.length]);for(const model of preferredModels){try{normalized=await normalizeRiderChunk(apiKey,model,context);break}catch(error){failures.push(error instanceof Error?error.message:String(error))}}}if(!normalized&&process.env.OPENAI_API_KEY){try{normalized=normalizeShape(await requestOpenAIStructured({schemaName:"nusantara_star_master_rider",schema:riderSchema,systemPrompt:RIDER_SYSTEM_PROMPT,userContent:JSON.stringify(context),maxCompletionTokens:1200}))}catch(error){failures.push(error instanceof Error?error.message:String(error))}}if(!normalized){console.error(JSON.stringify({level:"error",message:"All rider normalization models failed",part:index+1,totalParts:chunks.length,failures}));throw new Error("Layanan AI normalisasi rider belum berhasil")}parts.push(normalized)}
  const normalized=mergeRiderParts(parts);return{normalized,questions:buildMissingQuestions(normalized,input.baseCity,input.category),source:"ai" as const};
 }
 
