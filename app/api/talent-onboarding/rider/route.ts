@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { extractRiderText, persistRiderVersion, validateRiderIdentity } from "@/lib/rider-normalization";
 import { verifyAccessToken } from "@/lib/signed-access";
 export const runtime="nodejs";
+export const maxDuration=60;
 const MAX=15*1024*1024;const ALLOWED=new Map([["application/pdf","pdf"],["application/vnd.openxmlformats-officedocument.wordprocessingml.document","docx"],["text/plain","txt"]]);
 function client(){const u=process.env.NEXT_PUBLIC_SUPABASE_URL,k=process.env.SUPABASE_SERVICE_ROLE_KEY;if(!u||!k)throw new Error("Supabase server environment is not configured");return createClient(u,k,{auth:{persistSession:false,autoRefreshToken:false}})}
 function auth(b:any){const talentId=typeof b?.talentId==="string"?b.talentId:"",token=typeof b?.token==="string"?b.token:"";return{talentId,ok:Boolean(talentId&&verifyAccessToken(token,"talent_onboarding",talentId))}}
