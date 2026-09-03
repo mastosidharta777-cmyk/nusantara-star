@@ -28,7 +28,6 @@ export async function GET() {
       if (!talent.vibeTags?.length) missing.push("vibe_tags");
       if (!talent.capabilityTags?.length) missing.push("capability_tags");
       if (!talent.serviceCities?.length) missing.push("service_cities");
-      if (!talent.eventTypes?.length) missing.push("event_types");
       if (!talent.budgetMin || !talent.budgetMax) missing.push("budget_range");
       if (!talent.availability?.length) missing.push("availability");
 
@@ -45,6 +44,7 @@ export async function GET() {
         baseCity: talent.baseCity,
         serviceCities: talent.serviceCities,
         eventTypes: talent.eventTypes,
+        bookingLimitations: talent.bookingLimitations,
         budgetMin: talent.budgetMin,
         budgetMax: talent.budgetMax,
         availability: talent.availability,

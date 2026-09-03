@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { requestOpenAIStructured } from "@/lib/openai-structured";
 
 export type RiderQuestion = { key: string; question: string; required: boolean };
 export type NormalizedRider = {
@@ -57,6 +58,43 @@ export function buildMissingQuestions(r:NormalizedRider,baseCity?:string|null,ca
 }
 
 const riderSchema={type:"object",additionalProperties:false,properties:{party_size:{type:["integer","null"]},performers_count:{type:["integer","null"]},crew_count:{type:["integer","null"]},departure_city:{type:["string","null"]},technical_requirements:{type:"array",items:{type:"string"}},stage_backline:{type:"array",items:{type:"string"}},hospitality:{type:"array",items:{type:"string"}},transport_requirements:{type:"array",items:{type:"string"}},baggage_requirements:{type:"array",items:{type:"string"}},accommodation_required:{type:["boolean","null"]},accommodation_requirements:{type:"array",items:{type:"string"}},meals_per_diem:{type:"array",items:{type:"string"}},special_requirements:{type:"array",items:{type:"string"}},notes:{type:"array",items:{type:"string"}}},required:["party_size","performers_count","crew_count","departure_city","technical_requirements","stage_backline","hospitality","transport_requirements","baggage_requirements","accommodation_required","accommodation_requirements","meals_per_diem","special_requirements","notes"]};
+const RIDER_SYSTEM_PROMPT="Normalize this part of a live-entertainment master rider into structured operational facts. The talent category is context only: requirements for a band, singer, DJ, MC/host, speaker, specialty performer, or another talent type can legitimately differ. Use ONLY facts explicitly contained in this rider part or confirmed talent answers. Never invent, assume, soften, strengthen, or delete requirements. Do not force music/backline requirements onto MC/host, speaker, or an unknown/custom category. Preserve quantities, hotel standards, equipment models, crew counts, transport/baggage conditions, hospitality and special requirements exactly when stated. Unknown values must remain null or empty arrays. Return concise Indonesian operational wording while preserving product/model names and standard technical terms. Return only a JSON object matching the requested fields.";
+const RETRYABLE_AI_STATUSES=new Set([429,498,500,502,503]);
+
+function strictRiderSchemaSupported(model:string){return model==="qwen/qwen3.8-27b"}
+function riderRetryDelay(response:Response,attempt:number){const raw=response.headers.get("retry-after");if(raw){const seconds=Number(raw);if(Number.isFinite(seconds))return Math.min(Math.max(seconds*1000+250,500),30000);const date=Date.parse(raw);if(Number.isFinite(date))return Math.min(Math.max(date-Date.now()+250,500),30000)}return 750*(2**attempt)+Math.floor(Math.random()*250)}
+async function riderPause(ms:number){await new Promise(resolve=>setTimeout(resolve,ms))}
+
+function splitRiderSource(source:string,maxChars=10000){
+ const chunks:string[]=[];let current="";
+ for(const raw of source.split(/\r?\n/)){
+  const line=raw.trim();if(!line)continue;
+  const pieces:string[]=[];for(let start=0;start<line.length;start+=maxChars)pieces.push(line.slice(start,start+maxChars));
+  for(const piece of pieces){if(current&&current.length+piece.length+1>maxChars){chunks.push(current);current=piece}else current=current?`${current}\n${piece}`:piece}
+ }
+ if(current)chunks.push(current);
+ return chunks;
+}
+
+async function normalizeRiderChunk(apiKey:string,model:string,context:Record<string,unknown>){
+ let lastStatus=0;let strictMode=strictRiderSchemaSupported(model);
+ for(let attempt=0;attempt<2;attempt+=1){
+  const response=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model,temperature:0,max_completion_tokens:1200,messages:[{role:"system",content:RIDER_SYSTEM_PROMPT},{role:"user",content:JSON.stringify(context)}],response_format:strictMode?{type:"json_schema",json_schema:{name:"nusantara_star_master_rider",strict:true,schema:riderSchema}}:{type:"json_object"}}),cache:"no-store"});
+  if(response.ok){const payload=await response.json();const raw=payload?.choices?.[0]?.message?.content;if(typeof raw!=="string"||!raw)throw new Error(`Model ${model} tidak mengembalikan hasil normalisasi`);return normalizeShape(JSON.parse(raw))}
+  lastStatus=response.status;const providerBody=(await response.text().catch(()=>"")).slice(0,300);console.warn(JSON.stringify({level:"warning",message:"Groq rider request failed",model,status:response.status,attempt:attempt+1,strictMode,retryAfter:response.headers.get("retry-after"),providerBody}));
+  if(response.status===400&&strictMode&&providerBody.includes("json_validate_failed")&&attempt===0){strictMode=false;continue}
+  if(response.status===429&&process.env.OPENAI_API_KEY)break;
+  if(!RETRYABLE_AI_STATUSES.has(response.status)||attempt===1)break;await riderPause(riderRetryDelay(response,attempt));
+ }
+ throw new Error(`AI normalisasi gagal (${lastStatus||"unknown"})`);
+}
+
+function mergeRiderParts(parts:NormalizedRider[]):NormalizedRider{
+ const conflicts:string[]=[];
+ const scalar=<T,>(key:keyof NormalizedRider):T|null=>{const values=[...new Set(parts.map(part=>part[key]).filter(value=>value!==null).map(value=>JSON.stringify(value)))];if(values.length>1){conflicts.push(`Nilai ${String(key)} berbeda antarbagian rider dan perlu dikonfirmasi.`);return null}return values.length?JSON.parse(values[0]) as T:null};
+ const array=(key:keyof NormalizedRider)=>[...new Set(parts.flatMap(part=>Array.isArray(part[key])?part[key] as string[]:[]))];
+ return{party_size:scalar<number>("party_size"),performers_count:scalar<number>("performers_count"),crew_count:scalar<number>("crew_count"),departure_city:scalar<string>("departure_city"),technical_requirements:array("technical_requirements"),stage_backline:array("stage_backline"),hospitality:array("hospitality"),transport_requirements:array("transport_requirements"),baggage_requirements:array("baggage_requirements"),accommodation_required:scalar<boolean>("accommodation_required"),accommodation_requirements:array("accommodation_requirements"),meals_per_diem:array("meals_per_diem"),special_requirements:array("special_requirements"),notes:[...array("notes"),...conflicts]};
+}
 
 export async function validateRiderIdentity(input:{sourceText:string;talentName:string;sourceFilename?:string|null}){
  const hay=`${input.sourceFilename??""}\n${input.sourceText.slice(0,12000)}`.toLowerCase();const talent=input.talentName.trim().toLowerCase();if(talent&&hay.includes(talent))return{outcome:"match" as const,detectedArtist:input.talentName,evidence:"Nama talent ditemukan pada dokumen."};
@@ -66,9 +104,11 @@ export async function validateRiderIdentity(input:{sourceText:string;talentName:
 }
 
 export async function normalizeRiderSource(input:{sourceText:string;talentName?:string|null;baseCity?:string|null;category?:string|null;answers?:Record<string,string>|null}){
- const sourceText=input.sourceText.trim().slice(0,50000);if(!sourceText)throw new Error("Dokumen rider tidak memiliki teks yang dapat diproses");const apiKey=process.env.GROQ_API_KEY;if(!apiKey)throw new Error("AI normalisasi rider belum tersedia");const context={talentName:input.talentName??null,talentCategory:input.category??null,baseCity:input.baseCity??null,riderSource:sourceText,confirmedAnswers:input.answers??{}};
- const response=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model:process.env.GROQ_MODEL??"openai/gpt-oss-20b",temperature:0,messages:[{role:"system",content:"Normalize a live-entertainment master rider into structured operational facts. The talent category is context only: requirements for a band, singer, DJ, MC/host, speaker, specialty performer, or another talent type can legitimately differ. Use ONLY facts explicitly contained in the rider source or confirmed talent answers. Never invent, assume, soften, strengthen, or delete requirements. Do not force music/backline requirements onto MC/host, speaker, or an unknown/custom category. Preserve quantities, hotel standards, equipment models, crew counts, transport/baggage conditions, hospitality and special requirements exactly when stated. Unknown values must remain null or empty arrays. Return concise Indonesian operational wording while preserving product/model names and standard technical terms."},{role:"user",content:JSON.stringify(context)}],response_format:{type:"json_schema",json_schema:{name:"nusantara_star_master_rider",strict:true,schema:riderSchema}}}),cache:"no-store"});
- if(!response.ok)throw new Error(`AI normalisasi gagal (${response.status})`);const payload=await response.json();const raw=payload?.choices?.[0]?.message?.content;if(typeof raw!=="string"||!raw)throw new Error("AI tidak mengembalikan hasil normalisasi");const normalized=normalizeShape(JSON.parse(raw));return{normalized,questions:buildMissingQuestions(normalized,input.baseCity,input.category),source:"ai" as const};
+ const sourceText=input.sourceText.replace(/\u0000/g," ").trim();if(!sourceText)throw new Error("Dokumen rider tidak memiliki teks yang dapat diproses");const apiKey=process.env.GROQ_API_KEY;if(!apiKey&&!process.env.OPENAI_API_KEY)throw new Error("AI normalisasi rider belum tersedia");
+ const chunks=splitRiderSource(sourceText);if(chunks.length>8)throw new Error("Dokumen rider terlalu panjang untuk normalisasi otomatis");
+ const models=[...new Set([process.env.GROQ_MODEL??"openai/gpt-oss-20b",process.env.GROQ_RIDER_FALLBACK_MODEL??process.env.GROQ_BIO_FALLBACK_MODEL??"openai/gpt-oss-120b"])];const parts:NormalizedRider[]=[];
+ for(let index=0;index<chunks.length;index+=1){let normalized:NormalizedRider|null=null;const failures:string[]=[];const context={talentName:input.talentName??null,talentCategory:input.category??null,baseCity:input.baseCity??null,riderPart:index+1,totalParts:chunks.length,riderSource:chunks[index],confirmedAnswers:input.answers??{}};if(apiKey){const preferredModels=models.map((_,offset)=>models[(index+offset)%models.length]);for(const model of preferredModels){try{normalized=await normalizeRiderChunk(apiKey,model,context);break}catch(error){failures.push(error instanceof Error?error.message:String(error))}}}if(!normalized&&process.env.OPENAI_API_KEY){try{normalized=normalizeShape(await requestOpenAIStructured({schemaName:"nusantara_star_master_rider",schema:riderSchema,systemPrompt:RIDER_SYSTEM_PROMPT,userContent:JSON.stringify(context),maxCompletionTokens:3000}))}catch(error){failures.push(error instanceof Error?error.message:String(error))}}if(!normalized){console.error(JSON.stringify({level:"error",message:"All rider normalization models failed",part:index+1,totalParts:chunks.length,failures}));throw new Error("Layanan AI normalisasi rider belum berhasil")}parts.push(normalized)}
+ const normalized=mergeRiderParts(parts);return{normalized,questions:buildMissingQuestions(normalized,input.baseCity,input.category),source:"ai" as const};
 }
 
 export async function extractRiderText(buffer:Buffer,mimeType:string){if(mimeType==="text/plain")return buffer.toString("utf8");if(mimeType==="application/pdf"){const mod:any=await import("pdf-parse");const parse=mod.default??mod;const result=await parse(buffer);return typeof result?.text==="string"?result.text:""}if(mimeType==="application/vnd.openxmlformats-officedocument.wordprocessingml.document"){const mammoth:any=await import("mammoth");const result=await mammoth.extractRawText({buffer});return typeof result?.value==="string"?result.value:""}throw new Error("Unsupported rider document type")}

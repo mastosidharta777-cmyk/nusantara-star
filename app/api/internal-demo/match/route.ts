@@ -67,6 +67,7 @@ async function runMatch(text: string, useTestRoster = false) {
         willingToPerformCovers: match.talent.willingToPerformCovers, acceptsSongRequests: match.talent.acceptsSongRequests,
         genres: match.talent.genres, musicStyles: match.talent.musicStyles, performanceFormats: match.talent.performanceFormats,
         vibeTags: match.talent.vibeTags, capabilityTags: match.talent.capabilityTags, baseCity: match.talent.baseCity,
+        bookingLimitations: match.talent.bookingLimitations,
         budgetMin: match.talent.budgetMin, budgetMax: match.talent.budgetMax, reliabilityScore: match.talent.reliabilityScore,
       },
       score: match.score, tier: match.tier, breakdown: match.breakdown, availabilityStatus: match.availabilityStatus,

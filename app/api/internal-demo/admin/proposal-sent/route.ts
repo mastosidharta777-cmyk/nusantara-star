@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 type WhyFitSnapshot = { id: string[]; en: string[] };
 type MediaSnapshot = {
   id: string;
-  provider: "cloudflare_r2";
+  provider: "cloudflare_r2" | "youtube_unlisted";
   storage_key: string;
   title: string | null;
   description: string | null;
@@ -86,7 +86,7 @@ async function attachMedia(supabase: SupabaseClient, candidates: Omit<ReadyCandi
     .from("talent_assets")
     .select("id,talent_id,provider,storage_key,title,description,asset_type,sort_order")
     .in("talent_id", talentIds)
-    .eq("provider", "cloudflare_r2")
+    .in("provider", ["cloudflare_r2", "youtube_unlisted"])
     .eq("upload_status", "uploaded")
     .eq("review_status", "approved")
     .eq("buyer_visible", true)
@@ -97,7 +97,7 @@ async function attachMedia(supabase: SupabaseClient, candidates: Omit<ReadyCandi
   const mediaByTalent = new Map<string, MediaSnapshot[]>();
   for (const asset of assets ?? []) {
     const current = mediaByTalent.get(asset.talent_id) ?? [];
-    if (current.length < 3) current.push({ id: asset.id, provider: "cloudflare_r2", storage_key: asset.storage_key, title: asset.title, description: asset.description, asset_type: asset.asset_type });
+    if (current.length < 3 && (asset.provider === "cloudflare_r2" || asset.provider === "youtube_unlisted")) current.push({ id: asset.id, provider: asset.provider, storage_key: asset.storage_key, title: asset.title, description: asset.description, asset_type: asset.asset_type });
     mediaByTalent.set(asset.talent_id, current);
   }
 

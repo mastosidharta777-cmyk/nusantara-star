@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { createR2PresignedUrl } from "@/lib/r2-presign";
+import { youtubeEmbedUrlFromStorageKey } from "@/lib/youtube";
 
 type BriefRow = {
   id: string;
@@ -112,10 +113,16 @@ export async function loadBuyerProposal(briefId: string) {
   const talents = ((items ?? []) as ProposalItemRow[]).flatMap((item) => {
     if (item.availability_status !== "confirmed" || !item.offer_valid_until || new Date(item.offer_valid_until).getTime() <= nowMs) return [];
     const whyFit = item.why_fit_snapshot ?? {};
-    const media = Array.isArray(item.media_snapshot) ? item.media_snapshot.flatMap((asset) => {
-      if (asset?.provider !== "cloudflare_r2" || !asset.storage_key) return [];
-      return [{ id: asset.id, title: asset.title, description: asset.description, asset_type: asset.asset_type, url: createR2PresignedUrl("GET", asset.storage_key, 3600) }];
-    }) : [];
+    const media: Array<{ id: string; provider: "cloudflare_r2" | "youtube_unlisted"; title: string | null; description: string | null; asset_type: string; url: string }> = [];
+    if (Array.isArray(item.media_snapshot)) for (const asset of item.media_snapshot) {
+      if (!asset?.storage_key) continue;
+      if (asset.provider === "youtube_unlisted") {
+        const url = youtubeEmbedUrlFromStorageKey(asset.storage_key);
+        if (url) media.push({ id: asset.id, provider: "youtube_unlisted", title: asset.title, description: asset.description, asset_type: asset.asset_type, url });
+        continue;
+      }
+      if (asset.provider === "cloudflare_r2") media.push({ id: asset.id, provider: "cloudflare_r2", title: asset.title, description: asset.description, asset_type: asset.asset_type, url: createR2PresignedUrl("GET", asset.storage_key, 3600) });
+    }
     return [{
       id: item.talent_id,
       proposalItemId: item.id,

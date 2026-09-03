@@ -36,13 +36,21 @@ export async function POST(request: Request) {
     }
 
     const response = NextResponse.json({ ok: true, role: roles[0].role });
-    response.cookies.set("ns_admin_access", data.session.access_token, {
+    const cookieBase = {
       httpOnly: true,
-      secure: process.env.VERCEL_ENV === "production",
-      sameSite: "lax",
+      secure: Boolean(process.env.VERCEL_ENV),
+      sameSite: "lax" as const,
       path: "/",
+    };
+    response.cookies.set("ns_admin_access", data.session.access_token, {
+      ...cookieBase,
       maxAge: Math.max(60, data.session.expires_in ?? 3600),
     });
+    response.cookies.set("ns_admin_refresh", data.session.refresh_token, {
+      ...cookieBase,
+      maxAge: 60 * 60 * 24 * 30,
+    });
+    response.headers.set("Cache-Control", "private, no-store");
     return response;
   } catch (error) {
     return NextResponse.json({ error: "Login gagal", detail: error instanceof Error ? error.message : String(error) }, { status: 500 });

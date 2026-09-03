@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { randomUUID } from "node:crypto";
 
 import { commercialIntegrityReady } from "@/lib/commercial-integrity";
 import { signAccessToken, type SignedAccessScope } from "@/lib/signed-access";
@@ -18,8 +19,9 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null);
     const allowedScopes: SignedAccessScope[] = ["buyer_proposal", "buyer_terms", "talent_offer", "talent_onboarding"];
     const scope = typeof body?.scope === "string" && allowedScopes.includes(body.scope as SignedAccessScope) ? body.scope as SignedAccessScope : null;
-    const subjectId = typeof body?.subjectId === "string" ? body.subjectId : "";
-    if (!scope || !subjectId) return NextResponse.json({ error: "Invalid secure-link request" }, { status: 400 });
+    const createNewTalent = scope === "talent_onboarding" && body?.createNewTalent === true;
+    let subjectId = typeof body?.subjectId === "string" ? body.subjectId : "";
+    if (!scope || (!subjectId && !createNewTalent)) return NextResponse.json({ error: "Invalid secure-link request" }, { status: 400 });
 
     if (process.env.VERCEL_ENV && request.headers.get("x-ns-admin-verified") !== "1") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -28,6 +30,19 @@ export async function POST(request: Request) {
     const supabase = getServerClient();
     let path = "";
     let expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    if (createNewTalent) {
+      subjectId = randomUUID();
+      const { error } = await supabase.from("talents").insert({
+        id: subjectId,
+        name: "",
+        category: "",
+        status: "draft",
+        onboarding_status: "not_started",
+        public_visible: false,
+      });
+      if (error) throw new Error(error.message);
+    }
 
     if (scope === "buyer_proposal") {
       const { data: proposal, error } = await supabase.from("proposals").select("brief_id,expires_at,status").eq("brief_id", subjectId).in("status", ["sent", "viewed", "selected"]).order("version", { ascending: false }).limit(1).maybeSingle();
