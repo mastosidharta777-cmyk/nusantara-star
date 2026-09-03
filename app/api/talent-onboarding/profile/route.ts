@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { classifyRepertoire, repertoireIsComplete, sanitizeRepertoire } from "@/lib/repertoire-classification";
 import { persistRiderVersion } from "@/lib/rider-normalization";
 import { verifyAccessToken } from "@/lib/signed-access";
+import { talentOnboardingEditConflict } from "@/lib/talent-onboarding-state";
 
 export const runtime = "nodejs";
 
@@ -45,6 +46,7 @@ export async function PUT(request:Request){
   const name=text(body?.name),category=text(body?.category);if(!name||!category)return NextResponse.json({error:"Nama dan kategori wajib diisi"},{status:400});
   const portfolioUrl=optionalHttpUrl(body?.portfolioUrl);if(portfolioUrl===undefined)return NextResponse.json({error:"Link media/portofolio utama tidak valid"},{status:400});
   const bookingLimitations=text(body?.bookingLimitations);if(bookingLimitations&&bookingLimitations.length>2000)return NextResponse.json({error:"Batasan booking maksimal 2.000 karakter"},{status:400});
+  const s=getServerClient();const editConflict=await talentOnboardingEditConflict(s,talentId);if(editConflict)return editConflict;
 
   const songAct=isSongActCategory(category);
   const requestedActType=songAct?actType(body?.actType):null;
@@ -70,7 +72,7 @@ export async function PUT(request:Request){
    manager_name:text(body?.managerName),manager_email:text(body?.managerEmail),manager_whatsapp:text(body?.managerWhatsapp),portfolio_url:portfolioUrl,
    base_rider:normalized.baseRider,travel_policy:normalized.travelPolicy,accommodation_policy:normalized.accommodationPolicy,status:"draft",rejection_note:null,updated_at:new Date().toISOString()
   };
-  const s=getServerClient();const{data,error}=await s.from("talent_profile_submissions").upsert(payload,{onConflict:"talent_id"}).select("*").single();if(error)throw new Error(error.message);
+  const{data,error}=await s.from("talent_profile_submissions").upsert(payload,{onConflict:"talent_id"}).select("*").single();if(error)throw new Error(error.message);
   await s.from("talents").update({onboarding_status:"in_progress",updated_at:new Date().toISOString()}).eq("id",talentId).neq("onboarding_status","approved");
   const sourceText=rawRider.baseRider?`BASE RIDER\n${rawRider.baseRider}`:"";
   if(sourceText){try{await persistRiderVersion(s,{talentId,sourceType:"form_text",sourceText,talentName:name,baseCity:payload.base_city,category})}catch(e){console.error("Master rider version save failed",e)}}
@@ -85,7 +87,7 @@ export async function POST(request:Request){
    s.from("talent_profile_submissions").select("id,name,category,act_type,willing_to_perform_covers,accepts_song_requests,sample_repertoire,bio,manager_name,manager_email,manager_whatsapp,status").eq("talent_id",talentId).maybeSingle(),
    s.from("talent_assets").select("asset_type,upload_status").eq("talent_id",talentId).eq("upload_status","uploaded")
   ]);
-  if(se)throw new Error(se.message);if(ae)throw new Error(ae.message);if(!submission)return NextResponse.json({error:"Simpan profil terlebih dahulu"},{status:409});if(submission.status==="submitted")return NextResponse.json({ok:true,alreadySubmitted:true});
+  if(se)throw new Error(se.message);if(ae)throw new Error(ae.message);if(!submission)return NextResponse.json({error:"Simpan profil terlebih dahulu"},{status:409});if(submission.status==="submitted")return NextResponse.json({ok:true,alreadySubmitted:true});if(submission.status==="approved")return NextResponse.json({error:"Profil sudah disetujui dan tidak dapat dikirim ulang dari portal onboarding"},{status:409});
   const missing:string[]=[];if(!submission.name)missing.push("Nama talent");if(!submission.category)missing.push("Kategori");if(!submission.bio)missing.push("Bio singkat");if(!submission.manager_name)missing.push("Manajer/PIC");if(!submission.manager_email&&!submission.manager_whatsapp)missing.push("Kontak manajer (WhatsApp atau email)");
 
   if(isSongActCategory(submission.category)){
@@ -101,6 +103,16 @@ export async function POST(request:Request){
 
   const hasPhoto=(assets??[]).some(a=>a.asset_type==="profile_photo");const hasVideo=(assets??[]).some(a=>["live_performance","showreel","event_clip"].includes(a.asset_type));
   if(!hasPhoto&&!hasVideo)return NextResponse.json({error:"Unggah minimal 1 foto profil dan 1 video sebelum dikirim"},{status:409});if(!hasPhoto)return NextResponse.json({error:"Unggah minimal 1 foto profil sebelum dikirim"},{status:409});if(!hasVideo)return NextResponse.json({error:"Unggah minimal 1 video penampilan atau showreel sebelum dikirim"},{status:409});
-  const now=new Date().toISOString();const{error:ue}=await s.from("talent_profile_submissions").update({status:"submitted",submitted_at:now,updated_at:now}).eq("talent_id",talentId);if(ue)throw new Error(ue.message);const{error:tue}=await s.from("talents").update({onboarding_status:"submitted",updated_at:now}).eq("id",talentId);if(tue)throw new Error(tue.message);return NextResponse.json({ok:true});
+  const{data,error}=await s.rpc("ns_submit_talent_profile_v1",{p_talent_id:talentId});if(error)throw new Error(error.message);return NextResponse.json(data??{ok:true});
  }catch(e){return NextResponse.json({error:"Gagal mengirim profil untuk ditinjau",detail:e instanceof Error?e.message:String(e)},{status:500})}
+}
+
+export async function PATCH(request:Request){
+ try{
+  const body=await request.json().catch(()=>null);const{talentId,ok}=auth(body);if(!ok)return NextResponse.json({error:"Tautan pendaftaran tidak valid atau sudah kedaluwarsa"},{status:401});
+  if(body?.action!=="reopen")return NextResponse.json({error:"Aksi tidak dikenal"},{status:400});
+  const s=getServerClient();const{data,error}=await s.rpc("ns_reopen_talent_profile_v1",{p_talent_id:talentId});
+  if(error){const status=/sudah disetujui|tidak dapat|tidak ditemukan/i.test(error.message)?409:500;return NextResponse.json({error:error.message},{status})}
+  return NextResponse.json(data??{ok:true,status:"draft"});
+ }catch(e){return NextResponse.json({error:"Profil belum dapat dibuka kembali untuk diedit",detail:e instanceof Error?e.message:String(e)},{status:500})}
 }
