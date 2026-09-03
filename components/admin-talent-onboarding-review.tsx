@@ -34,6 +34,11 @@ function riderStatus(status?: string) {
   if (status === "admin_approved") return "Disetujui admin";
   return status ? "Status rider tidak dikenal" : "Belum diproses";
 }
+function redirectToAdminLogin() {
+  const next = window.location.pathname + window.location.search;
+  window.location.assign(`/admin/login?next=${encodeURIComponent(next)}`);
+}
+
 function compactRider(data?: Record<string, unknown>) {
   if (!data) return [] as string[];
   const rows: string[] = [];
@@ -59,6 +64,10 @@ export function AdminTalentOnboardingReview({ talentId }: { talentId: string }) 
   async function refresh() {
     const res = await fetch(`/api/internal-demo/admin/talent-onboarding-review?talentId=${encodeURIComponent(talentId)}`, { cache: "no-store" });
     const body = await res.json().catch(() => null);
+    if (res.status === 401) {
+      redirectToAdminLogin();
+      throw new Error("Sesi admin berakhir. Mengarahkan ke halaman login…");
+    }
     if (!res.ok) throw new Error(body?.error ?? "Gagal memuat peninjauan");
     setData(body);
   }
@@ -69,6 +78,10 @@ export function AdminTalentOnboardingReview({ talentId }: { talentId: string }) 
     try {
       const res = await fetch("/api/internal-demo/admin/talent-onboarding-review", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, ...payload }) });
       const body = await res.json().catch(() => null);
+      if (res.status === 401) {
+        redirectToAdminLogin();
+        return;
+      }
       if (!res.ok) throw new Error(body?.error ?? "Peninjauan gagal");
       setMessage(successText); await refresh(); router.refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Peninjauan gagal"); }
@@ -117,8 +130,8 @@ export function AdminTalentOnboardingReview({ talentId }: { talentId: string }) 
 
     {!riderApproved && submitted ? <p className="mt-5 border border-amber-300 bg-amber-50 p-3 text-sm">Profil belum dapat dipublikasikan karena Rider Utama belum disetujui admin.</p> : null}
     <div className="mt-5 flex flex-col gap-3 border-t border-black/10 pt-5 md:flex-row md:items-end">
-      {approved ? <div className="flex-1 border border-green-700/20 bg-green-50 p-3 text-sm font-semibold text-green-800">✓ Profil sudah disetujui dan dipublikasikan.</div> : <label className="flex-1 text-sm font-semibold">Catatan jika profil ditolak<input value={note} onChange={(e) => setNote(e.target.value)} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" /></label>}
-      {!approved ? <><button disabled={busy || !submitted} onClick={() => act({ action: "reject_profile", rejectionNote: note }, "Profil dikembalikan untuk revisi.")} className="border border-black/15 px-4 py-3 text-sm font-semibold disabled:opacity-40">Tolak Profil</button><button disabled={busy || !submitted || !riderApproved} onClick={() => act({ action: "approve_profile" }, "Profil disetujui dan dipublikasikan.")} className="border border-black bg-black px-4 py-3 text-sm font-semibold text-white disabled:opacity-40">Setujui & Publikasikan</button></> : null}
+      {approved ? <div className="flex-1 border border-green-700/20 bg-green-50 p-3 text-sm font-semibold text-green-800">✓ Profil sudah disetujui dan dipublikasikan.</div> : <label className="flex-1 text-sm font-semibold">Catatan revisi untuk talent/manager<input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Jelaskan data yang perlu diperbaiki" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" /></label>}
+      {!approved ? <><button disabled={busy || !submitted || !note.trim()} onClick={() => act({ action: "reject_profile", rejectionNote: note }, "Profil dikembalikan untuk revisi.")} className="border border-black/15 px-4 py-3 text-sm font-semibold disabled:opacity-40">Kembalikan untuk Revisi</button><button disabled={busy || !submitted || !riderApproved} onClick={() => act({ action: "approve_profile" }, "Profil disetujui dan dipublikasikan.")} className="border border-black bg-black px-4 py-3 text-sm font-semibold text-white disabled:opacity-40">Setujui & Publikasikan</button></> : null}
     </div>
     {message ? <p className="mt-4 text-sm font-semibold text-green-700">{message}</p> : null}{error ? <p className="mt-4 text-sm font-semibold text-red-700">{error}</p> : null}
   </section>;

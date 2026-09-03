@@ -16,12 +16,47 @@ const STATEFUL_QA_PATHS = new Set([
   "/api/internal-demo/talent-offer-transition-smoke",
 ]);
 
+function sessionCookieOptions(maxAge: number) {
+  return {
+    httpOnly: true,
+    secure: Boolean(process.env.VERCEL_ENV),
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge,
+  };
+}
+
 function unauthorized(request: NextRequest) {
-  if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const url = request.nextUrl.clone();
-  url.pathname = "/admin/login";
-  url.searchParams.set("next", request.nextUrl.pathname + request.nextUrl.search);
-  return NextResponse.redirect(url);
+  const response = request.nextUrl.pathname.startsWith("/api/")
+    ? NextResponse.json({ error: "Sesi admin berakhir. Silakan masuk kembali." }, { status: 401 })
+    : (() => {
+        const url = request.nextUrl.clone();
+        url.pathname = "/admin/login";
+        url.searchParams.set("next", request.nextUrl.pathname + request.nextUrl.search);
+        return NextResponse.redirect(url);
+      })();
+  response.cookies.set("ns_admin_access", "", sessionCookieOptions(0));
+  response.cookies.set("ns_admin_refresh", "", sessionCookieOptions(0));
+  return response;
+}
+
+async function refreshAdminSession(supabaseUrl: string, anonKey: string, refreshToken: string) {
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: { apikey: anonKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    return await response.json().catch(() => null) as {
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+    } | null;
+  } catch {
+    return null;
+  }
 }
 
 function forbidden(request: NextRequest) {
@@ -68,14 +103,32 @@ export async function middleware(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!supabaseUrl || !anonKey) return unauthorized(request);
-  const accessToken = request.cookies.get("ns_admin_access")?.value;
-  if (!accessToken) return unauthorized(request);
+  let accessToken = request.cookies.get("ns_admin_access")?.value;
+  const refreshToken = request.cookies.get("ns_admin_refresh")?.value;
+  let refreshedSession: Awaited<ReturnType<typeof refreshAdminSession>> = null;
 
-  const authHeaders = { apikey: anonKey, Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
-  const userResponse = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: authHeaders, cache: "no-store" });
-  if (!userResponse.ok) return unauthorized(request);
+  let userResponse = accessToken
+    ? await fetch(`${supabaseUrl}/auth/v1/user`, {
+        headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+      })
+    : null;
+
+  if ((!userResponse || !userResponse.ok) && refreshToken) {
+    refreshedSession = await refreshAdminSession(supabaseUrl, anonKey, refreshToken);
+    accessToken = refreshedSession?.access_token;
+    userResponse = accessToken
+      ? await fetch(`${supabaseUrl}/auth/v1/user`, {
+          headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` },
+          cache: "no-store",
+        })
+      : null;
+  }
+
+  if (!accessToken || !userResponse?.ok) return unauthorized(request);
   const user = await userResponse.json().catch(() => null) as { id?: string } | null;
   if (!user?.id) return unauthorized(request);
+  const authHeaders = { apikey: anonKey, Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
 
   const roleResponse = await fetch(`${supabaseUrl}/rest/v1/admin_users?user_id=eq.${encodeURIComponent(user.id)}&active=eq.true&select=role&limit=1`, { headers: authHeaders, cache: "no-store" });
   if (!roleResponse.ok) return forbidden(request);
@@ -105,7 +158,20 @@ export async function middleware(request: NextRequest) {
   headers.set("x-ns-admin-verified", "1");
   headers.set("x-ns-admin-role", role);
   headers.set("x-ns-admin-user", user.id);
-  return NextResponse.next({ request: { headers } });
+  const response = NextResponse.next({ request: { headers } });
+  if (refreshedSession?.access_token) {
+    response.cookies.set(
+      "ns_admin_access",
+      refreshedSession.access_token,
+      sessionCookieOptions(Math.max(60, refreshedSession.expires_in ?? 3600)),
+    );
+    const nextRefreshToken = refreshedSession.refresh_token || refreshToken;
+    if (nextRefreshToken) {
+      response.cookies.set("ns_admin_refresh", nextRefreshToken, sessionCookieOptions(60 * 60 * 24 * 30));
+    }
+  }
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
 }
 
 export const config = {
