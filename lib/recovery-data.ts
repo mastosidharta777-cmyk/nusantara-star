@@ -10,6 +10,9 @@ export type RecoveryCase = {
   trigger_reason: string;
   requirements_snapshot: Record<string, unknown>;
   original_booking_snapshot: Record<string, unknown>;
+  match_engine_version: string | null;
+  matching_generated_at: string | null;
+  match_count: number | null;
   selected_replacement_talent_id: string | null;
   replacement_booking_id: string | null;
   financial_reconciliation_status: "pending" | "ready" | "completed" | "not_required";
@@ -26,7 +29,7 @@ function getServerClient() {
   return createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-const fields = "id,original_booking_id,incident_id,recovery_brief_id,original_talent_id,status,trigger_reason,requirements_snapshot,original_booking_snapshot,selected_replacement_talent_id,replacement_booking_id,financial_reconciliation_status,financial_reconciliation_notes,opened_at,replacement_secured_at,closed_at";
+const fields = "id,original_booking_id,incident_id,recovery_brief_id,original_talent_id,status,trigger_reason,requirements_snapshot,original_booking_snapshot,match_engine_version,matching_generated_at,match_count,selected_replacement_talent_id,replacement_booking_id,financial_reconciliation_status,financial_reconciliation_notes,opened_at,replacement_secured_at,closed_at";
 
 export async function loadRecoveryCaseForBooking(bookingId: string | null): Promise<RecoveryCase | null> {
   if (!bookingId) return null;
