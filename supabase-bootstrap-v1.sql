@@ -9,6 +9,7 @@ create table if not exists public.talents (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   category text not null,
+  supply_type text not null default 'talent' check (supply_type in ('talent','professional','production_partner')),
   gender text null check (gender is null or gender in ('female','male','mixed','unknown')),
   genres text[] not null default '{}',
   base_city text null,
@@ -31,6 +32,7 @@ create table if not exists public.talents (
 
 create index if not exists idx_talents_status on public.talents(status);
 create index if not exists idx_talents_category on public.talents(category);
+create index if not exists idx_talents_supply_type on public.talents(supply_type);
 
 create table if not exists public.talent_availability (
   id uuid primary key default gen_random_uuid(),
@@ -157,6 +159,7 @@ alter table public.availability_requests enable row level security;
 alter table public.bookings enable row level security;
 alter table public.payments enable row level security;
 
+comment on column public.talents.supply_type is 'Internal supply classification: talent, professional, or production_partner.';
 comment on table public.briefs is 'Buyer brief source-of-truth record for the current V1 workflow.';
 comment on table public.match_results is 'Persisted/versioned matching snapshot plus admin review state.';
 comment on table public.availability_requests is 'Live talent/manager availability confirmation request state.';
