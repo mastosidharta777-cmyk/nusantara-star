@@ -193,31 +193,15 @@ export async function POST(request: Request) {
     );
     if (!requestedTalent) await persistMatchSnapshot(persisted.id, matches);
 
-    const recommendations = matches.map((match) => {
-      const reasons: string[] = [];
-      if (match.breakdown.categoryGenre >= 80) reasons.push("Kategori/genre sesuai");
-      if (brief.city && match.talent.baseCity.trim().toLowerCase() === brief.city.trim().toLowerCase()) reasons.push("Berbasis di kota acara");
-      if (match.breakdown.eventFit >= 90) reasons.push("Cocok untuk jenis acara");
-      if ((match.breakdown.taxonomyFit ?? 0) >= 85) reasons.push("Format/style sesuai brief");
-      return {
-        id: match.talent.id,
-        name: match.talent.name,
-        category: match.talent.category,
-        genres: match.talent.genres,
-        baseCity: match.talent.baseCity,
-        tier: match.tier,
-        reasons: reasons.slice(0, 3),
-        availability: match.requiresLiveConfirmation ? "needs_confirmation" : "check_required",
-      };
-    });
-
+    // Discovery candidates are internal curation input only. Buyer-facing options
+    // are shown later, after admin selection and live talent/manager confirmation.
     return NextResponse.json({
       ok: true,
       received: true,
       briefId: persisted.id,
       requestMode,
       requestedTalent: requestedTalent ? { id: requestedTalent.id, name: requestedTalent.name } : null,
-      recommendations,
+      nextStep: requestedTalent ? "live_talent_confirmation" : "admin_curation",
     }, { status: 201 });
   } catch (error) {
     console.error("Public brief submission failed", error instanceof Error ? error.message : String(error));

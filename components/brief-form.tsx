@@ -7,8 +7,12 @@ import type { Locale } from "@/lib/i18n";
 
 type C = { eyebrow: string; title: string; body: string; contact: string; event: string; talent: string; submit: string; note: string; success: string };
 type SelectedTalent = { id: string; name: string; category: string; performanceFormats: string[] } | null;
-type Recommendation = { id: string; name: string; category: string; genres: string[]; baseCity: string; tier: "strong_match" | "acceptable_alternative"; reasons: string[]; availability: "needs_confirmation" | "check_required" };
-type SubmitResponse = { ok: true; briefId?: string; requestedTalent?: { id: string; name: string } | null; recommendations: Recommendation[] };
+type SubmitResponse = {
+  ok: true;
+  briefId?: string;
+  requestedTalent?: { id: string; name: string } | null;
+  nextStep?: "admin_curation" | "live_talent_confirmation";
+};
 
 type FieldProps = {
   label: string;
@@ -77,7 +81,12 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(data?.error ?? (id ? "Permintaan gagal dikirim" : "Request submission failed"));
-      setResult({ ok: true, briefId: data?.briefId, requestedTalent: data?.requestedTalent ?? null, recommendations: data?.recommendations ?? [] });
+      setResult({
+        ok: true,
+        briefId: data?.briefId,
+        requestedTalent: data?.requestedTalent ?? null,
+        nextStep: data?.nextStep,
+      });
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       setError(err instanceof Error ? err.message : (id ? "Permintaan gagal dikirim" : "Request submission failed"));
@@ -116,6 +125,27 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
     );
   }
 
+  if (result) {
+    return (
+      <section className="px-5 py-16 md:px-10 md:py-24">
+        <div className="mx-auto max-w-[820px]">
+          <div className="border border-black/15 bg-white p-7 md:p-10">
+            <CheckCircle2 size={36} className="text-ember"/>
+            <p className="eyebrow mt-6">{id ? "Brief diterima" : "Brief received"}</p>
+            <h1 className="mt-4 font-display text-4xl leading-tight md:text-6xl">{id ? "Brief Anda sudah masuk ke tim Nusantara Star." : "Your brief is now with the Nusantara Star team."}</h1>
+            <p className="mt-6 max-w-2xl text-sm leading-7 text-black/55">{id ? "Tim kami akan meninjau kebutuhan acara, memilih kandidat yang paling sesuai, lalu melakukan konfirmasi langsung mengenai ketersediaan, fee acara, rider, dan ketentuan. Setelah itu Anda akan menerima pilihan talent yang sudah dikurasi." : "Our team will review your event needs, select the best-fit candidates, then confirm availability, event-specific fees, rider requirements and terms directly. You will then receive a curated set of talent options."}</p>
+            <p className="mt-4 max-w-2xl text-sm font-semibold text-black/65">{id ? "Belum ada talent yang dikonfirmasi atau dibooking pada tahap ini." : "No talent is confirmed or booked at this stage."}</p>
+            {result.briefId ? <p className="mt-6 text-xs text-black/40">{id ? "Referensi" : "Reference"}: {result.briefId}</p> : null}
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link href={`/${locale}/talent`} className="bg-ink px-5 py-3 text-xs font-bold uppercase tracking-[.1em] text-white">{id ? "Jelajahi talent" : "Browse talent"}</Link>
+              <button type="button" onClick={() => setResult(null)} className="border border-black px-5 py-3 text-xs font-bold uppercase tracking-[.1em]">{id ? "Ubah brief" : "Edit brief"}</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="px-5 py-16 md:px-10 md:py-24">
       <div className="mx-auto grid max-w-[1200px] gap-14 lg:grid-cols-[.75fr_1.25fr]">
@@ -133,88 +163,55 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
           <div className="mt-10 border-l-2 border-ember pl-5 text-sm leading-6 text-black/55">{pageNote}</div>
         </div>
 
-        {result ? (
-          <div className="space-y-5">
-            <div className="border border-black/15 bg-white p-7 md:p-10">
-              <CheckCircle2 size={36} className="text-ember"/>
-              <h2 className="mt-5 font-display text-4xl">{t.success}</h2>
-              <p className="mt-4 max-w-xl text-sm leading-6 text-black/55">{id ? "Kandidat di bawah adalah hasil awal berdasarkan eligibility dan kecocokan brief. Ini bukan konfirmasi availability, harga final, atau booking." : "The candidates below are initial results based on eligibility and brief fit. They are not availability confirmations, final prices, or bookings."}</p>
-              {result.briefId ? <p className="mt-5 text-xs text-black/40">{id ? "Referensi" : "Reference"}: {result.briefId}</p> : null}
+        <form onSubmit={submitBrief} className="space-y-14 bg-white p-6 shadow-[0_20px_70px_rgba(0,0,0,.06)] md:p-12">
+          <input name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="hidden"/>
+          <fieldset>
+            <legend className="mb-7 font-display text-3xl">01. {t.contact}</legend>
+            <div className="grid gap-6 md:grid-cols-2">
+              <Field label={id ? "Nama" : "Name"} name="name" required/>
+              <Field label={id ? "Perusahaan" : "Company"} name="company"/>
+              <Field label="WhatsApp" name="whatsapp" required/>
+              <Field label="Email" name="email" type="email" required/>
             </div>
-            {result.recommendations.length ? result.recommendations.map((rec, index) => (
-              <article key={rec.id} className="border border-black/15 bg-white p-6 md:p-7">
-                <div className="flex items-start justify-between gap-5">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[.15em] text-black/40">#{index + 1} · {rec.category}</p>
-                    <h3 className="mt-2 font-display text-3xl">{rec.name}</h3>
-                    <p className="mt-2 text-sm text-black/55">{rec.genres.join(" · ")}{rec.baseCity ? ` · ${rec.baseCity}` : ""}</p>
-                  </div>
-                  <span className="border border-ember/30 bg-ember/5 px-3 py-2 text-[10px] font-bold uppercase tracking-[.12em] text-ember">{rec.tier === "strong_match" ? (id ? "Sangat cocok" : "Strong match") : (id ? "Alternatif cocok" : "Good alternative")}</span>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">{rec.reasons.map((reason) => <span key={reason} className="border border-black/15 px-3 py-1 text-xs text-black/55">{reason}</span>)}</div>
-                <p className="mt-5 text-xs font-semibold text-amber-700">{id ? "Availability: perlu konfirmasi talent/manager" : "Availability: talent/manager confirmation required"}</p>
-                <Link href={`/${locale}/talent/${rec.id}`} className="mt-5 inline-block border border-black px-4 py-2 text-xs font-bold uppercase tracking-[.1em]">{id ? "Lihat profil" : "View profile"}</Link>
-              </article>
-            )) : (
-              <div className="border border-black/15 bg-white p-7">
-                <p className="text-sm font-semibold">{id ? "Belum ada roster nyata yang memenuhi eligibility brief ini." : "No real roster talent currently passes this brief's eligibility."}</p>
-                <p className="mt-2 text-sm leading-6 text-black/50">{id ? "Anda tetap dapat menjelajahi roster publik atau tim Nusantara Star melakukan sourcing manual." : "You can still browse the public roster or Nusantara Star can source manually."}</p>
-                <Link href={`/${locale}/talent`} className="mt-5 inline-block text-sm font-semibold underline">{id ? "Jelajahi talent" : "Browse talent"}</Link>
-              </div>
-            )}
-            <button onClick={() => setResult(null)} className="h-12 border border-black/25 px-5 text-xs font-bold uppercase tracking-[.12em]">{id ? "Ubah pencarian" : "Edit search"}</button>
-          </div>
-        ) : (
-          <form onSubmit={submitBrief} className="space-y-14 bg-white p-6 shadow-[0_20px_70px_rgba(0,0,0,.06)] md:p-12">
-            <input name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="hidden"/>
+          </fieldset>
+          <fieldset>
+            <legend className="mb-7 font-display text-3xl">02. {t.event}</legend>
+            <div className="grid gap-6 md:grid-cols-2">
+              <Field label={id ? "Jenis acara" : "Event type"} name="eventType" required options={["Corporate event", "Brand activation", "Wedding", "Festival", "Private event", "Other"]}/>
+              <Field label={id ? "Tanggal acara" : "Event date"} name="date" type="date" required/>
+              <Field label={id ? "Kota" : "City"} name="city" required/>
+              <Field label="Venue" name="venue"/>
+              <Field label={id ? "Jumlah audiens" : "Audience size"} name="audience" type="number"/>
+            </div>
+          </fieldset>
+          {isSelectedInquiry ? (
             <fieldset>
-              <legend className="mb-7 font-display text-3xl">01. {t.contact}</legend>
+              <legend className="mb-7 font-display text-3xl">03. {id ? "Detail permintaan" : "Request details"}</legend>
               <div className="grid gap-6 md:grid-cols-2">
-                <Field label={id ? "Nama" : "Name"} name="name" required/>
-                <Field label={id ? "Perusahaan" : "Company"} name="company"/>
-                <Field label="WhatsApp" name="whatsapp" required/>
-                <Field label="Email" name="email" type="email" required/>
+                {selectedTalent?.performanceFormats.length ? <Field label={id ? "Format penampilan" : "Performance format"} name="performanceFormat" required options={selectedTalent.performanceFormats}/> : null}
+                <Field label={id ? "Budget yang disiapkan untuk talent" : "Budget allocated for talent"} name="budget" required options={["< Rp10 jt", "Rp10–25 jt", "Rp25–50 jt", "Rp50–100 jt", "Rp100 jt+"]}/>
+                <Field label={id ? "Durasi tampil" : "Performance duration"} name="duration" options={["15–30 minutes", "30–60 minutes", "60–90 minutes", "90+ minutes"]}/>
+                <Field label={id ? "Kebutuhan / catatan tambahan" : "Requirements / additional notes"} name="notes" area/>
               </div>
             </fieldset>
+          ) : (
             <fieldset>
-              <legend className="mb-7 font-display text-3xl">02. {t.event}</legend>
+              <legend className="mb-7 font-display text-3xl">03. {t.talent}</legend>
               <div className="grid gap-6 md:grid-cols-2">
-                <Field label={id ? "Jenis acara" : "Event type"} name="eventType" required options={["Corporate event", "Brand activation", "Wedding", "Festival", "Private event", "Other"]}/>
-                <Field label={id ? "Tanggal acara" : "Event date"} name="date" type="date" required/>
-                <Field label={id ? "Kota" : "City"} name="city" required/>
-                <Field label="Venue" name="venue"/>
-                <Field label={id ? "Jumlah audiens" : "Audience size"} name="audience" type="number"/>
+                <Field label={id ? "Kategori talent" : "Talent category"} name="category" required defaultValue={categoryDefault} options={["Singer", "Solo", "Band", "MC / Host", "DJ", "Traditional arts", "Traditional/Ethnic", "Speaker"]}/>
+                <Field label="Genre / style" name="genre"/>
+                <Field label={id ? "Budget acara / talent" : "Event / talent budget"} name="budget" required options={["< Rp10 jt", "Rp10–25 jt", "Rp25–50 jt", "Rp50–100 jt", "Rp100 jt+"]}/>
+                <Field label={id ? "Durasi tampil" : "Performance duration"} name="duration" options={["15–30 minutes", "30–60 minutes", "60–90 minutes", "90+ minutes"]}/>
+                <Field label={id ? "Catatan tambahan" : "Additional notes"} name="notes" area/>
               </div>
             </fieldset>
-            {isSelectedInquiry ? (
-              <fieldset>
-                <legend className="mb-7 font-display text-3xl">03. {id ? "Detail permintaan" : "Request details"}</legend>
-                <div className="grid gap-6 md:grid-cols-2">
-                  {selectedTalent?.performanceFormats.length ? <Field label={id ? "Format penampilan" : "Performance format"} name="performanceFormat" required options={selectedTalent.performanceFormats}/> : null}
-                  <Field label={id ? "Budget yang disiapkan untuk talent" : "Budget allocated for talent"} name="budget" required options={["< Rp10 jt", "Rp10–25 jt", "Rp25–50 jt", "Rp50–100 jt", "Rp100 jt+"]}/>
-                  <Field label={id ? "Durasi tampil" : "Performance duration"} name="duration" options={["15–30 minutes", "30–60 minutes", "60–90 minutes", "90+ minutes"]}/>
-                  <Field label={id ? "Kebutuhan / catatan tambahan" : "Requirements / additional notes"} name="notes" area/>
-                </div>
-              </fieldset>
-            ) : (
-              <fieldset>
-                <legend className="mb-7 font-display text-3xl">03. {t.talent}</legend>
-                <div className="grid gap-6 md:grid-cols-2">
-                  <Field label={id ? "Kategori talent" : "Talent category"} name="category" required defaultValue={categoryDefault} options={["Singer", "Solo", "Band", "MC / Host", "DJ", "Traditional arts", "Traditional/Ethnic", "Speaker"]}/>
-                  <Field label="Genre / style" name="genre"/>
-                  <Field label={id ? "Budget acara / talent" : "Event / talent budget"} name="budget" required options={["< Rp10 jt", "Rp10–25 jt", "Rp25–50 jt", "Rp50–100 jt", "Rp100 jt+"]}/>
-                  <Field label={id ? "Durasi tampil" : "Performance duration"} name="duration" options={["15–30 minutes", "30–60 minutes", "60–90 minutes", "90+ minutes"]}/>
-                  <Field label={id ? "Catatan tambahan" : "Additional notes"} name="notes" area/>
-                </div>
-              </fieldset>
-            )}
-            <button disabled={loading} className="flex h-14 w-full items-center justify-center gap-3 bg-ink text-xs font-bold uppercase tracking-[.15em] text-white transition hover:bg-ember disabled:opacity-50">
-              {loading ? (isSelectedInquiry ? (id ? "Mengirim permintaan…" : "Sending request…") : (id ? "Mencari talent…" : "Finding talent…")) : (isSelectedInquiry ? (id ? "Cek Ketersediaan & Minta Penawaran" : "Check Availability & Request Offer") : t.submit)}
-              <Send size={16}/>
-            </button>
-            {error && <p className="text-sm text-red-700">{error}</p>}
-          </form>
-        )}
+          )}
+          <button disabled={loading} className="flex h-14 w-full items-center justify-center gap-3 bg-ink text-xs font-bold uppercase tracking-[.15em] text-white transition hover:bg-ember disabled:opacity-50">
+            {loading ? (isSelectedInquiry ? (id ? "Mengirim permintaan…" : "Sending request…") : (id ? "Mengirim brief…" : "Sending brief…")) : (isSelectedInquiry ? (id ? "Cek Ketersediaan & Minta Penawaran" : "Check Availability & Request Offer") : t.submit)}
+            <Send size={16}/>
+          </button>
+          {error && <p className="text-sm text-red-700">{error}</p>}
+        </form>
       </div>
     </section>
   );
