@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { supplyTypeLabel, type SupplyType } from "@/lib/supply-onboarding";
+import { supplyDetailFields, supplyTypeLabel, type SupplyType } from "@/lib/supply-onboarding";
 
 type Profile = {
   name: string;
@@ -42,6 +42,10 @@ function join(value: unknown) {
 function split(value: string) {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
+function objectStrings(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {} as Record<string, string>;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+}
 function statusLabel(value: string) {
   if (value === "not_started") return "Belum dimulai";
   if (value === "in_progress") return "Sedang dilengkapi";
@@ -61,6 +65,7 @@ export function SupplyOnboardingForm({
   supplyType: Exclude<SupplyType, "talent">;
 }) {
   const [profile, setProfile] = useState<Profile>(blank);
+  const [details, setDetails] = useState<Record<string, string>>({});
   const [status, setStatus] = useState("not_started");
   const [revisionNote, setRevisionNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -69,6 +74,7 @@ export function SupplyOnboardingForm({
   const locked = status === "submitted" || status === "approved";
   const label = supplyTypeLabel(supplyType);
   const isPartner = supplyType === "production_partner";
+  const detailFields = supplyDetailFields(supplyType, profile.category);
 
   async function refresh() {
     const response = await fetch(`/api/supply-onboarding/profile?supplyId=${encodeURIComponent(supplyId)}&token=${encodeURIComponent(token)}`, { cache: "no-store" });
@@ -77,6 +83,7 @@ export function SupplyOnboardingForm({
     const source = data.submission ?? data.supply;
     setStatus(data.supply?.onboarding_status ?? "not_started");
     setRevisionNote(typeof data.submission?.rejection_note === "string" ? data.submission.rejection_note : "");
+    setDetails(objectStrings(source?.supply_details));
     setProfile({
       name: source?.name ?? "",
       category: source?.category ?? "",
@@ -121,6 +128,7 @@ export function SupplyOnboardingForm({
         supplyId,
         token,
         ...profile,
+        supplyDetails: details,
         serviceCities: split(profile.serviceCities),
         serviceFormats: split(profile.serviceFormats),
         capabilityTags: split(profile.capabilityTags),
@@ -197,7 +205,7 @@ export function SupplyOnboardingForm({
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <h1 className="text-3xl font-semibold tracking-[-0.03em] md:text-5xl">Lengkapi profil {label.toLowerCase()}.</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-black/55">Kategori sudah ditentukan oleh tim Nusantara Star. Isi data operasional yang benar-benar berlaku agar profil dapat diverifikasi.</p>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-black/55">Kategori sudah ditentukan oleh tim Nusantara Star. Pertanyaan di bawah menyesuaikan kategori tersebut agar admin dapat memverifikasi kemampuan yang relevan.</p>
             </div>
             <span className="w-fit border border-black/10 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em]">{statusLabel(status)}</span>
           </div>
@@ -219,6 +227,13 @@ export function SupplyOnboardingForm({
             {field("portfolioUrl", "Link portofolio utama", "https://...")}
           </div>
 
+          {detailFields.length ? <div className="border-t border-black/10 pt-6">
+            <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Detail {profile.category}</p><p className="mt-2 text-sm text-black/55">Isi kemampuan yang relevan dengan kategori ini. Kolom bertanda wajib harus dilengkapi sebelum dikirim.</p></div>
+            <div className="grid gap-5 md:grid-cols-2">{detailFields.map((item) => <label key={item.key} className={`block text-sm font-semibold ${item.kind === "textarea" ? "md:col-span-2" : ""}`}>{item.label}{item.required ? " *" : ""}
+              {item.kind === "textarea" ? <textarea disabled={locked} rows={4} value={details[item.key] ?? ""} placeholder={item.placeholder ?? ""} onChange={(event) => setDetails((value) => ({ ...value, [item.key]: event.target.value }))} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" /> : <input disabled={locked} value={details[item.key] ?? ""} placeholder={item.placeholder ?? ""} onChange={(event) => setDetails((value) => ({ ...value, [item.key]: event.target.value }))} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" />}
+            </label>)}</div>
+          </div> : null}
+
           <label className="block text-sm font-semibold">{isPartner ? "Profil perusahaan singkat" : "Bio / profil profesional"}
             <textarea disabled={locked} value={profile.bio} onChange={(event) => setProfile((value) => ({ ...value, bio: event.target.value }))} rows={6} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" />
           </label>
@@ -233,7 +248,7 @@ export function SupplyOnboardingForm({
             <textarea disabled={locked} value={profile.bookingLimitations} onChange={(event) => setProfile((value) => ({ ...value, bookingLimitations: event.target.value }))} rows={4} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" />
           </label>
 
-          <p className="text-xs leading-5 text-black/45">Portofolio digunakan sebagai bukti awal untuk verifikasi. Rate, kontrak, pembayaran, dan detail proyek tetap dikonfirmasi terpisah oleh admin sebelum penawaran ke klien.</p>
+          <p className="text-xs leading-5 text-black/45">Portofolio digunakan sebagai bukti awal untuk verifikasi. Rate, kontrak, pembayaran, legal document upload, dan detail proyek tetap dikonfirmasi terpisah oleh admin sebelum penawaran ke klien.</p>
 
           <div className="flex flex-wrap gap-3 border-t border-black/10 pt-5">
             {!locked ? <>
