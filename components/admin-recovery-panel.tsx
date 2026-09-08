@@ -50,7 +50,7 @@ export function AdminRecoveryPanel({
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch("/api/internal-demo/admin/recovery", {
+      const response = await fetch("/api/internal-demo/admin/operations/recovery", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
