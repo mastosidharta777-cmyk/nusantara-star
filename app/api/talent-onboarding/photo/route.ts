@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { verifyAccessToken } from "@/lib/signed-access";
+import { talentOnboardingEditConflict } from "@/lib/talent-onboarding-state";
 
 export const runtime = "nodejs";
 
@@ -34,6 +35,8 @@ export async function POST(request: Request) {
     if (!fileName || !ext || !Number.isSafeInteger(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_PHOTO_BYTES) return NextResponse.json({ error: "Gunakan JPG, PNG, atau WebP maksimal 10 MB" }, { status: 400 });
 
     const supabase = getServerClient();
+    const editConflict = await talentOnboardingEditConflict(supabase, talentId);
+    if (editConflict) return editConflict;
     const storageKey = `${talentId}/${randomUUID()}.${ext}`;
     const { data: signed, error: signedError } = await supabase.storage.from("talent-photos").createSignedUploadUrl(storageKey);
     if (signedError || !signed) throw new Error(signedError?.message ?? "Signed photo upload failed");
@@ -66,6 +69,8 @@ export async function PATCH(request: Request) {
     if (!talentId || !assetId || !verifyAccessToken(token, "talent_onboarding", talentId)) return NextResponse.json({ error: "Invalid or expired onboarding link" }, { status: 401 });
 
     const supabase = getServerClient();
+    const editConflict = await talentOnboardingEditConflict(supabase, talentId);
+    if (editConflict) return editConflict;
     const { data: asset, error } = await supabase.from("talent_assets").select("id,storage_key,size_bytes,provider").eq("id", assetId).eq("talent_id", talentId).maybeSingle();
     if (error) throw new Error(error.message);
     if (!asset || asset.provider !== "supabase_storage") return NextResponse.json({ error: "Asset not found" }, { status: 404 });

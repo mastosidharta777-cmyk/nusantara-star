@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeRiderSource } from "@/lib/rider-normalization";
 import { verifyAccessToken } from "@/lib/signed-access";
+import { getTalentOnboardingStatus, isTalentOnboardingEditable, talentOnboardingEditConflict } from "@/lib/talent-onboarding-state";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,8 @@ export async function GET(request: Request) {
     }
 
     const s = client();
+    const onboardingStatus = await getTalentOnboardingStatus(s, talentId);
+    const editable = isTalentOnboardingEditable(onboardingStatus);
     const { data, error } = await s
       .from("talent_rider_versions")
       .select("id,version_no,source_type,source_asset_id,source_filename,normalized_data,missing_questions,answers,normalization_source,status,is_current,updated_at")
@@ -47,7 +50,7 @@ export async function GET(request: Request) {
       .eq("is_current", true)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (!data) return NextResponse.json({ ok: true, rider: null });
+    if (!data) return NextResponse.json({ ok: true, rider: null, editable });
 
     const stored = Array.isArray(data.missing_questions) ? data.missing_questions : [];
     const additional = requiredQuestionsFromNormalized(data.normalized_data);
@@ -56,7 +59,7 @@ export async function GET(request: Request) {
     const questions = [...byKey.values()];
     const nextStatus = questions.length ? "needs_talent_input" : data.status;
 
-    if (questions.length !== stored.length || nextStatus !== data.status) {
+    if (editable && (questions.length !== stored.length || nextStatus !== data.status)) {
       const now = new Date().toISOString();
       const { data: updated, error: ue } = await s
         .from("talent_rider_versions")
@@ -65,10 +68,10 @@ export async function GET(request: Request) {
         .select("id,version_no,source_type,source_asset_id,source_filename,normalized_data,missing_questions,answers,normalization_source,status,is_current,updated_at")
         .single();
       if (ue) throw new Error(ue.message);
-      return NextResponse.json({ ok: true, rider: updated });
+      return NextResponse.json({ ok: true, rider: updated, editable });
     }
 
-    return NextResponse.json({ ok: true, rider: data });
+    return NextResponse.json({ ok: true, rider: data, editable });
   } catch (e) {
     return NextResponse.json({ error: "Rider status failed", detail: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
@@ -81,6 +84,8 @@ export async function PATCH(request: Request) {
     if (!ok) return NextResponse.json({ error: "Invalid or expired onboarding link" }, { status: 401 });
 
     const s = client();
+    const editConflict = await talentOnboardingEditConflict(s, talentId);
+    if (editConflict) return editConflict;
     const { data: current, error: ce } = await s.from("talent_rider_versions").select("*").eq("talent_id", talentId).eq("is_current", true).maybeSingle();
     if (ce) throw new Error(ce.message);
     if (!current) return NextResponse.json({ error: "Belum ada draft rider aktif" }, { status: 409 });

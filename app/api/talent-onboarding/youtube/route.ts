@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { verifyAccessToken } from "@/lib/signed-access";
+import { talentOnboardingEditConflict } from "@/lib/talent-onboarding-state";
 import { parseYouTubeVideoUrl } from "@/lib/youtube";
 
 export const runtime = "nodejs";
@@ -38,10 +39,9 @@ export async function POST(request: Request) {
     if (!video) return NextResponse.json({ error: "Gunakan link video YouTube yang valid" }, { status: 400 });
 
     const supabase = getServerClient();
+    const editConflict = await talentOnboardingEditConflict(supabase, talentId);
+    if (editConflict) return editConflict;
     const titlePromise = youtubeTitle(video.canonicalUrl);
-    const { data: talent, error: talentError } = await supabase.from("talents").select("id").eq("id", talentId).maybeSingle();
-    if (talentError) throw new Error(talentError.message);
-    if (!talent) return NextResponse.json({ error: "Talent tidak ditemukan" }, { status: 404 });
 
     const title = await titlePromise;
     const storageKey = `${talentId}/${video.videoId}`;
