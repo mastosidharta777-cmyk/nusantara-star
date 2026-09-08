@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
+import { SupplyOnboardingForm } from "@/components/supply-onboarding-form";
 import { TalentOnboardingForm } from "@/components/talent-onboarding-form";
 import { TalentRiderCompletion } from "@/components/talent-rider-completion";
 import { verifyAccessToken } from "@/lib/signed-access";
@@ -20,7 +21,12 @@ export default async function TalentOnboardingPage({ params, searchParams }: { p
   if (!verifyAccessToken(token, "talent_onboarding", id)) notFound();
 
   const supabase = getServerClient();
-  const { data: talent, error } = await supabase.from("talents").select("id,status").eq("id", id).maybeSingle();
-  if (error || !talent || talent.status === "inactive") notFound();
+  const { data: supply, error } = await supabase.from("talents").select("id,status,supply_type").eq("id", id).maybeSingle();
+  if (error || !supply || supply.status === "inactive") notFound();
+
+  if (supply.supply_type === "professional" || supply.supply_type === "production_partner") {
+    return <SupplyOnboardingForm supplyId={id} token={token} supplyType={supply.supply_type} />;
+  }
+
   return <><TalentOnboardingForm talentId={id} token={token} /><TalentRiderCompletion talentId={id} token={token} /></>;
 }

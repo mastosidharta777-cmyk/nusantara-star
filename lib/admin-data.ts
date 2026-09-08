@@ -1,9 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 
-type TalentRow = {
+import type { SupplyType } from "@/lib/supply-onboarding";
+
+type SupplyRow = {
   id: string;
   name: string;
   category: string;
+  supply_type: SupplyType;
+  onboarding_status: string;
   base_city: string | null;
   budget_min: number | null;
   budget_max: number | null;
@@ -26,9 +30,14 @@ type BriefRow = {
   created_at: string;
 };
 
-export type AdminTalent = TalentRow & {
+export type AdminTalent = SupplyRow & {
+  supply_type: "talent";
   freshness: "fresh" | "needs_confirmation" | "stale" | "never_updated";
   daysSinceCalendarUpdate: number | null;
+};
+
+export type AdminSupplyIntake = SupplyRow & {
+  supply_type: "professional" | "production_partner";
 };
 
 export type AdminBrief = BriefRow & {
@@ -64,11 +73,11 @@ function getFreshness(lastUpdated: string | null) {
 export async function loadAdminDashboardData() {
   const supabase = getServerClient();
 
-  const [{ data: talents, error: talentError }, { data: briefs, error: briefError }] = await Promise.all([
+  const [{ data: supplyRows, error: supplyError }, { data: briefs, error: briefError }] = await Promise.all([
     supabase
       .from("talents")
-      .select("id,name,category,base_city,budget_min,budget_max,status,public_visible,last_calendar_updated_at")
-      .order("name"),
+      .select("id,name,category,supply_type,onboarding_status,base_city,budget_min,budget_max,status,public_visible,last_calendar_updated_at")
+      .order("created_at", { ascending: false }),
     supabase
       .from("briefs")
       .select("id,event_type,event_date,city,talent_category,budget_min,budget_max,request_mode,requested_talent_id,status,created_at")
@@ -76,14 +85,16 @@ export async function loadAdminDashboardData() {
       .limit(20),
   ]);
 
-  if (talentError || briefError) {
-    throw new Error(talentError?.message ?? briefError?.message ?? "Failed to load admin data");
+  if (supplyError || briefError) {
+    throw new Error(supplyError?.message ?? briefError?.message ?? "Failed to load admin data");
   }
 
-  const adminTalents: AdminTalent[] = ((talents ?? []) as TalentRow[]).map((talent) => ({
-    ...talent,
-    ...getFreshness(talent.last_calendar_updated_at),
-  }));
+  const rows = (supplyRows ?? []) as SupplyRow[];
+  const adminTalents: AdminTalent[] = rows
+    .filter((row): row is SupplyRow & { supply_type: "talent" } => row.supply_type === "talent")
+    .map((talent) => ({ ...talent, ...getFreshness(talent.last_calendar_updated_at) }));
+  const supplyIntake = rows.filter((row): row is AdminSupplyIntake => row.supply_type === "professional" || row.supply_type === "production_partner");
+
   const talentNameMap = new Map(adminTalents.map((talent) => [talent.id, talent.name]));
   const briefRows: AdminBrief[] = ((briefs ?? []) as BriefRow[]).map((brief) => ({
     ...brief,
@@ -92,6 +103,7 @@ export async function loadAdminDashboardData() {
 
   return {
     talents: adminTalents,
+    supplyIntake,
     briefs: briefRows,
     kpis: {
       totalTalents: adminTalents.length,

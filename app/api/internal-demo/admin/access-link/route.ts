@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { commercialIntegrityReady } from "@/lib/commercial-integrity";
 import { signAccessToken, type SignedAccessScope } from "@/lib/signed-access";
+import { categoryAllowedForSupply, isSupplyType } from "@/lib/supply-onboarding";
 
 export const runtime = "nodejs";
 
@@ -32,11 +33,17 @@ export async function POST(request: Request) {
     let expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     if (createNewTalent) {
+      const supplyType = isSupplyType(body?.supplyType) ? body.supplyType : null;
+      const category = typeof body?.category === "string" ? body.category.trim() : "";
+      if (!supplyType || !categoryAllowedForSupply(supplyType, category)) {
+        return NextResponse.json({ error: "Pilih jenis supply dan kategori yang valid" }, { status: 400 });
+      }
       subjectId = randomUUID();
       const { error } = await supabase.from("talents").insert({
         id: subjectId,
         name: "",
-        category: "",
+        category,
+        supply_type: supplyType,
         status: "draft",
         onboarding_status: "not_started",
         public_visible: false,
@@ -84,9 +91,9 @@ export async function POST(request: Request) {
       if (!row) return NextResponse.json({ error: "Availability request not found" }, { status: 404 });
       path = `/talent-confirmation/${encodeURIComponent(subjectId)}`;
     } else {
-      const { data: talent, error } = await supabase.from("talents").select("id,status").eq("id", subjectId).maybeSingle();
+      const { data: talent, error } = await supabase.from("talents").select("id,status,supply_type").eq("id", subjectId).maybeSingle();
       if (error) throw new Error(error.message);
-      if (!talent || talent.status === "inactive") return NextResponse.json({ error: "Talent is not available for onboarding" }, { status: 404 });
+      if (!talent || talent.status === "inactive") return NextResponse.json({ error: "Profil tidak tersedia untuk onboarding" }, { status: 404 });
       expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       path = `/talent-onboarding/${encodeURIComponent(subjectId)}`;
     }
