@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 
-import { BuyerSelectTalent } from "@/components/buyer-select-talent";
-import { isLocale } from "@/lib/i18n";
+import { BuyerPrioritySelector } from "@/components/buyer-priority-selector";
+import { loadBuyerPriorityState } from "@/lib/buyer-priority";
 import { loadBuyerProposal, markBuyerProposalViewed } from "@/lib/buyer-proposal";
+import { isLocale } from "@/lib/i18n";
 import { verifyAccessToken } from "@/lib/signed-access";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +37,8 @@ export default async function ProposalPage({ params, searchParams }: { params: P
   const isId = locale === "id";
   const { brief, proposal, talents, selectedTalentId } = data;
   if (proposal?.status === "sent") await markBuyerProposalViewed(proposal.id);
+  const priorityState = await loadBuyerPriorityState(brief.id);
+  const priorityByTalent = new Map(priorityState.preferences.map((item) => [item.talent_id, item.priority_rank]));
 
   return (
     <div className="bg-[#f5f3ee] text-[#171713]">
@@ -55,38 +58,53 @@ export default async function ProposalPage({ params, searchParams }: { params: P
         {!proposal || proposal.status === "expired" || proposal.status === "revision_requested" || talents.length === 0 ? (
           <div className="border border-black/10 bg-white p-8 text-sm text-black/55">{proposal?.status === "expired" ? isId ? "Proposal ini sudah kedaluwarsa dan perlu dikonfirmasi ulang." : "This proposal has expired and requires reconfirmation." : proposal?.status === "revision_requested" ? isId ? "Revisi proposal sedang diproses oleh tim Nusantara Star." : "A proposal revision is being prepared by Nusantara Star." : isId ? "Belum ada proposal yang siap dikirim." : "No proposal is ready yet."}</div>
         ) : (
-          <div className="grid gap-5 md:grid-cols-2">
-            {talents.map((talent) => {
-              const whyFit = talent.why_fit?.[locale] ?? [];
-              return (
-                <article key={talent.id} className="overflow-hidden border border-black/10 bg-white">
-                  {talent.profile_image_url ? <div className="aspect-[16/9] overflow-hidden bg-black/5">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={talent.profile_image_url} alt={talent.name} className="h-full w-full object-cover" /></div> : null}
-                  <div className="p-5 md:p-6">
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{categoryLabel(talent.category, locale)} · {talent.base_city ?? "Indonesia"}</p>
-                    <h2 className="mt-2 text-3xl font-semibold tracking-[-0.03em]">{talent.name}</h2>
-                    {talent.genres?.length ? <p className="mt-2 text-sm text-black/55">{talent.genres.join(" · ")}</p> : null}
-                    <p className="mt-5 text-sm leading-6 text-black/60">{talent.bio || (isId ? "Profil lengkap tersedia melalui tim Nusantara Star." : "Full profile available through Nusantara Star.")}</p>
+          <>
+            <div className="grid gap-5 md:grid-cols-2">
+              {talents.map((talent) => {
+                const whyFit = talent.why_fit?.[locale] ?? [];
+                const priorityRank = priorityByTalent.get(talent.id);
+                return (
+                  <article key={talent.id} className="overflow-hidden border border-black/10 bg-white">
+                    {talent.profile_image_url ? <div className="aspect-[16/9] overflow-hidden bg-black/5">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={talent.profile_image_url} alt={talent.name} className="h-full w-full object-cover" /></div> : null}
+                    <div className="p-5 md:p-6">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{categoryLabel(talent.category, locale)} · {talent.base_city ?? "Indonesia"}</p>
+                        {priorityRank ? <span className="border border-black/15 px-2 py-1 text-xs font-semibold">{isId ? `Pilihan #${priorityRank}` : `Priority #${priorityRank}`}</span> : null}
+                      </div>
+                      <h2 className="mt-2 text-3xl font-semibold tracking-[-0.03em]">{talent.name}</h2>
+                      {talent.genres?.length ? <p className="mt-2 text-sm text-black/55">{talent.genres.join(" · ")}</p> : null}
+                      <p className="mt-5 text-sm leading-6 text-black/60">{talent.bio || (isId ? "Profil lengkap tersedia melalui tim Nusantara Star." : "Full profile available through Nusantara Star.")}</p>
 
-                    {whyFit.length ? <div className="mt-5 border-t border-black/10 pt-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Mengapa cocok" : "Why it fits"}</p><ul className="mt-2 space-y-1 text-sm text-black/60">{whyFit.map((reason: string) => <li key={reason}>• {reason}</li>)}</ul></div> : null}
-                    {talent.media?.length ? <div className="mt-5 border-t border-black/10 pt-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Showreel</p><div className="mt-3 grid gap-3">{talent.media.map((asset: { id: string; provider: string; title: string | null; description: string | null; url: string }) => <div key={asset.id}>{asset.provider === "youtube_unlisted" ? <div className="aspect-video w-full overflow-hidden bg-black"><iframe src={asset.url} title={asset.title || "Showreel YouTube"} loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen className="h-full w-full" /></div> : <video controls preload="metadata" className="w-full bg-black" src={asset.url} />}{asset.title ? <p className="mt-2 text-sm font-semibold">{asset.title}</p> : null}{asset.description ? <p className="mt-1 text-xs text-black/50">{asset.description}</p> : null}</div>)}</div></div> : null}
+                      {whyFit.length ? <div className="mt-5 border-t border-black/10 pt-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Mengapa cocok" : "Why it fits"}</p><ul className="mt-2 space-y-1 text-sm text-black/60">{whyFit.map((reason: string) => <li key={reason}>• {reason}</li>)}</ul></div> : null}
+                      {talent.media?.length ? <div className="mt-5 border-t border-black/10 pt-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Showreel</p><div className="mt-3 grid gap-3">{talent.media.map((asset: { id: string; provider: string; title: string | null; description: string | null; url: string }) => <div key={asset.id}>{asset.provider === "youtube_unlisted" ? <div className="aspect-video w-full overflow-hidden bg-black"><iframe src={asset.url} title={asset.title || "Showreel YouTube"} loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen className="h-full w-full" /></div> : <video controls preload="metadata" className="w-full bg-black" src={asset.url} />}{asset.title ? <p className="mt-2 text-sm font-semibold">{asset.title}</p> : null}{asset.description ? <p className="mt-1 text-xs text-black/50">{asset.description}</p> : null}</div>)}</div></div> : null}
 
-                    <div className="mt-5 grid gap-3 border-t border-black/10 pt-4">
-                      <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Ketersediaan" : "Availability"}</p><p className="mt-2 text-sm font-semibold">{talent.availability_status === "confirmed" ? isId ? "Terkonfirmasi" : "Confirmed" : talent.availability_status}</p></div>
-                      <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Harga untuk acara ini" : "Event Price"}</p><p className="mt-2 text-xl font-semibold">{money(talent.buyer_price, locale)}</p></div>
-                      {talent.included_costs ? <p className="text-sm"><span className="text-black/45">{isId ? "Termasuk:" : "Included:"}</span><br />{talent.included_costs}</p> : null}
-                      {talent.excluded_costs ? <p className="text-sm"><span className="text-black/45">{isId ? "Tidak termasuk:" : "Excluded:"}</span><br />{talent.excluded_costs}</p> : null}
-                      {talent.payment_terms ? <p className="text-sm"><span className="text-black/45">{isId ? "Ketentuan pembayaran ke klien:" : "Buyer payment terms:"}</span><br />{talent.payment_terms}</p> : null}
-                      {talent.rider_exceptions ? <p className="text-sm"><span className="text-black/45">{isId ? "Catatan rider:" : "Rider notes:"}</span><br />{talent.rider_exceptions}</p> : null}
-                      {talent.offer_valid_until ? <p className="text-xs text-black/45">{isId ? "Penawaran berlaku sampai" : "Offer valid until"}: {new Date(talent.offer_valid_until).toLocaleString(isId ? "id-ID" : "en-US")}</p> : null}
+                      <div className="mt-5 grid gap-3 border-t border-black/10 pt-4">
+                        <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Ketersediaan" : "Availability"}</p><p className="mt-2 text-sm font-semibold">{talent.availability_status === "confirmed" ? isId ? "Terkonfirmasi" : "Confirmed" : talent.availability_status}</p></div>
+                        <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Harga untuk acara ini" : "Event Price"}</p><p className="mt-2 text-xl font-semibold">{money(talent.buyer_price, locale)}</p></div>
+                        {talent.included_costs ? <p className="text-sm"><span className="text-black/45">{isId ? "Termasuk:" : "Included:"}</span><br />{talent.included_costs}</p> : null}
+                        {talent.excluded_costs ? <p className="text-sm"><span className="text-black/45">{isId ? "Tidak termasuk:" : "Excluded:"}</span><br />{talent.excluded_costs}</p> : null}
+                        {talent.payment_terms ? <p className="text-sm"><span className="text-black/45">{isId ? "Ketentuan pembayaran ke klien:" : "Buyer payment terms:"}</span><br />{talent.payment_terms}</p> : null}
+                        {talent.rider_exceptions ? <p className="text-sm"><span className="text-black/45">{isId ? "Catatan rider:" : "Rider notes:"}</span><br />{talent.rider_exceptions}</p> : null}
+                        {talent.offer_valid_until ? <p className="text-xs text-black/45">{isId ? "Penawaran berlaku sampai" : "Offer valid until"}: {new Date(talent.offer_valid_until).toLocaleString(isId ? "id-ID" : "en-US")}</p> : null}
+                      </div>
                     </div>
-                    <BuyerSelectTalent briefId={brief.id} talentId={talent.id} proposalItemId={talent.proposalItemId} locale={locale} selected={selectedTalentId === talent.id} accessToken={token} />
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            <BuyerPrioritySelector
+              briefId={brief.id}
+              proposalId={proposal.id}
+              locale={locale}
+              options={talents.map((talent) => ({ talentId: talent.id, proposalItemId: talent.proposalItemId, name: talent.name }))}
+              preferences={priorityState.preferences}
+              locked={priorityState.locked}
+              accessToken={token}
+            />
+          </>
         )}
-        <div className="mt-8 border border-black/10 bg-white p-5 text-sm leading-6 text-black/55 md:p-6">{selectedTalentId ? isId ? "Talent sudah dipilih. Tim Nusantara Star akan melanjutkan finalisasi kesepakatan dan booking." : "Talent selected. Nusantara Star will continue to deal finalization and booking." : isId ? "Pemilihan talent belum berarti booking final. Booking baru terjamin setelah ketentuan dan jaminan pembayaran terpenuhi." : "Talent selection is not final booking. Booking is secured only after terms and financial conditions are satisfied."}</div>
+        <div className="mt-8 border border-black/10 bg-white p-5 text-sm leading-6 text-black/55 md:p-6">{selectedTalentId ? isId ? "Pilihan #1 sudah dicatat untuk dilanjutkan. Pilihan lain tetap fallback dan tidak membuat booking paralel. Booking baru terjamin setelah ketentuan dan jaminan pembayaran terpenuhi." : "Priority #1 is recorded to proceed. Other choices remain fallbacks and do not create parallel bookings. Booking is secured only after terms and financial conditions are satisfied." : isId ? "Urutan pilihan belum berarti booking final. Booking baru terjamin setelah ketentuan dan jaminan pembayaran terpenuhi." : "Your priority order is not final booking. Booking is secured only after terms and financial conditions are satisfied."}</div>
       </section>
     </div>
   );
