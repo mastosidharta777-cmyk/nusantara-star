@@ -22,6 +22,7 @@ export default async function AdminTalentDetailPage({ params }: { params: Promis
   if (!detail) notFound();
   const { talent, paymentPolicies } = detail;
   const isTalent = talent.supply_type === "talent";
+  const nonTalentSupplyType = talent.supply_type === "professional" || talent.supply_type === "production_partner" ? talent.supply_type : null;
   const supplyLabel = supplyTypeLabel(talent.supply_type);
 
   return <main className="min-h-screen bg-[#f5f3ee] text-[#171713]"><div className="mx-auto max-w-[1080px] px-5 py-8 md:px-10 md:py-10">
@@ -40,15 +41,15 @@ export default async function AdminTalentDetailPage({ params }: { params: Promis
         <p className="mt-3 text-xs text-black/45">Dipakai untuk menyimpan termin pembayaran default talent. Bukan bagian review media dan tidak ditampilkan langsung sebagai kontak buyer.</p>
         <div className="mt-5"><AdminTalentCommercialProfile talentId={talent.id} policies={paymentPolicies} /></div>
       </details>
-    </> : <>
+    </> : nonTalentSupplyType ? <>
       <section className="grid gap-3 py-7 sm:grid-cols-3">
         <article className="border border-black/10 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Jenis Supply</p><p className="mt-3 text-sm font-semibold">{supplyLabel}</p></article>
         <article className="border border-black/10 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Onboarding</p><p className="mt-3 text-sm font-semibold">{talent.onboarding_status}</p></article>
         <article className="border border-black/10 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Publik</p><p className="mt-3 text-sm font-semibold">{talent.public_visible ? "Aktif" : "Tidak aktif"}</p></article>
       </section>
       <p className="border border-black/10 bg-white p-4 text-sm text-black/55">Profil {supplyLabel} terpisah dari matching dan katalog Talent. Persetujuan onboarding hanya memverifikasi database internal; publikasi membutuhkan aktivasi terpisah.</p>
-      <AdminSupplyOnboardingLink supplyId={talent.id} supplyType={talent.supply_type} />
+      <AdminSupplyOnboardingLink supplyId={talent.id} supplyType={nonTalentSupplyType} />
       <AdminSupplyOnboardingReview supplyId={talent.id} />
-    </>}
+    </> : null}
   </div></main>;
 }
