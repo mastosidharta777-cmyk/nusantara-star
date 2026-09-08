@@ -89,6 +89,9 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
   if (STATEFUL_QA_PATHS.has(path)) {
+    if (process.env.VERCEL_ENV === "production") {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     if (!statefulQaIsSafe()) {
       return NextResponse.json({
         error: "Stateful QA is disabled until Preview uses an explicitly approved QA Supabase project.",
