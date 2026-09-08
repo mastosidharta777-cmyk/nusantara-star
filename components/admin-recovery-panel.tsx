@@ -37,14 +37,12 @@ export function AdminRecoveryPanel({
   incidents,
   recoveryCase,
   currentBriefId,
-  dealLocked = false,
 }: {
   bookingId: string;
   bookingStatus: string;
   incidents: Incident[];
   recoveryCase: RecoveryCase | null;
   currentBriefId: string;
-  dealLocked?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -123,10 +121,10 @@ export function AdminRecoveryPanel({
         </div>
       ) : null}
 
-      {recoveryCase && isRecoveryBrief && recoveryCase.status === "replacement_selected" && dealLocked ? (
+      {recoveryCase && isRecoveryBrief && recoveryCase.status === "replacement_selected" ? (
         <div className="mt-5 border-t border-black/10 pt-5">
           <p className="text-sm font-semibold">Gate rekonsiliasi sebelum booking pengganti diamankan</p>
-          <p className="mt-1 text-xs leading-5 text-black/45">Tandai hanya setelah dampak komersial booking lama dan deal pengganti sudah diperiksa. Sistem tidak menghitung atau menyetujui fakta finansial secara otomatis.</p>
+          <p className="mt-1 text-xs leading-5 text-black/45">Gunakan setelah Deal Review pengganti sudah dikunci. Database akan menolak jika deal belum locked. Sistem tidak menghitung atau menyetujui fakta finansial secara otomatis.</p>
           <div className="mt-3 grid gap-2 md:grid-cols-[220px_1fr_auto]">
             <select value={reconciliationStatus} onChange={(e) => setReconciliationStatus(e.target.value as "ready" | "not_required")} className="border border-black/15 p-2 text-sm">
               <option value="ready">Siap untuk dilanjutkan</option>
