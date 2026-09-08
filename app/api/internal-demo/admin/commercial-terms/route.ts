@@ -176,7 +176,9 @@ export async function POST(request: Request) {
     }, { onConflict: "brief_id" });
     if (upsertError) throw new Error(upsertError.message);
 
-    const proposedStatus = status === "agreed" ? "terms_agreed" : "buyer_selected";
+    // Agreeing the internal Deal Sheet does not mean the buyer has accepted Buyer Terms.
+    // `terms_agreed` is reserved for verified acceptance through the signed buyer link.
+    const proposedStatus = "buyer_selected";
     const nextStatus = forwardOnlyBriefStatus(brief.status, proposedStatus);
     if (nextStatus !== brief.status) {
       const { error: briefUpdateError } = await supabase.from("briefs").update({ status: nextStatus }).eq("id", briefId).eq("status", brief.status);

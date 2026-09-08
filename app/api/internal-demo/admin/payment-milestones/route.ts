@@ -39,9 +39,12 @@ export async function POST(request: Request) {
     if (dueBasis === "custom_date" && !customDueDate) return NextResponse.json({ error: "Custom due date is required" }, { status: 400 });
 
     const supabase = getServerClient();
-    const bookingResult = await supabase.from("bookings").select("id").eq("id", bookingId).maybeSingle();
+    const bookingResult = await supabase.from("bookings").select("id,deal_id,status").eq("id", bookingId).maybeSingle();
     if (bookingResult.error) throw new Error(bookingResult.error.message);
     if (!bookingResult.data) return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+    if (bookingResult.data.deal_id) {
+      return NextResponse.json({ error: "Jadwal pembayaran booking berasal dari locked Deal dan tidak dapat ditambah atau diubah setelah booking dibuat." }, { status: 409 });
+    }
 
     const { data, error } = await supabase.from("payment_milestones").insert({
       booking_id: bookingId,

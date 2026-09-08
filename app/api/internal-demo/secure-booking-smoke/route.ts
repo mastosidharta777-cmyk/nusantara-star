@@ -155,11 +155,45 @@ export async function GET() {
     if (!create.response.ok || create.json?.status !== "pending_security") throw new Error(`Pending security booking failed: ${JSON.stringify(create.json)}`);
     const bookingId = String(create.json.bookingId);
 
+    const { data: afterCreateBrief } = await supabase.from("briefs").select("status").eq("id", briefId).single();
+    const buyerSelectedStillBuyerSelected = afterCreateBrief?.status === "buyer_selected";
+
+    const prematurePayment = await post(paymentAction, { bookingId, action: "create_next_buyer_payment" });
+    const paymentBeforeTermsRejected = !prematurePayment.response.ok;
+
+    const directSecure = await supabase.from("bookings").update({
+      status: "secured",
+      financial_security_type: "approved_po_credit",
+      financial_security_status: "satisfied",
+      financial_security_reference: "ILLEGAL-SMOKE-PO",
+      secured_at: new Date().toISOString(),
+    }).eq("id", bookingId);
+    const directDbSecureRejected = Boolean(directSecure.error);
+
     const prematureSecure = await post(bookingAction, { briefId, action: "secure_booking" });
     if (prematureSecure.response.ok) throw new Error("Booking secured before buyer terms/security were satisfied");
 
     const accept = await supabase.rpc("ns_accept_buyer_terms_v1", { p_booking_id: bookingId });
     if (accept.error) throw new Error(`Buyer terms acceptance failed: ${accept.error.message}`);
+    const { data: afterAcceptBrief } = await supabase.from("briefs").select("status").eq("id", briefId).single();
+    const verifiedAcceptanceSetsTermsAgreed = afterAcceptBrief?.status === "terms_agreed";
+
+    const otherEvidence = `other:${Date.now()}`;
+    const { error: otherPaymentError } = await supabase.from("payments").insert({
+      booking_id: bookingId,
+      payment_type: "other",
+      amount: 10000000,
+      provider: "smoke-other-provider",
+      provider_reference: otherEvidence,
+      evidence_key: `smoke-other-provider:${otherEvidence}`,
+      status: "paid",
+      paid_at: new Date().toISOString(),
+      idempotency_key: `other-smoke:${bookingId}`,
+    });
+    if (otherPaymentError) throw new Error(`Other payment seed failed: ${otherPaymentError.message}`);
+
+    const otherOnlySecure = await post(bookingAction, { briefId, action: "secure_booking" });
+    const otherPaymentNotSecurity = !otherOnlySecure.response.ok;
 
     const paymentCreate = await post(paymentAction, { bookingId, action: "create_next_buyer_payment" });
     if (!paymentCreate.response.ok) throw new Error(`Initial payment creation failed: ${JSON.stringify(paymentCreate.json)}`);
@@ -172,28 +206,37 @@ export async function GET() {
     const secure = await post(bookingAction, { briefId, action: "secure_booking" });
     if (!secure.response.ok || secure.json?.bookingStatus !== "secured") throw new Error(`Secure booking failed: ${JSON.stringify(secure.json)}`);
 
-    const { data: finalBooking, error: finalError } = await supabase.from("bookings").select("status,buyer_terms_accepted_at,buyer_terms_accepted_deal_id,buyer_terms_acceptance_source,financial_security_type,financial_security_status,secured_at").eq("id", bookingId).single();
+    const [{ data: finalBooking, error: finalError }, { data: finalBrief }] = await Promise.all([
+      supabase.from("bookings").select("status,buyer_terms_accepted_at,buyer_terms_accepted_deal_id,buyer_terms_acceptance_source,financial_security_type,financial_security_status,secured_at").eq("id", bookingId).single(),
+      supabase.from("briefs").select("status").eq("id", briefId).single(),
+    ]);
     if (finalError || !finalBooking) throw new Error(finalError?.message ?? "Final booking read failed");
 
+    const checks = {
+      buyerSelectedStillBuyerSelected,
+      paymentBeforeTermsRejected,
+      directDbSecureRejected,
+      buyerTermsRequired: !prematureSecure.response.ok,
+      verifiedAcceptanceSetsTermsAgreed,
+      buyerTermsEvidenceBoundToDeal: finalBooking.buyer_terms_accepted_deal_id === deal.id && finalBooking.buyer_terms_acceptance_source === "signed_buyer_link",
+      otherPaymentNotSecurity,
+      noUniversalFiftyPercent: Number(payment.amount) === 3000000,
+      milestoneDrivenPayment: paymentCreate.json?.source === "booking_payment_milestone",
+      paymentEvidenceRequired: paid.response.ok,
+      financialSecuritySatisfied: finalBooking.financial_security_status === "satisfied",
+      secureBookingGate: finalBooking.status === "secured" && finalBrief?.status === "booked" && Boolean(finalBooking.buyer_terms_accepted_at) && Boolean(finalBooking.secured_at),
+    };
+
     return NextResponse.json({
-      ok: true,
-      checks: {
-        buyerSelectedIsNotBooked: create.json.status === "pending_security",
-        buyerTermsRequired: !prematureSecure.response.ok,
-        buyerTermsEvidenceBoundToDeal: finalBooking.buyer_terms_accepted_deal_id === deal.id && finalBooking.buyer_terms_acceptance_source === "signed_buyer_link",
-        noUniversalFiftyPercent: Number(payment.amount) === 3000000,
-        milestoneDrivenPayment: paymentCreate.json?.source === "booking_payment_milestone",
-        paymentEvidenceRequired: paid.response.ok,
-        financialSecuritySatisfied: finalBooking.financial_security_status === "satisfied",
-        secureBookingGate: finalBooking.status === "secured" && Boolean(finalBooking.buyer_terms_accepted_at) && Boolean(finalBooking.secured_at),
-      },
+      ok: Object.values(checks).every(Boolean),
+      checks,
       booking: finalBooking,
       cleanup: "automatic",
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     console.error("Secure booking smoke failed", detail);
-    return NextResponse.json({ ok: false, error: "Secure booking smoke failed", detail }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Secure booking smoke failed", detail, cleanup: "automatic" }, { status: 500 });
   } finally {
     if (briefId) await supabase.from("briefs").delete().eq("id", briefId);
     if (talentId) await supabase.from("talents").delete().eq("id", talentId);
