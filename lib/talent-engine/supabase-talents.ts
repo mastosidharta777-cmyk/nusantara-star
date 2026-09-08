@@ -6,6 +6,7 @@ type TalentRow = {
   id: string;
   name: string;
   category: string;
+  supply_type: string;
   act_type: string | null;
   willing_to_perform_covers: boolean | null;
   accepts_song_requests: boolean | null;
@@ -57,7 +58,8 @@ function isOperationalTalent(row: TalentRow) {
   const baseCity = row.base_city?.trim() ?? "";
   const budgetMin = Number(row.budget_min ?? 0);
   const budgetMax = Number(row.budget_max ?? 0);
-  return !row.name.toUpperCase().startsWith("SECURE-SMOKE-")
+  return row.supply_type === "talent"
+    && !row.name.toUpperCase().startsWith("SECURE-SMOKE-")
     && row.status === "verified"
     && row.onboarding_status === "approved"
     && row.public_visible === true
@@ -66,12 +68,13 @@ function isOperationalTalent(row: TalentRow) {
     && budgetMax >= budgetMin;
 }
 
-const talentColumns = "id,name,category,act_type,willing_to_perform_covers,accepts_song_requests,gender,genres,music_styles,vibe_tags,capability_tags,base_city,service_cities,performance_formats,event_types,audience_tags,budget_min,budget_max,reliability_score,last_calendar_updated_at,status,onboarding_status,public_visible";
+const talentColumns = "id,name,category,supply_type,act_type,willing_to_perform_covers,accepts_song_requests,gender,genres,music_styles,vibe_tags,capability_tags,base_city,service_cities,performance_formats,event_types,audience_tags,budget_min,budget_max,reliability_score,last_calendar_updated_at,status,onboarding_status,public_visible";
 
 async function loadTalentRows(supabase: NonNullable<ReturnType<typeof getServerClient>>) {
   const rich = await supabase
     .from("talents")
     .select(`${talentColumns},booking_limitations`)
+    .eq("supply_type", "talent")
     .eq("status", "verified")
     .eq("onboarding_status", "approved")
     .eq("public_visible", true);
@@ -81,6 +84,7 @@ async function loadTalentRows(supabase: NonNullable<ReturnType<typeof getServerC
   return supabase
     .from("talents")
     .select(talentColumns)
+    .eq("supply_type", "talent")
     .eq("status", "verified")
     .eq("onboarding_status", "approved")
     .eq("public_visible", true);

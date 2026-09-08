@@ -29,6 +29,18 @@ Needs a fast inquiry flow: event details, availability, event-specific fee, paym
 ### Nusantara Star Admin
 Admin makes decisions and handles exceptions. Admin must not become a database operator.
 
+### Supply architecture foundation
+Nusantara Star may eventually manage three internal supply types:
+- `talent` — performing talent currently served by the V1 matching, Talent Offer, proposal, deal, and booking flow;
+- `professional` — music and production professionals that will require project/deliverable workflows before activation;
+- `production_partner` — verified production partners that will require supplier/production workflows before activation.
+
+The existing `public.talents` table remains the canonical legacy supply table because transaction and workflow tables depend on its IDs. Supply expansion must be additive and backward-compatible; do not rename or drop this table merely to support additional supply types.
+
+Current V1 matching, public Talent discovery, Talent Offer, proposal, deal, and booking flows are **talent-only**. A `professional` or `production_partner` record must not enter these flows until its dedicated workflow exists.
+
+A public supply category/type may be shown only when at least one **real** profile of that type/category is admin-verified, active, and public/bookable. Demo/illustration records must never create or inflate public category availability/counts.
+
 ## 3. Golden flow
 
 ```text
