@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AdminBookingActions } from "@/components/admin-booking-actions";
+import { AdminBuyerPriorityFallback } from "@/components/admin-buyer-priority-fallback";
 import { AdminDealReview } from "@/components/admin-deal-review";
 import { AdminDealSheetForm } from "@/components/admin-deal-sheet-form";
 import { AdminDirectInquiryPanel } from "@/components/admin-direct-inquiry-panel";
@@ -12,6 +13,7 @@ import { AdminPaymentMilestones } from "@/components/admin-payment-milestones";
 import { AdminProposalActions } from "@/components/admin-proposal-actions";
 import { AdminRecoveryPanel } from "@/components/admin-recovery-panel";
 import { loadAdminBriefDetail } from "@/lib/admin-brief-detail";
+import { loadBuyerPriorityState } from "@/lib/buyer-priority";
 import { loadDealReviewData } from "@/lib/deal-review-data";
 import { loadOperationsData } from "@/lib/operations-data";
 import { loadRecoveryCaseForBooking, loadRecoveryCaseForBrief } from "@/lib/recovery-data";
@@ -59,7 +61,10 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
   if (buyerContactError) throw new Error(`Buyer contact load failed: ${buyerContactError.message}`);
 
   const { row, matches, selectedTalent, talentPolicyTemplates, commercialTerms, booking, payments, paymentMilestones } = detail;
-  const deal = selectedTalent ? await loadDealReviewData(row.id) : null;
+  const [deal, buyerPriority] = await Promise.all([
+    selectedTalent ? loadDealReviewData(row.id) : Promise.resolve(null),
+    loadBuyerPriorityState(row.id),
+  ]);
   const dealLocked = deal?.status === "locked";
   const operations = await loadOperationsData(booking?.id ?? null);
   const [bookingRecoveryCase, recoveryBriefCase] = await Promise.all([
@@ -137,6 +142,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
         </section> : null}
 
         {!selectedTalent && ["shortlisted", "proposal_sent"].includes(row.status) ? <AdminProposalActions briefId={row.id} status={row.status} /> : null}
+        {buyerPriority.preferences.length > 0 ? <AdminBuyerPriorityFallback briefId={row.id} preferences={buyerPriority.preferences} locked={buyerPriority.locked} /> : null}
         {selectedTalent ? <AdminDealReview briefId={row.id} deal={deal} /> : null}
 
         {selectedTalent && ["proposal_sent", "buyer_selected", "terms_agreed", "booked"].includes(row.status) ? (

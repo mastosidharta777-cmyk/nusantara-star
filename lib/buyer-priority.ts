@@ -5,6 +5,7 @@ export type BuyerPreferenceRow = {
   proposal_id: string;
   proposal_item_id: string;
   talent_id: string;
+  talent_name: string | null;
   priority_rank: number;
   status: "ranked" | "active_priority" | "fallback" | "withdrawn" | "superseded" | "secured";
 };
@@ -39,8 +40,21 @@ export async function loadBuyerPriorityState(briefId: string) {
     throw new Error(preferenceResult.error.message);
   }
 
+  const preferenceRows = preferenceResult.data ?? [];
+  const talentIds = [...new Set(preferenceRows.map((row) => row.talent_id).filter(Boolean))];
+  const names = new Map<string, string>();
+
+  if (talentIds.length) {
+    const { data: talents, error: talentError } = await supabase.from("talents").select("id,name").in("id", talentIds);
+    if (talentError) throw new Error(talentError.message);
+    for (const talent of talents ?? []) names.set(talent.id, talent.name);
+  }
+
   return {
-    preferences: (preferenceResult.data ?? []) as BuyerPreferenceRow[],
+    preferences: preferenceRows.map((row) => ({
+      ...row,
+      talent_name: names.get(row.talent_id) ?? null,
+    })) as BuyerPreferenceRow[],
     locked: Boolean(dealResult.data || bookingResult.data),
   };
 }
