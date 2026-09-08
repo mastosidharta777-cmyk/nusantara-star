@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { supplyTypeLabel, type SupplyType } from "@/lib/supply-onboarding";
+import { supplyDetailFields, supplyTypeLabel, type SupplyType } from "@/lib/supply-onboarding";
 
 type ReviewData = {
   supply: {
@@ -30,6 +30,11 @@ function redirectToAdminLogin() {
 }
 function list(value: unknown) {
   return Array.isArray(value) && value.length ? value.join(", ") : "—";
+}
+function detailValue(value: unknown, key: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "—";
+  const raw = (value as Record<string, unknown>)[key];
+  return typeof raw === "string" && raw.trim() ? raw : "—";
 }
 
 export function AdminSupplyOnboardingReview({ supplyId }: { supplyId: string }) {
@@ -85,13 +90,14 @@ export function AdminSupplyOnboardingReview({ supplyId }: { supplyId: string }) 
   const submitted = data?.submission?.status === "submitted";
   const approved = data?.supply.onboarding_status === "approved";
   const label = supplyTypeLabel(data?.supply.supply_type);
+  const detailFields = data?.supply && data?.submission?.category ? supplyDetailFields(data.supply.supply_type, data.submission.category) : [];
 
   return (
     <section className="mt-5 border border-black/10 bg-white p-5 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Review {label}</p>
-          <p className="mt-2 text-sm text-black/55">Verifikasi profil operasional dan portofolio sebelum status internal disetujui.</p>
+          <p className="mt-2 text-sm text-black/55">Verifikasi profil operasional, detail kategori, dan portofolio sebelum status internal disetujui.</p>
         </div>
         <span className="border border-black/10 px-3 py-2 text-xs font-semibold uppercase">{statusLabel(data?.supply.onboarding_status)}</span>
       </div>
@@ -105,6 +111,9 @@ export function AdminSupplyOnboardingReview({ supplyId }: { supplyId: string }) 
           <div><b>Layanan / format</b><p>{list(data.submission.performance_formats)}</p></div>
           <div><b>Kapabilitas</b><p>{list(data.submission.capability_tags)}</p></div>
           <div className="md:col-span-2"><b>Jenis proyek / acara</b><p>{list(data.submission.event_types)}</p></div>
+
+          {detailFields.length ? <div className="md:col-span-2 border-y border-black/10 py-4"><p className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Detail {data.submission.category}</p><div className="grid gap-4 md:grid-cols-2">{detailFields.map((item) => <div key={item.key} className={item.kind === "textarea" ? "md:col-span-2" : ""}><b>{item.label}</b><p className="mt-1 whitespace-pre-wrap text-black/60">{detailValue(data.submission.supply_details, item.key)}</p></div>)}</div></div> : null}
+
           <div className="md:col-span-2"><b>Profil singkat</b><p className="mt-1 whitespace-pre-wrap text-black/60">{data.submission.bio || "—"}</p></div>
           <div><b>PIC utama</b><p>{data.submission.manager_name || "—"}</p></div>
           <div><b>Kontak PIC</b><p>{data.submission.manager_whatsapp || data.submission.manager_email || "—"}</p></div>
