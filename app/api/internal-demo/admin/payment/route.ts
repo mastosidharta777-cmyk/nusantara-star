@@ -6,6 +6,8 @@ import { resolveMilestoneAmounts, type BuyerMilestone } from "@/lib/secure-booki
 
 export const runtime = "nodejs";
 
+const BUYER_PAYMENT_TYPES = ["buyer_deposit", "buyer_balance", "buyer_full_payment"];
+
 type ActivePaymentRow = {
   id: string;
   payment_type: string | null;
@@ -32,11 +34,27 @@ export async function POST(request: Request) {
     if (!bookingId || !["create_next_buyer_payment", "mark_paid"].includes(action)) return NextResponse.json({ error: "Invalid payment action" }, { status: 400 });
 
     const supabase = getServerClient();
-    const { data: booking, error: bookingError } = await supabase.from("bookings").select("id,status,buyer_price").eq("id", bookingId).single();
+    const { data: booking, error: bookingError } = await supabase
+      .from("bookings")
+      .select("id,deal_id,status,buyer_price,buyer_terms_accepted_at,buyer_terms_accepted_deal_id,buyer_terms_acceptance_source")
+      .eq("id", bookingId)
+      .single();
     if (bookingError || !booking) return NextResponse.json({ error: "Booking not found" }, { status: 404 });
     if (!["pending_security", "secured", "pre_show"].includes(booking.status)) return NextResponse.json({ error: "Booking is not active for buyer payments" }, { status: 409 });
     const buyerPrice = Number(booking.buyer_price ?? 0);
     if (buyerPrice <= 0) return NextResponse.json({ error: "Booking buyer price is invalid" }, { status: 409 });
+    if (!booking.deal_id) return NextResponse.json({ error: "Booking has no locked deal" }, { status: 409 });
+
+    const { data: deal, error: dealError } = await supabase.from("deals").select("id,status,buyer_terms_status").eq("id", booking.deal_id).single();
+    if (dealError || !deal || deal.status !== "locked") return NextResponse.json({ error: "Locked deal not found" }, { status: 409 });
+    const buyerTermsAccepted = Boolean(
+      booking.buyer_terms_accepted_at
+      && booking.buyer_terms_accepted_deal_id === booking.deal_id
+      && booking.buyer_terms_acceptance_source === "signed_buyer_link"
+      && deal.buyer_terms_status === "accepted",
+    );
+    if (!buyerTermsAccepted) return NextResponse.json({ error: "Buyer terms must be accepted before buyer payment security starts" }, { status: 409 });
+
     const integrityReady = await commercialIntegrityReady(supabase);
 
     if (action === "create_next_buyer_payment") {
@@ -55,6 +73,7 @@ export async function POST(request: Request) {
           .from("payments")
           .select("id,payment_type,amount,status,idempotency_key,provider,provider_reference,evidence_key")
           .eq("booking_id", bookingId)
+          .in("payment_type", BUYER_PAYMENT_TYPES)
           .in("status", ["pending", "paid"])
           .order("created_at");
         if (error) throw new Error(error.message);
@@ -64,6 +83,7 @@ export async function POST(request: Request) {
           .from("payments")
           .select("id,payment_type,amount,status,idempotency_key")
           .eq("booking_id", bookingId)
+          .in("payment_type", BUYER_PAYMENT_TYPES)
           .in("status", ["pending", "paid"])
           .order("created_at");
         if (error) throw new Error(error.message);
