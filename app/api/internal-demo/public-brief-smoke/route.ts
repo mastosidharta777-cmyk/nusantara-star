@@ -88,7 +88,15 @@ export async function GET() {
     });
 
     const response = await submitPublicBrief(request);
-    const payload = (await response.json().catch(() => null)) as { ok?: boolean; received?: boolean; briefId?: string; error?: string } | null;
+    const payload = (await response.json().catch(() => null)) as {
+      ok?: boolean;
+      received?: boolean;
+      briefId?: string;
+      requestMode?: string;
+      nextStep?: string;
+      recommendations?: unknown;
+      error?: string;
+    } | null;
     if (!response.ok || !payload?.briefId) {
       return NextResponse.json({ ok: false, step: "submission", status: response.status, error: payload?.error ?? "missing brief id" }, { status: 500 });
     }
@@ -114,6 +122,9 @@ export async function GET() {
     const qaMatch = matches.find((item) => item.talent_id === talentId);
     const checks = {
       submissionAccepted: payload.ok === true && payload.received === true,
+      discoveryMode: payload.requestMode === "discovery",
+      curationHandoff: payload.nextStep === "admin_curation",
+      publicRecommendationsWithheld: !("recommendations" in payload),
       contactPersisted:
         row?.buyer_name === marker &&
         row?.buyer_company === "Nusantara Star QA" &&
@@ -121,11 +132,11 @@ export async function GET() {
         row?.buyer_email === email,
       sourceTextExcludesContact: Boolean(row?.source_text) && !String(row.source_text).includes(marker) && !String(row.source_text).includes(email),
       briefStartsNew: row?.status === "new",
-      qaTalentMatched: Boolean(qaMatch),
+      qaTalentMatchedInternally: Boolean(qaMatch),
       frozenMatchSnapshot: Boolean(qaMatch?.engine_version && qaMatch?.generated_at),
     };
 
-    return NextResponse.json({ ok: Object.values(checks).every(Boolean), checks, matchCount: matches.length, cleanup: "automatic" });
+    return NextResponse.json({ ok: Object.values(checks).every(Boolean), checks, internalMatchCount: matches.length, cleanup: "automatic" });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Unknown smoke error", cleanup: "attempted" }, { status: 500 });
   } finally {
