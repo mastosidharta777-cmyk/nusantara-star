@@ -10,9 +10,11 @@ import { AdminMatchActions } from "@/components/admin-match-actions";
 import { AdminOperations } from "@/components/admin-operations";
 import { AdminPaymentMilestones } from "@/components/admin-payment-milestones";
 import { AdminProposalActions } from "@/components/admin-proposal-actions";
+import { AdminRecoveryPanel } from "@/components/admin-recovery-panel";
 import { loadAdminBriefDetail } from "@/lib/admin-brief-detail";
 import { loadDealReviewData } from "@/lib/deal-review-data";
 import { loadOperationsData } from "@/lib/operations-data";
+import { loadRecoveryCaseForBooking, loadRecoveryCaseForBrief } from "@/lib/recovery-data";
 import { availabilityLabel, freshnessLabelId } from "@/lib/ui-language";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +62,16 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
   const deal = selectedTalent ? await loadDealReviewData(row.id) : null;
   const dealLocked = deal?.status === "locked";
   const operations = await loadOperationsData(booking?.id ?? null);
+  const [bookingRecoveryCase, recoveryBriefCase] = await Promise.all([
+    loadRecoveryCaseForBooking(booking?.id ?? null),
+    loadRecoveryCaseForBrief(row.id),
+  ]);
+  const recoveryCase = recoveryBriefCase ?? bookingRecoveryCase;
+  const effectiveMatches = recoveryBriefCase
+    ? recoveryBriefCase.matching_generated_at
+      ? matches.filter((match) => match.talent.id !== recoveryBriefCase.original_talent_id)
+      : []
+    : matches;
   const whatsappDigits = buyerContact?.buyer_whatsapp?.replace(/\D/g, "") ?? "";
   const hasBuyerContact = Boolean(buyerContact?.buyer_name || buyerContact?.buyer_company || buyerContact?.buyer_whatsapp || buyerContact?.buyer_email);
   const isDirectInquiry = buyerContact?.request_mode === "direct_talent";
@@ -98,12 +110,14 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
           ) : <div className="px-5 py-7 text-sm text-black/50">Brief ini tidak memiliki kontak buyer tersimpan.</div>}
         </section>
 
+        {recoveryCase ? <AdminRecoveryPanel bookingId={recoveryCase.original_booking_id} bookingStatus={booking?.status ?? "incident"} incidents={operations.incidents} recoveryCase={recoveryCase} currentBriefId={row.id} /> : null}
+
         <AdminDirectInquiryPanel briefId={row.id} />
 
-        {(!isDirectInquiry || matches.length > 0) ? <section className="border border-black/10 bg-white">
-          <div className="border-b border-black/10 px-5 py-4"><p className="text-sm font-semibold">{isDirectInquiry ? "Alternatif Pencocokan" : "Rekomendasi Pencocokan"}</p><p className="mt-1 text-xs text-black/45">Rekomendasi ini adalah snapshot saat diproses. Konfirmasi langsung tetap menjadi acuan komersial.</p></div>
-          {matches.length === 0 ? <div className="px-5 py-10 text-sm text-black/50">Tidak ada kandidat yang memenuhi aturan daftar pilihan saat ini.</div> : (
-            <div className="divide-y divide-black/10">{matches.map((match, index) => (
+        {(!isDirectInquiry || effectiveMatches.length > 0) ? <section className="border border-black/10 bg-white">
+          <div className="border-b border-black/10 px-5 py-4"><p className="text-sm font-semibold">{recoveryBriefCase ? "Kandidat Pengganti" : isDirectInquiry ? "Alternatif Pencocokan" : "Rekomendasi Pencocokan"}</p><p className="mt-1 text-xs text-black/45">Rekomendasi ini adalah snapshot saat diproses. Konfirmasi langsung tetap menjadi acuan komersial.</p></div>
+          {effectiveMatches.length === 0 ? <div className="px-5 py-10 text-sm text-black/50">{recoveryBriefCase?.matching_generated_at ? "Tidak ada kandidat pengganti yang memenuhi aturan snapshot saat recovery dibuka." : recoveryBriefCase ? "Snapshot kandidat recovery belum tersedia." : "Tidak ada kandidat yang memenuhi aturan daftar pilihan saat ini."}</div> : (
+            <div className="divide-y divide-black/10">{effectiveMatches.map((match, index) => (
               <article key={match.talent.id} className="p-5 md:p-6">
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">#{index + 1} · {tierLabel(match.tier)}</p><h2 className="mt-2 text-2xl font-semibold tracking-[-0.02em]">{match.talent.name}</h2><p className="mt-1 text-sm text-black/55">{match.talent.category} · {match.talent.baseCity}</p></div>
@@ -135,6 +149,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
         {selectedTalent && dealLocked ? <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} /> : null}
         {booking && dealLocked ? <AdminPaymentMilestones bookingId={booking.id} milestones={paymentMilestones} /> : null}
         {booking && dealLocked && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminOperations booking={booking} checklist={operations.checklist} incidents={operations.incidents} settlements={operations.settlements} /> : null}
+        {!recoveryCase && booking && booking.status === "incident" ? <AdminRecoveryPanel bookingId={booking.id} bookingStatus={booking.status} incidents={operations.incidents} recoveryCase={null} currentBriefId={row.id} /> : null}
       </div>
     </main>
   );
