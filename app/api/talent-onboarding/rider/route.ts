@@ -146,9 +146,17 @@ export async function PATCH(request: Request) {
       const talentName = nonEmpty(submission?.name) || nonEmpty(talent?.name);
       const baseCity = nonEmpty(submission?.base_city) || nonEmpty(talent?.base_city) || null;
       const category = nonEmpty(submission?.category) || nonEmpty(talent?.category) || null;
-      if (!talentName) throw new Error("Nama talent tidak ditemukan");
 
-      const identity = await validateRiderIdentity({ sourceText, talentName, sourceFilename: asset.original_filename });
+      // Rider normalization must not depend on profile completion. If the talent name has not been saved yet,
+      // normalize the document and defer identity verification until the profile is completed/admin-reviewed.
+      const identity = talentName
+        ? await validateRiderIdentity({ sourceText, talentName, sourceFilename: asset.original_filename })
+        : {
+            outcome: "uncertain" as const,
+            detectedArtist: null,
+            evidence: "Nama talent belum tersimpan; identitas rider perlu diperiksa setelah profil dilengkapi.",
+          };
+
       if (identity.outcome === "mismatch") {
         await s
           .from("talent_assets")
@@ -176,7 +184,7 @@ export async function PATCH(request: Request) {
         sourceAssetId: assetId,
         sourceFilename: asset.original_filename,
         sourceText,
-        talentName,
+        talentName: talentName || null,
         baseCity,
         category,
       });
