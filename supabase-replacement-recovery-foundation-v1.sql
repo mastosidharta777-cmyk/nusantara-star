@@ -5,7 +5,7 @@
 
 create table if not exists public.recovery_cases (
   id uuid primary key default gen_random_uuid(),
-  original_booking_id uuid not null unique references public.bookings(id) on delete restrict,
+  original_booking_id uuid not null references public.bookings(id) on delete restrict,
   incident_id uuid not null unique references public.incidents(id) on delete restrict,
   recovery_brief_id uuid not null unique references public.briefs(id) on delete restrict,
   original_talent_id uuid not null references public.talents(id) on delete restrict,
@@ -28,8 +28,12 @@ create table if not exists public.recovery_cases (
   updated_at timestamptz not null default now()
 );
 
+create index if not exists idx_recovery_cases_booking on public.recovery_cases(original_booking_id);
 create index if not exists idx_recovery_cases_status on public.recovery_cases(status);
 create index if not exists idx_recovery_cases_recovery_brief on public.recovery_cases(recovery_brief_id);
+create unique index if not exists uq_recovery_cases_active_booking
+  on public.recovery_cases(original_booking_id)
+  where status <> 'void';
 
 alter table public.recovery_cases enable row level security;
 
@@ -151,10 +155,7 @@ language plpgsql
 set search_path = public
 as $$
 begin
-  if exists (
-    select 1 from public.recovery_cases
-    where recovery_brief_id = old.id and status not in ('void','closed_no_replacement')
-  ) then
+  if exists (select 1 from public.recovery_cases where recovery_brief_id = old.id) then
     if row(
       new.event_type,new.event_date,new.city,new.venue,new.audience_size,new.talent_category,
       new.genre_style,new.budget_min,new.budget_max,new.performance_duration_minutes,new.event_vibe,
