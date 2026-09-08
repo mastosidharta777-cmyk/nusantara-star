@@ -54,17 +54,21 @@ Buyer Brief
 → System builds buyer proposal
 → Admin approves proposal
 → Buyer receives 3–5 curated options
-→ Buyer selects
+→ Buyer ranks one or more acceptable options by priority
+→ System advances the highest-priority option that remains valid
 → Reconfirmation if offer/availability expired
 → Deal review
 → Buyer terms accepted
 → Financial security condition satisfied
 → Booking secured
+→ Remaining buyer priorities close as fallback options
 → Pre-show
 → Show
 → Completion / Incident
 → Settlement
 ```
+
+Buyer priority does not create parallel bookings. Only one talent can become the secured booking for the brief. Lower priorities exist only as ordered fallbacks until one option is secured or the buyer changes/withdraws the preference.
 
 ## 4. Core operating principle
 
@@ -174,7 +178,7 @@ Buyer sees:
 - key buyer-facing terms;
 - validity/expiry when applicable.
 
-Buyer selects a proposal item, not a live mutable talent database row.
+Buyer selects proposal items, not live mutable talent database rows. Buyer may rank multiple acceptable proposal items in priority order. Priority 1 is attempted first; lower priorities remain fallbacks. If a higher-priority offer expires, becomes unavailable, changes materially, or cannot proceed before booking is secured, the next priority may advance only after deterministic validity checks and any required live reconfirmation. Once one booking becomes `SECURED`, all remaining priorities cease to be active fallback choices.
 
 ## 11. Deal review
 
@@ -264,6 +268,11 @@ Target state machines:
 ### Proposal
 `draft → sent → viewed → selected / revision_requested / expired`
 
+### Buyer Preference
+`ranked → active_priority → fallback / withdrawn / superseded → secured`
+
+Only one buyer priority can become the secured booking. Fallback priorities remain non-booking preferences until promoted after validity/reconfirmation checks.
+
 ### Deal
 `draft → review_required → approved → locked`
 
@@ -303,7 +312,7 @@ Incident types include buyer/talent cancellation, postponement, no-show, late ar
 | Default talent terms | Talent Profile |
 | Event availability/fee/terms | Talent Offer |
 | Buyer-facing price/scope | Proposal Item |
-| Buyer choice | Buyer Selection |
+| Buyer ranked preference | Buyer Preference |
 | Final commercial agreement | Deal |
 | Secured engagement | Booking |
 | Planned payment | Payment Milestone |
@@ -313,7 +322,7 @@ Incident types include buyer/talent cancellation, postponement, no-show, late ar
 
 Snapshot chain:
 
-`Profile → Talent Offer → Proposal Item → Deal → Booking`
+`Profile → Talent Offer → Proposal Item → Buyer Preference → Deal → Booking`
 
 Later profile changes must not rewrite prior transaction snapshots.
 
