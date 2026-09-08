@@ -66,6 +66,19 @@ export async function POST(request: Request) {
       throw new Error("Recovery case tidak lengkap setelah dibuat");
     }
 
+    if (recovery.matching_generated_at && Number.isInteger(recovery.match_count) && recovery.match_count >= 0) {
+      return NextResponse.json({
+        ok: true,
+        reused: true,
+        recoveryCaseId: String(recovery.id),
+        recoveryBriefId: String(recovery.recovery_brief_id),
+        originalTalentId: String(recovery.original_talent_id),
+        matchCount: Number(recovery.match_count),
+        matchEngineVersion: recovery.match_engine_version || MATCH_ENGINE_VERSION,
+        matchingGeneratedAt: String(recovery.matching_generated_at),
+      });
+    }
+
     const { data: recoveryBrief, error: briefError } = await supabase
       .from("briefs")
       .select("event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,source_text,field_evidence")
@@ -78,26 +91,37 @@ export async function POST(request: Request) {
     const matches = rankTalents(eligibleRoster, toStructuredBrief(recoveryBrief as Record<string, unknown>), 30);
     const snapshot = await persistMatchSnapshot(String(recovery.recovery_brief_id), matches);
     const generatedAt = snapshot.generatedAt ?? new Date().toISOString();
+    const frozenCount = snapshot.frozen ? snapshot.count : matches.length;
 
     const { error: markerError } = await supabase
       .from("recovery_cases")
       .update({
         match_engine_version: snapshot.engineVersion || MATCH_ENGINE_VERSION,
         matching_generated_at: generatedAt,
-        match_count: matches.length,
+        match_count: frozenCount,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", recovery.id);
+      .eq("id", recovery.id)
+      .is("matching_generated_at", null);
     if (markerError) throw new Error(`Recovery matching marker gagal: ${markerError.message}`);
+
+    const { data: finalCase, error: finalCaseError } = await supabase
+      .from("recovery_cases")
+      .select("match_engine_version,matching_generated_at,match_count")
+      .eq("id", recovery.id)
+      .single();
+    if (finalCaseError || !finalCase?.matching_generated_at || finalCase.match_count == null) {
+      throw new Error(finalCaseError?.message ?? "Recovery matching marker tidak tersimpan");
+    }
 
     return NextResponse.json({
       ok: true,
       recoveryCaseId: String(recovery.id),
       recoveryBriefId: String(recovery.recovery_brief_id),
       originalTalentId: String(recovery.original_talent_id),
-      matchCount: matches.length,
-      matchEngineVersion: snapshot.engineVersion || MATCH_ENGINE_VERSION,
-      matchingGeneratedAt: generatedAt,
+      matchCount: Number(finalCase.match_count),
+      matchEngineVersion: finalCase.match_engine_version || MATCH_ENGINE_VERSION,
+      matchingGeneratedAt: String(finalCase.matching_generated_at),
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
