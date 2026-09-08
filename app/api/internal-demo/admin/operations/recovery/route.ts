@@ -42,6 +42,36 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
     const action = text(body?.action);
+    const supabase = getServerClient();
+
+    if (action === "mark_reconciliation_ready") {
+      const caseId = text(body?.caseId);
+      const notes = text(body?.notes);
+      const reconciliationStatus = text(body?.reconciliationStatus);
+      if (!caseId || !notes || !["ready", "not_required"].includes(reconciliationStatus)) {
+        return NextResponse.json({ error: "Status dan catatan rekonsiliasi wajib lengkap" }, { status: 400 });
+      }
+      const { data, error } = await supabase.rpc("ns_mark_recovery_reconciliation_v1", {
+        p_case_id: caseId,
+        p_status: reconciliationStatus,
+        p_notes: notes,
+      });
+      if (error) return NextResponse.json({ error: error.message }, { status: 409 });
+      return NextResponse.json({ ok: true, recoveryCase: data });
+    }
+
+    if (action === "close_no_replacement") {
+      const caseId = text(body?.caseId);
+      const notes = text(body?.notes);
+      if (!caseId || !notes) return NextResponse.json({ error: "Catatan penutupan recovery wajib diisi" }, { status: 400 });
+      const { data, error } = await supabase.rpc("ns_close_recovery_no_replacement_v1", {
+        p_case_id: caseId,
+        p_notes: notes,
+      });
+      if (error) return NextResponse.json({ error: error.message }, { status: 409 });
+      return NextResponse.json({ ok: true, recoveryCase: data });
+    }
+
     if (action !== "open") return NextResponse.json({ error: "Aksi recovery tidak dikenal" }, { status: 400 });
 
     const bookingId = text(body?.bookingId);
@@ -51,7 +81,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Booking, insiden, dan alasan recovery wajib tersedia" }, { status: 400 });
     }
 
-    const supabase = getServerClient();
     const idempotencyKey = `recovery:${bookingId}:${incidentId}`;
     const { data: opened, error: openError } = await supabase.rpc("ns_open_recovery_case_v1", {
       p_booking_id: bookingId,
