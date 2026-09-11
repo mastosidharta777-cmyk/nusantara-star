@@ -104,11 +104,26 @@ export async function PATCH(request: Request) {
     const clean: Record<string, string> = {};
     for (const [k, v] of Object.entries(answers)) if (typeof v === "string" && v.trim()) clean[k] = v.trim().slice(0, 1200);
 
+    const merged = { ...(current.answers ?? {}), ...clean };
+    if (current.normalization_source === "admin_verified") {
+      const storedQuestions = Array.isArray(current.missing_questions) ? current.missing_questions : [];
+      const questions = storedQuestions.filter((q: any) => q?.required && !merged[q.key]?.trim());
+      const status = questions.length ? "needs_talent_input" : "ready_for_admin";
+      const { data, error } = await s.from("talent_rider_versions").update({
+        answers: merged,
+        missing_questions: questions,
+        status,
+        talent_confirmed_at: questions.length ? null : now,
+        updated_at: now,
+      }).eq("id", current.id).select("id,version_no,source_type,source_asset_id,source_filename,normalized_data,missing_questions,answers,normalization_source,status,is_current,updated_at").single();
+      if (error) throw new Error(error.message);
+      return NextResponse.json({ ok: true, rider: data });
+    }
+
     const [{ data: talent }, { data: submission }] = await Promise.all([
       s.from("talents").select("name,base_city,category").eq("id", talentId).maybeSingle(),
       s.from("talent_profile_submissions").select("name,base_city,category").eq("talent_id", talentId).maybeSingle(),
     ]);
-    const merged = { ...(current.answers ?? {}), ...clean };
     const source = submission ?? talent;
     const result = await normalizeRiderSource({ sourceText: current.source_text ?? "", talentName: source?.name ?? null, baseCity: source?.base_city ?? null, category: source?.category ?? null, answers: merged });
     const extra = requiredQuestionsFromNormalized(result.normalized);

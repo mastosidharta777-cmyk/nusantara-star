@@ -39,6 +39,12 @@ function normalizationLabel(source?: string) {
   if (source === "ai") return "dinormalisasi AI";
   return "dinormalisasi dengan aturan sistem";
 }
+function riderAnswerLabel(key: string) {
+  if (key === "rider_currentness") return "Keberlakuan rider 2017";
+  if (key === "departure_city") return "Kota keberangkatan";
+  if (key === "travel_party_size") return "Jumlah final orang dan tiket";
+  return key.replaceAll("_", " ");
+}
 function redirectToAdminLogin() {
   const next = window.location.pathname + window.location.search;
   window.location.assign(`/admin/login?next=${encodeURIComponent(next)}`);
@@ -118,6 +124,7 @@ export function AdminTalentOnboardingReview({ talentId }: { talentId: string }) 
       <div className="flex flex-wrap items-center justify-between gap-2"><div><b>Rider Utama V{data.rider.version_no}</b><p className="mt-1 text-xs text-black/50">{data.rider.source_filename || (data.rider.source_type === "form_text" ? "Rider dari isian formulir" : "Sumber rider")} · {normalizationLabel(data.rider.normalization_source)}</p></div><span className="border border-black/10 bg-white px-2 py-1 text-xs font-semibold">{riderStatus(data.rider.status)}</span></div>
       {riderRows.length ? <ul className="mt-3 space-y-1 text-black/65">{riderRows.map((row)=><li key={row}>• {row}</li>)}</ul> : <p className="mt-3 text-black/50">Belum ada informasi rider terstruktur.</p>}
       {data.rider.missing_questions?.length ? <div className="mt-3 border-t border-black/10 pt-3"><p className="font-semibold">Masih perlu dijawab talent:</p><ul className="mt-2 space-y-1 text-black/60">{data.rider.missing_questions.map((q)=><li key={q.key}>• {q.question}</li>)}</ul></div> : <p className="mt-3 font-semibold text-green-800">✓ Informasi dasar rider lengkap untuk ditinjau admin.</p>}
+      {Object.keys(data.rider.answers ?? {}).length ? <div className="mt-3 border-t border-black/10 pt-3"><p className="font-semibold">Jawaban verifikasi talent:</p><ul className="mt-2 space-y-1 text-black/60">{Object.entries(data.rider.answers ?? {}).map(([key,value])=><li key={key}>• <b>{riderAnswerLabel(key)}:</b> {value}</li>)}</ul></div> : null}
       <div className="mt-4 border-t border-black/10 pt-3">
         <p className="text-xs text-black/50">Persetujuan dokumen sumber dan persetujuan Rider Utama adalah dua langkah terpisah. Rider Utama hanya disetujui setelah hasil normalisasi diperiksa.</p>
         {data.rider.status === "admin_approved" ? <p className="mt-3 font-semibold text-green-800">✓ Rider Utama sudah disetujui admin.</p> : <div className="mt-3 flex flex-wrap gap-2">
