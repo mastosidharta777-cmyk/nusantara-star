@@ -1,0 +1,2 @@
+Redeploy requested after Vercel Hobby deployment rate limit reset.
+No application code changes.
