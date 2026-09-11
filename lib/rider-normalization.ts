@@ -22,7 +22,7 @@ function categoryGroup(category?: string | null): RiderCategoryGroup {
 }
 
 export function riderHash(source:string){return createHash("sha256").update(source).digest("hex")}
-const cleanArray=(v:unknown)=>Array.isArray(v)?v.filter((x):x is string=>typeof x==="string").map(x=>x.trim()).filter(Boolean).slice(0,40):[];
+const cleanArray=(v:unknown)=>Array.isArray(v)?v.filter((x):x is string=>typeof x==="string").map(x=>x.trim()).filter(Boolean).slice(0,120):[];
 const toInt=(v:unknown)=>{if(v==null)return null;const n=Number(v);return Number.isInteger(n)&&n>=0&&n<=200?n:null};
 function normalizeShape(v:any):NormalizedRider{return{party_size:toInt(v?.party_size),performers_count:toInt(v?.performers_count),crew_count:toInt(v?.crew_count),departure_city:typeof v?.departure_city==="string"&&v.departure_city.trim()?v.departure_city.trim():null,technical_requirements:cleanArray(v?.technical_requirements),stage_backline:cleanArray(v?.stage_backline),hospitality:cleanArray(v?.hospitality),transport_requirements:cleanArray(v?.transport_requirements),baggage_requirements:cleanArray(v?.baggage_requirements),accommodation_required:typeof v?.accommodation_required==="boolean"?v.accommodation_required:null,accommodation_requirements:cleanArray(v?.accommodation_requirements),meals_per_diem:cleanArray(v?.meals_per_diem),special_requirements:cleanArray(v?.special_requirements),notes:cleanArray(v?.notes)}}
 
@@ -51,21 +51,24 @@ export function buildMissingQuestions(r:NormalizedRider,baseCity?:string|null,ca
     q.push({key:"technical_basics",question,required:true});
   }
   if(r.accommodation_required==null)q.push({key:"accommodation_required",question:"Untuk show di luar kota, apakah rombongan membutuhkan hotel/akomodasi? Jawab Ya atau Tidak, lalu beri detail jika ada.",required:true});
+  if(r.accommodation_required===true&&!r.accommodation_requirements.length)q.push({key:"accommodation_details",question:"Jelaskan jumlah kamar, standar hotel, pembagian kamar, dan ketentuan akomodasi lain yang wajib.",required:true});
   if(group==="music"||group==="specialty"){
     if(!r.transport_requirements.length&&!r.baggage_requirements.length)q.push({key:"transport_baggage",question:group==="specialty"?"Apakah ada kebutuhan transport atau bagasi/peralatan khusus? Jika tidak ada, jawab: Tidak ada.":"Apakah ada kebutuhan transport atau bagasi alat khusus? Jika tidak ada, jawab: Tidak ada.",required:true});
   }
+  const allText=[r.departure_city??"",...r.technical_requirements,...r.stage_backline,...r.hospitality,...r.transport_requirements,...r.baggage_requirements,...r.accommodation_requirements,...r.meals_per_diem,...r.special_requirements,...r.notes];
+  if(allText.some(value=>/(?:sebesar\s+)?rp\s*$/i.test(value.trim())))q.push({key:"incomplete_extraction",question:"Ada nominal atau kalimat rider yang terpotong saat dibaca. Unggah dokumen yang lebih jelas atau tuliskan kalimat lengkap beserta nominalnya.",required:true});
   return q;
 }
 
 const riderSchema={type:"object",additionalProperties:false,properties:{party_size:{type:["integer","null"]},performers_count:{type:["integer","null"]},crew_count:{type:["integer","null"]},departure_city:{type:["string","null"]},technical_requirements:{type:"array",items:{type:"string"}},stage_backline:{type:"array",items:{type:"string"}},hospitality:{type:"array",items:{type:"string"}},transport_requirements:{type:"array",items:{type:"string"}},baggage_requirements:{type:"array",items:{type:"string"}},accommodation_required:{type:["boolean","null"]},accommodation_requirements:{type:"array",items:{type:"string"}},meals_per_diem:{type:"array",items:{type:"string"}},special_requirements:{type:"array",items:{type:"string"}},notes:{type:"array",items:{type:"string"}}},required:["party_size","performers_count","crew_count","departure_city","technical_requirements","stage_backline","hospitality","transport_requirements","baggage_requirements","accommodation_required","accommodation_requirements","meals_per_diem","special_requirements","notes"]};
-const RIDER_SYSTEM_PROMPT="Normalize this part of a live-entertainment master rider into structured operational facts. The talent category is context only: requirements for a band, singer, DJ, MC/host, speaker, specialty performer, or another talent type can legitimately differ. Use ONLY facts explicitly contained in this rider part or confirmed talent answers. Never invent, assume, soften, strengthen, or delete requirements. Do not force music/backline requirements onto MC/host, speaker, or an unknown/custom category. Preserve quantities, hotel standards, equipment models, crew counts, transport/baggage conditions, hospitality and special requirements exactly when stated. Unknown values must remain null or empty arrays. Return concise Indonesian operational wording while preserving product/model names and standard technical terms. Return only a JSON object matching the requested fields.";
+const RIDER_SYSTEM_PROMPT="Normalize this part of a live-entertainment master rider into structured operational facts. The rider source is the sole authority; talent name and category are context labels only and must never become rider facts. Use ONLY facts explicitly contained in riderSource. Never invent, infer, assume, soften, strengthen, delete, or replace a source requirement. Preserve every quantity, monetary amount, deadline, hotel standard, equipment model, crew or ticket count, transport/baggage condition, hospitality item, and special requirement exactly when stated. Keep context-specific counts separate when the source uses different counts for travel, meals, rooms, or backstage capacity. Do not merge contradictory facts: retain both and note that confirmation is needed. Never return a sentence that is cut off or ends with an incomplete amount such as 'Rp'. Unknown values must remain null or empty arrays. Return concise Indonesian operational wording while preserving product/model names and standard technical terms. Return only a JSON object matching the requested fields.";
 const RETRYABLE_AI_STATUSES=new Set([429,498,500,502,503]);
 
 function strictRiderSchemaSupported(model:string){return model==="qwen/qwen3.8-27b"}
 function riderRetryDelay(response:Response,attempt:number){const raw=response.headers.get("retry-after");if(raw){const seconds=Number(raw);if(Number.isFinite(seconds))return Math.min(Math.max(seconds*1000+250,500),30000);const date=Date.parse(raw);if(Number.isFinite(date))return Math.min(Math.max(date-Date.now()+250,500),30000)}return 750*(2**attempt)+Math.floor(Math.random()*250)}
 async function riderPause(ms:number){await new Promise(resolve=>setTimeout(resolve,ms))}
 
-function splitRiderSource(source:string,maxChars=10000){
+function splitRiderSource(source:string,maxChars=6000){
  const chunks:string[]=[];let current="";
  for(const raw of source.split(/\r?\n/)){
   const line=raw.trim();if(!line)continue;
@@ -79,7 +82,7 @@ function splitRiderSource(source:string,maxChars=10000){
 async function normalizeRiderChunk(apiKey:string,model:string,context:Record<string,unknown>){
  let lastStatus=0;let strictMode=strictRiderSchemaSupported(model);
  for(let attempt=0;attempt<2;attempt+=1){
-  const response=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model,temperature:0,max_completion_tokens:1200,messages:[{role:"system",content:RIDER_SYSTEM_PROMPT},{role:"user",content:JSON.stringify(context)}],response_format:strictMode?{type:"json_schema",json_schema:{name:"nusantara_star_master_rider",strict:true,schema:riderSchema}}:{type:"json_object"}}),cache:"no-store"});
+  const response=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model,temperature:0,max_completion_tokens:4000,messages:[{role:"system",content:RIDER_SYSTEM_PROMPT},{role:"user",content:JSON.stringify(context)}],response_format:strictMode?{type:"json_schema",json_schema:{name:"nusantara_star_master_rider",strict:true,schema:riderSchema}}:{type:"json_object"}}),cache:"no-store"});
   if(response.ok){const payload=await response.json();const raw=payload?.choices?.[0]?.message?.content;if(typeof raw!=="string"||!raw)throw new Error(`Model ${model} tidak mengembalikan hasil normalisasi`);return normalizeShape(JSON.parse(raw))}
   lastStatus=response.status;const providerBody=(await response.text().catch(()=>"")).slice(0,300);console.warn(JSON.stringify({level:"warning",message:"Groq rider request failed",model,status:response.status,attempt:attempt+1,strictMode,retryAfter:response.headers.get("retry-after"),providerBody}));
   if(response.status===400&&strictMode&&providerBody.includes("json_validate_failed")&&attempt===0){strictMode=false;continue}
@@ -96,6 +99,25 @@ function mergeRiderParts(parts:NormalizedRider[]):NormalizedRider{
  return{party_size:scalar<number>("party_size"),performers_count:scalar<number>("performers_count"),crew_count:scalar<number>("crew_count"),departure_city:scalar<string>("departure_city"),technical_requirements:array("technical_requirements"),stage_backline:array("stage_backline"),hospitality:array("hospitality"),transport_requirements:array("transport_requirements"),baggage_requirements:array("baggage_requirements"),accommodation_required:scalar<boolean>("accommodation_required"),accommodation_requirements:array("accommodation_requirements"),meals_per_diem:array("meals_per_diem"),special_requirements:array("special_requirements"),notes:[...array("notes"),...conflicts]};
 }
 
+function applyConfirmedAnswers(rider:NormalizedRider,answers:Record<string,string>):NormalizedRider{
+ const next:NormalizedRider={...rider};
+ const answer=(key:string)=>typeof answers[key]==="string"?answers[key].trim():"";
+ const isNone=(value:string)=>/^(tidak|tidak ada|none|no)$/i.test(value);
+ const party=answer("party_size");
+ if(next.party_size==null&&/^\d{1,3}$/.test(party)){const value=Number(party);if(value<=200)next.party_size=value}
+ const departure=answer("departure_city");
+ if(!next.departure_city&&departure&&!isNone(departure))next.departure_city=departure;
+ const technical=answer("technical_basics");
+ if(!next.technical_requirements.length&&!next.stage_backline.length&&technical)next.technical_requirements=[isNone(technical)?"Tidak ada kebutuhan teknis/backline tambahan.":technical];
+ const accommodation=answer("accommodation_required");
+ if(next.accommodation_required==null&&accommodation){if(/^(ya|yes)$/i.test(accommodation))next.accommodation_required=true;if(/^(tidak|no)$/i.test(accommodation))next.accommodation_required=false}
+ const accommodationDetails=answer("accommodation_details");
+ if(next.accommodation_required===true&&!next.accommodation_requirements.length&&accommodationDetails&&!isNone(accommodationDetails))next.accommodation_requirements=[accommodationDetails];
+ const transport=answer("transport_baggage");
+ if(!next.transport_requirements.length&&!next.baggage_requirements.length&&transport){next.transport_requirements=[isNone(transport)?"Tidak ada kebutuhan transport atau bagasi khusus.":transport]}
+ return next;
+}
+
 export async function validateRiderIdentity(input:{sourceText:string;talentName:string;sourceFilename?:string|null}){
  const hay=`${input.sourceFilename??""}\n${input.sourceText.slice(0,12000)}`.toLowerCase();const talent=input.talentName.trim().toLowerCase();if(talent&&hay.includes(talent))return{outcome:"match" as const,detectedArtist:input.talentName,evidence:"Nama talent ditemukan pada dokumen."};
  const apiKey=process.env.GROQ_API_KEY;if(!apiKey)return{outcome:"uncertain" as const,detectedArtist:null,evidence:"Verifikasi identitas otomatis tidak tersedia."};
@@ -105,10 +127,18 @@ export async function validateRiderIdentity(input:{sourceText:string;talentName:
 
 export async function normalizeRiderSource(input:{sourceText:string;talentName?:string|null;baseCity?:string|null;category?:string|null;answers?:Record<string,string>|null}){
  const sourceText=input.sourceText.replace(/\u0000/g," ").trim();if(!sourceText)throw new Error("Dokumen rider tidak memiliki teks yang dapat diproses");const apiKey=process.env.GROQ_API_KEY;if(!apiKey&&!process.env.OPENAI_API_KEY)throw new Error("AI normalisasi rider belum tersedia");
- const chunks=splitRiderSource(sourceText);if(chunks.length>8)throw new Error("Dokumen rider terlalu panjang untuk normalisasi otomatis");
+ const chunks=splitRiderSource(sourceText);if(chunks.length>16)throw new Error("Dokumen rider terlalu panjang untuk normalisasi otomatis");
  const models=[...new Set([process.env.GROQ_MODEL??"openai/gpt-oss-20b",process.env.GROQ_RIDER_FALLBACK_MODEL??process.env.GROQ_BIO_FALLBACK_MODEL??"openai/gpt-oss-120b"])];const parts:NormalizedRider[]=[];
- for(let index=0;index<chunks.length;index+=1){let normalized:NormalizedRider|null=null;const failures:string[]=[];const context={talentName:input.talentName??null,talentCategory:input.category??null,baseCity:input.baseCity??null,riderPart:index+1,totalParts:chunks.length,riderSource:chunks[index],confirmedAnswers:input.answers??{}};if(apiKey){const preferredModels=models.map((_,offset)=>models[(index+offset)%models.length]);for(const model of preferredModels){try{normalized=await normalizeRiderChunk(apiKey,model,context);break}catch(error){failures.push(error instanceof Error?error.message:String(error))}}}if(!normalized&&process.env.OPENAI_API_KEY){try{normalized=normalizeShape(await requestOpenAIStructured({schemaName:"nusantara_star_master_rider",schema:riderSchema,systemPrompt:RIDER_SYSTEM_PROMPT,userContent:JSON.stringify(context),maxCompletionTokens:3000}))}catch(error){failures.push(error instanceof Error?error.message:String(error))}}if(!normalized){console.error(JSON.stringify({level:"error",message:"All rider normalization models failed",part:index+1,totalParts:chunks.length,failures}));throw new Error("Layanan AI normalisasi rider belum berhasil")}parts.push(normalized)}
- const normalized=mergeRiderParts(parts);return{normalized,questions:buildMissingQuestions(normalized,input.baseCity,input.category),source:"ai" as const};
+ for(let index=0;index<chunks.length;index+=1){
+  let normalized:NormalizedRider|null=null;const failures:string[]=[];
+  const context={talentName:input.talentName??null,talentCategory:input.category??null,riderPart:index+1,totalParts:chunks.length,riderSource:chunks[index]};
+  if(process.env.OPENAI_API_KEY){try{normalized=normalizeShape(await requestOpenAIStructured({schemaName:"nusantara_star_master_rider",schema:riderSchema,systemPrompt:RIDER_SYSTEM_PROMPT,userContent:JSON.stringify(context),maxCompletionTokens:6000}))}catch(error){failures.push(error instanceof Error?error.message:String(error))}}
+  if(!normalized&&apiKey){const preferredModels=models.map((_,offset)=>models[(index+offset)%models.length]);for(const model of preferredModels){try{normalized=await normalizeRiderChunk(apiKey,model,context);break}catch(error){failures.push(error instanceof Error?error.message:String(error))}}}
+  if(!normalized){console.error(JSON.stringify({level:"error",message:"All rider normalization models failed",part:index+1,totalParts:chunks.length,failures}));throw new Error("Layanan AI normalisasi rider belum berhasil")}
+  parts.push(normalized);
+ }
+ const normalized=applyConfirmedAnswers(mergeRiderParts(parts),input.answers??{});
+ return{normalized,questions:buildMissingQuestions(normalized,input.baseCity,input.category),source:"ai" as const};
 }
 
 export async function extractRiderText(buffer:Buffer,mimeType:string){if(mimeType==="text/plain")return buffer.toString("utf8");if(mimeType==="application/pdf"){const mod:any=await import("pdf-parse");const parse=mod.default??mod;const result=await parse(buffer);return typeof result?.text==="string"?result.text:""}if(mimeType==="application/vnd.openxmlformats-officedocument.wordprocessingml.document"){const mammoth:any=await import("mammoth");const result=await mammoth.extractRawText({buffer});return typeof result?.value==="string"?result.value:""}throw new Error("Unsupported rider document type")}

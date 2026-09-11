@@ -34,6 +34,11 @@ function riderStatus(status?: string) {
   if (status === "admin_approved") return "Disetujui admin";
   return status ? "Status rider tidak dikenal" : "Belum diproses";
 }
+function normalizationLabel(source?: string) {
+  if (source === "admin_verified") return "diverifikasi admin dari dokumen sumber";
+  if (source === "ai") return "dinormalisasi AI";
+  return "dinormalisasi dengan aturan sistem";
+}
 function redirectToAdminLogin() {
   const next = window.location.pathname + window.location.search;
   window.location.assign(`/admin/login?next=${encodeURIComponent(next)}`);
@@ -110,10 +115,16 @@ export function AdminTalentOnboardingReview({ talentId }: { talentId: string }) 
     {data?.talent.onboarding_status === "in_progress" && data?.submission ? <p className="mt-4 border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">Talent/manager sedang memperbarui profil. Tunggu sampai status kembali <b>Sudah dikirim</b> sebelum meninjau.</p> : null}
 
     {data?.rider ? <div className="mt-5 border border-black/10 bg-[#f8f7f3] p-4 text-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2"><div><b>Rider Utama V{data.rider.version_no}</b><p className="mt-1 text-xs text-black/50">{data.rider.source_filename || (data.rider.source_type === "form_text" ? "Rider dari isian formulir" : "Sumber rider")} · {data.rider.normalization_source === "ai" ? "dinormalisasi AI" : "dinormalisasi dengan aturan sistem"}</p></div><span className="border border-black/10 bg-white px-2 py-1 text-xs font-semibold">{riderStatus(data.rider.status)}</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><b>Rider Utama V{data.rider.version_no}</b><p className="mt-1 text-xs text-black/50">{data.rider.source_filename || (data.rider.source_type === "form_text" ? "Rider dari isian formulir" : "Sumber rider")} · {normalizationLabel(data.rider.normalization_source)}</p></div><span className="border border-black/10 bg-white px-2 py-1 text-xs font-semibold">{riderStatus(data.rider.status)}</span></div>
       {riderRows.length ? <ul className="mt-3 space-y-1 text-black/65">{riderRows.map((row)=><li key={row}>• {row}</li>)}</ul> : <p className="mt-3 text-black/50">Belum ada informasi rider terstruktur.</p>}
       {data.rider.missing_questions?.length ? <div className="mt-3 border-t border-black/10 pt-3"><p className="font-semibold">Masih perlu dijawab talent:</p><ul className="mt-2 space-y-1 text-black/60">{data.rider.missing_questions.map((q)=><li key={q.key}>• {q.question}</li>)}</ul></div> : <p className="mt-3 font-semibold text-green-800">✓ Informasi dasar rider lengkap untuk ditinjau admin.</p>}
-      <div className="mt-4 border-t border-black/10 pt-3"><p className="text-xs text-black/50">Persetujuan dokumen sumber dan persetujuan Rider Utama adalah dua langkah terpisah. Rider Utama hanya disetujui setelah hasil normalisasi diperiksa.</p>{data.rider.status === "admin_approved" ? <p className="mt-3 font-semibold text-green-800">✓ Rider Utama sudah disetujui admin.</p> : <button disabled={busy || !riderReady} onClick={() => act({ action: "approve_rider" }, "Rider Utama disetujui.")} className="mt-3 border border-black bg-black px-4 py-2 text-xs font-semibold text-white disabled:opacity-40">Setujui Rider Utama</button>}</div>
+      <div className="mt-4 border-t border-black/10 pt-3">
+        <p className="text-xs text-black/50">Persetujuan dokumen sumber dan persetujuan Rider Utama adalah dua langkah terpisah. Rider Utama hanya disetujui setelah hasil normalisasi diperiksa.</p>
+        {data.rider.status === "admin_approved" ? <p className="mt-3 font-semibold text-green-800">✓ Rider Utama sudah disetujui admin.</p> : <div className="mt-3 flex flex-wrap gap-2">
+          {data.rider.normalization_source !== "admin_verified" ? <button disabled={busy} onClick={() => { if (window.confirm("Proses ulang akan membuat versi rider baru dari dokumen sumber dan mengabaikan pencampuran jawaban lama. Lanjutkan?")) act({ action: "renormalize_rider" }, "Rider berhasil diproses ulang dari dokumen sumber."); }} className="border border-black/20 px-4 py-2 text-xs font-semibold disabled:opacity-40">Proses Ulang dari Dokumen Sumber</button> : null}
+          <button disabled={busy || !riderReady} onClick={() => act({ action: "approve_rider" }, "Rider Utama disetujui.")} className="border border-black bg-black px-4 py-2 text-xs font-semibold text-white disabled:opacity-40">Setujui Rider Utama</button>
+        </div>}
+      </div>
     </div> : data?.riderMigrationRequired ? <p className="mt-5 border border-amber-300 bg-amber-50 p-3 text-sm">Fitur normalisasi rider belum diaktifkan di database.</p> : <p className="mt-5 text-sm text-black/50">Tidak ada rider utama. Profil tetap dapat ditinjau jika talent memang tidak memiliki kebutuhan rider khusus.</p>}
 
     <div className="mt-5 space-y-3">{data?.assets?.length ? data.assets.map((asset) => {

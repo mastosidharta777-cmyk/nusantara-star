@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { classifyRepertoire, repertoireIsComplete, sanitizeRepertoire } from "@/lib/repertoire-classification";
 import { createR2PresignedUrl } from "@/lib/r2-presign";
 import { youtubeEmbedUrlFromStorageKey } from "@/lib/youtube";
+import { normalizeRiderSource } from "@/lib/rider-normalization";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,23 @@ export async function GET(request:Request){try{if(!ensureAdmin(request))return N
 export async function PATCH(request:Request){try{if(!ensureAdmin(request))return NextResponse.json({error:"Tidak memiliki akses"},{status:401});const body=await request.json().catch(()=>null);const talentId=typeof body?.talentId==="string"?body.talentId:"";const action=typeof body?.action==="string"?body.action:"";if(!talentId)return NextResponse.json({error:"Talent wajib dipilih"},{status:400});const s=getServerClient();const now=new Date().toISOString();
  if(action==="review_asset"){const assetId=typeof body?.assetId==="string"?body.assetId:"";const decision=body?.decision==="approved"?"approved":body?.decision==="rejected"?"rejected":"";if(!assetId||!decision)return NextResponse.json({error:"Peninjauan media tidak valid"},{status:400});const{data:asset,error:assetError}=await s.from("talent_assets").select("id,asset_type").eq("id",assetId).eq("talent_id",talentId).maybeSingle();if(assetError)throw new Error(assetError.message);if(!asset)return NextResponse.json({error:"Media tidak ditemukan"},{status:404});const buyerVisible=decision==="approved"&&asset.asset_type!=="rider_document";const{data:changed,error}=await s.from("talent_assets").update({review_status:decision,buyer_visible:buyerVisible,reviewed_at:now,updated_at:now}).eq("id",assetId).eq("talent_id",talentId).eq("upload_status","uploaded").select("id");if(error)throw new Error(error.message);if(!changed?.length)return NextResponse.json({error:"Media belum selesai diunggah atau sudah berubah"},{status:409});return NextResponse.json({ok:true,buyerVisible})}
  if(action==="reclassify_repertoire"){const{data:submission,error}=await s.from("talent_profile_submissions").select("sample_repertoire").eq("talent_id",talentId).maybeSingle();if(error)throw new Error(error.message);if(!submission)return NextResponse.json({error:"Profil pendaftaran tidak ditemukan"},{status:404});const songs=sanitizeRepertoire(submission.sample_repertoire);if(!repertoireIsComplete(songs))return NextResponse.json({error:"Contoh daftar lagu harus berisi 10–20 lagu lengkap (Judul Lagu + Artis)"},{status:409});const classification=await classifyRepertoire(songs);if(!classification)return NextResponse.json({error:"AI belum berhasil mengelompokkan daftar lagu. Coba lagi nanti; data lagu tidak berubah."},{status:503});const{error:updateError}=await s.from("talent_profile_submissions").update({repertoire_genres:classification.genres,repertoire_styles:classification.styles,repertoire_eras:classification.eras,repertoire_ai_status:"suggested",repertoire_ai_updated_at:now,updated_at:now}).eq("talent_id",talentId);if(updateError)throw new Error(updateError.message);return NextResponse.json({ok:true,classification})}
+ if(action==="renormalize_rider"){
+  const{data:rider,error:riderError}=await s.from("talent_rider_versions").select("id,source_text,source_filename,status,normalization_source").eq("talent_id",talentId).eq("is_current",true).maybeSingle();
+  if(riderError)throw new Error(riderError.message);
+  if(!rider)return NextResponse.json({error:"Rider aktif tidak ditemukan"},{status:404});
+  if(rider.status==="admin_approved")return NextResponse.json({error:"Rider yang sudah disetujui admin tidak dapat diproses ulang"},{status:409});
+  if(rider.normalization_source==="admin_verified")return NextResponse.json({error:"Rider ini sudah diverifikasi admin terhadap dokumen sumber"},{status:409});
+  if(!rider.source_text?.trim())return NextResponse.json({error:"Teks dokumen sumber tidak tersedia untuk diproses ulang"},{status:409});
+  const[{data:talent,error:talentError},{data:submission,error:submissionError}]=await Promise.all([
+   s.from("talents").select("name").eq("id",talentId).maybeSingle(),
+   s.from("talent_profile_submissions").select("name,category").eq("talent_id",talentId).maybeSingle()
+  ]);
+  if(talentError)throw new Error(talentError.message);if(submissionError)throw new Error(submissionError.message);
+  const result=await normalizeRiderSource({sourceText:rider.source_text,talentName:submission?.name||talent?.name||null,category:submission?.category||null});
+  const{data,error}=await s.rpc("ns_replace_current_rider_normalization_v1",{p_talent_id:talentId,p_normalized_data:result.normalized,p_missing_questions:result.questions});
+  if(error)return NextResponse.json({error:error.message},{status:rpcStatus(error.message)});
+  return NextResponse.json(data??{ok:true});
+ }
  if(action==="approve_rider"){const{data,error}=await s.rpc("ns_approve_talent_rider_v1",{p_talent_id:talentId});if(error)return NextResponse.json({error:error.message},{status:rpcStatus(error.message)});return NextResponse.json(data??{ok:true})}
  if(action==="reject_profile"){const rejectionNote=typeof body?.rejectionNote==="string"&&body.rejectionNote.trim()?body.rejectionNote.trim():"Perlu revisi";const{data,error}=await s.rpc("ns_reject_talent_profile_v1",{p_talent_id:talentId,p_rejection_note:rejectionNote});if(error)return NextResponse.json({error:error.message},{status:rpcStatus(error.message)});return NextResponse.json(data??{ok:true})}
  if(action==="approve_profile"){const{data,error}=await s.rpc("ns_approve_talent_profile_v1",{p_talent_id:talentId});if(error)return NextResponse.json({error:error.message},{status:rpcStatus(error.message)});return NextResponse.json(data??{ok:true})}
