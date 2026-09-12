@@ -8,7 +8,11 @@ function requestedGender(b:StructuredBrief):"female"|"male"|null{const t=n([b.ta
 function tokens(v:string[]){return new Set(v.flatMap(x=>n(x).split(/[^a-z0-9&]+/i)).map(x=>x.trim()).filter(x=>x.length>1))}
 function coverage(a:string[],b:string[]){if(!b.length)return null;const aa=tokens(a),bb=[...tokens(b)];if(!bb.length)return null;return bb.filter(x=>aa.has(x)).length/bb.length}
 function intersects(a:string[],b:string[]){const aa=tokens(a);return[...tokens(b)].some(x=>aa.has(x))}
-function genreOnly(values:string[]){return values.filter(value=>!/(^|\b)(acoustic|akustik|full band|semi acoustic|playback|upbeat|singalong|party|high energy|danceable|elegant|warm|chill|romantic)(\b|$)/i.test(value))}
+function genreOnly(values:string[]){return values.filter(value=>{
+ const normalized=n(value).replace(/[._-]+/g," ").replace(/\s+/g," ").trim();
+ if(/^(any|all|bebas|apa saja|semua genre|no preference|tidak ada preferensi)$/.test(normalized))return false;
+ return!/(^|\b)(acoustic|akustik|full band|semi acoustic|playback|upbeat|singalong|party|high energy|danceable|elegant|warm|chill|romantic)(\b|$)/i.test(value);
+})}
 function isCoverCapable(t:EngineTalent){return t.actType==="cover_performer"||t.actType==="mixed"||(t.actType==="original_artist"&&t.willingToPerformCovers===true)}
 function isOriginalCapable(t:EngineTalent){return t.actType==="original_artist"||t.actType==="mixed"}
 
