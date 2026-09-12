@@ -193,15 +193,33 @@ export async function POST(request: Request) {
     );
     if (!requestedTalent) await persistMatchSnapshot(persisted.id, matches);
 
-    // Discovery candidates are internal curation input only. Buyer-facing options
-    // are shown later, after admin selection and live talent/manager confirmation.
+    // The matching snapshot remains the operational source of truth. A small,
+    // buyer-safe projection is also returned so discovery briefs can show useful
+    // preliminary options immediately without exposing internal scoring details.
+    const candidates = requestedTalent ? [] : matches.slice(0, 3).map((match) => ({
+      id: match.talent.id,
+      name: match.talent.name,
+      category: match.talent.category,
+      baseCity: match.talent.baseCity,
+      feeMin: match.talent.budgetMin,
+      feeMax: match.talent.budgetMax,
+      tier: match.tier,
+      availabilityStatus: match.availabilityStatus,
+      requiresLiveConfirmation: match.requiresLiveConfirmation,
+    }));
+
     return NextResponse.json({
       ok: true,
       received: true,
       briefId: persisted.id,
       requestMode,
       requestedTalent: requestedTalent ? { id: requestedTalent.id, name: requestedTalent.name } : null,
-      nextStep: requestedTalent ? "live_talent_confirmation" : "admin_curation",
+      candidates,
+      nextStep: requestedTalent
+        ? "live_talent_confirmation"
+        : candidates.length
+          ? "candidate_review"
+          : "admin_curation",
     }, { status: 201 });
   } catch (error) {
     console.error("Public brief submission failed", error instanceof Error ? error.message : String(error));
