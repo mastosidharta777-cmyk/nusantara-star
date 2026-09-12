@@ -28,7 +28,10 @@ export function availabilityConfidence(talent: EngineTalent, eventDate: string |
   let score = 0;
   if (status === "available") score = 100;
   else if (status === "tentative") score = 55;
-  else score = 35;
+  // A missing date entry is unknown, not negative evidence. Keep it below a
+  // tentative slot, but neutral enough that an otherwise valid candidate can
+  // still be shown with mandatory live confirmation.
+  else score = 45;
 
   if (freshness === "needs_confirmation") score = Math.min(score, 60);
   if (freshness === "stale") score = Math.min(score, 30);
