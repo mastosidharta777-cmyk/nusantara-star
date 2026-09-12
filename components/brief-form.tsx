@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { CheckCircle2, Send } from "lucide-react";
 import type { Locale } from "@/lib/i18n";
@@ -24,6 +25,17 @@ type SubmitResponse = {
   requestedTalent?: { id: string; name: string } | null;
   candidates?: DiscoveryCandidate[];
   nextStep?: "admin_curation" | "candidate_review" | "live_talent_confirmation";
+};
+type SourceBrief = {
+  eventType: string;
+  eventDate: string;
+  city: string;
+  venue: string;
+  audienceSize: number | null;
+  category: string;
+  genreStyle: string[];
+  budget: string;
+  duration: string;
 };
 
 type FieldProps = {
@@ -61,7 +73,8 @@ function formatFeeRange(candidate: DiscoveryCandidate, locale: Locale) {
   return `${formatter.format(candidate.feeMin)} – ${formatter.format(candidate.feeMax)}`;
 }
 
-export function BriefForm({ locale, copy: t, selectedTalent = null, initialCategory, initialResult = null }: { locale: Locale; copy: C; selectedTalent?: SelectedTalent; initialCategory?: string; initialResult?: SubmitResponse | null }) {
+export function BriefForm({ locale, copy: t, selectedTalent = null, initialCategory, initialResult = null, sourceBriefId = null, sourceBrief = null }: { locale: Locale; copy: C; selectedTalent?: SelectedTalent; initialCategory?: string; initialResult?: SubmitResponse | null; sourceBriefId?: string | null; sourceBrief?: SourceBrief | null }) {
+  const router = useRouter();
   const id = locale === "id";
   const isSelectedInquiry = Boolean(selectedTalent);
   const [result, setResult] = useState<SubmitResponse | null>(initialResult);
@@ -92,6 +105,7 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
       notes: value("notes"),
       website: value("website"),
       requestedTalentId: selectedTalent?.id ?? "",
+      sourceBriefId: sourceBriefId ?? "",
     };
 
     try {
@@ -111,7 +125,7 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
       };
       setResult(nextResult);
       if (!isSelectedInquiry && nextResult.briefId) {
-        window.history.replaceState(null, "", `/${locale}/brief?ref=${nextResult.briefId}`);
+        router.replace(`/${locale}/brief?ref=${nextResult.briefId}`, { scroll: false });
       }
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
@@ -142,7 +156,7 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
             <p className="mt-6 max-w-2xl text-sm leading-7 text-black/55">{id ? "Ketersediaan dan penawaran belum final. Nusantara Star akan melakukan live confirmation dengan talent/manager berdasarkan tanggal, lokasi, format penampilan, durasi, kebutuhan acara, dan budget yang Anda kirim." : "Availability and pricing are not final yet. Nusantara Star will confirm directly with the talent/manager based on your event date, location, performance format, duration, requirements and submitted budget."}</p>
             {result.briefId ? <p className="mt-6 text-xs text-black/40">{id ? "Referensi" : "Reference"}: {result.briefId}</p> : null}
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link href={`/${locale}/talent/${selectedTalent?.id}`} className="border border-black px-5 py-3 text-xs font-bold uppercase tracking-[.1em]">{id ? "Kembali ke profil" : "Back to profile"}</Link>
+              <Link href={`/${locale}/talent/${selectedTalent?.id}${sourceBriefId ? `?briefRef=${encodeURIComponent(sourceBriefId)}` : ""}`} className="border border-black px-5 py-3 text-xs font-bold uppercase tracking-[.1em]">{id ? "Kembali ke profil" : "Back to profile"}</Link>
               <Link href={`/${locale}/talent`} className="bg-ink px-5 py-3 text-xs font-bold uppercase tracking-[.1em] text-white">{id ? "Lihat talent lain" : "Browse other talent"}</Link>
             </div>
           </div>
@@ -186,7 +200,10 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
                     </div>
                     <div className="mt-5 border-t border-black/10 pt-4">
                       <p className="text-xs leading-6 text-black/55">{id ? "Availability untuk tanggal acara belum final dan wajib dikonfirmasi langsung." : "Availability for the event date is not final and must be confirmed directly."}</p>
-                      <Link href={`/${locale}/talent/${candidate.id}`} className="mt-4 inline-block border border-black px-4 py-2 text-[10px] font-bold uppercase tracking-[.1em]">{id ? "Lihat profil" : "View profile"}</Link>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Link href={`/${locale}/brief?talent=${candidate.id}${result.briefId ? `&ref=${encodeURIComponent(result.briefId)}` : ""}`} className="inline-block bg-ink px-4 py-2 text-[10px] font-bold uppercase tracking-[.1em] text-white">{id ? "Cek ketersediaan" : "Check availability"}</Link>
+                        <Link href={`/${locale}/talent/${candidate.id}${result.briefId ? `?briefRef=${encodeURIComponent(result.briefId)}` : ""}`} className="inline-block border border-black px-4 py-2 text-[10px] font-bold uppercase tracking-[.1em]">{id ? "Lihat profil" : "View profile"}</Link>
+                      </div>
                     </div>
                   </article>
                 ))}
@@ -196,7 +213,7 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
             {result.briefId ? <p className="mt-6 text-xs text-black/40">{id ? "Referensi" : "Reference"}: {result.briefId}</p> : null}
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href={`/${locale}/talent`} className="bg-ink px-5 py-3 text-xs font-bold uppercase tracking-[.1em] text-white">{id ? "Jelajahi talent" : "Browse talent"}</Link>
-              <button type="button" onClick={() => { setResult(null); window.history.replaceState(null, "", `/${locale}/brief`); }} className="border border-black px-5 py-3 text-xs font-bold uppercase tracking-[.1em]">{id ? "Ubah brief" : "Edit brief"}</button>
+              <button type="button" onClick={() => { setResult(null); router.replace(`/${locale}/brief`, { scroll: false }); }} className="border border-black px-5 py-3 text-xs font-bold uppercase tracking-[.1em]">{id ? "Ubah brief" : "Edit brief"}</button>
             </div>
           </div>
         </div>
@@ -223,32 +240,55 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
 
         <form onSubmit={submitBrief} className="space-y-14 bg-white p-6 shadow-[0_20px_70px_rgba(0,0,0,.06)] md:p-12">
           <input name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="hidden"/>
-          <fieldset>
-            <legend className="mb-7 font-display text-3xl">01. {t.contact}</legend>
-            <div className="grid gap-6 md:grid-cols-2">
-              <Field label={id ? "Nama" : "Name"} name="name" required/>
-              <Field label={id ? "Perusahaan" : "Company"} name="company"/>
-              <Field label="WhatsApp" name="whatsapp" required/>
-              <Field label="Email" name="email" type="email" required/>
-            </div>
-          </fieldset>
-          <fieldset>
-            <legend className="mb-7 font-display text-3xl">02. {t.event}</legend>
-            <div className="grid gap-6 md:grid-cols-2">
-              <Field label={id ? "Jenis acara" : "Event type"} name="eventType" required options={["Corporate event", "Brand activation", "Wedding", "Festival", "Private event", "Other"]}/>
-              <Field label={id ? "Tanggal acara" : "Event date"} name="date" type="date" required/>
-              <Field label={id ? "Kota" : "City"} name="city" required/>
-              <Field label="Venue" name="venue"/>
-              <Field label={id ? "Jumlah audiens" : "Audience size"} name="audience" type="number"/>
-            </div>
-          </fieldset>
+          {sourceBriefId && sourceBrief ? (
+            <>
+              <fieldset>
+                <legend className="mb-7 font-display text-3xl">01. {t.contact}</legend>
+                <div className="border border-emerald-700/20 bg-emerald-50 p-4 text-sm leading-6 text-emerald-900">{id ? "Kontak dari brief sebelumnya akan digunakan otomatis. Anda tidak perlu mengisi ulang nama, WhatsApp, atau email." : "Contact details from your previous brief will be reused automatically. You do not need to enter them again."}</div>
+              </fieldset>
+              <fieldset>
+                <legend className="mb-7 font-display text-3xl">02. {t.event}</legend>
+                <div className="grid gap-4 border border-black/10 bg-paper p-5 text-sm md:grid-cols-2">
+                  <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">{id ? "Jenis acara" : "Event type"}</span><strong>{sourceBrief.eventType}</strong></div>
+                  <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">{id ? "Tanggal" : "Date"}</span><strong>{sourceBrief.eventDate}</strong></div>
+                  <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">{id ? "Kota" : "City"}</span><strong>{sourceBrief.city}</strong></div>
+                  <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">Venue</span><strong>{sourceBrief.venue}</strong></div>
+                  <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">{id ? "Jumlah audiens" : "Audience size"}</span><strong>{sourceBrief.audienceSize ?? "Belum ditentukan"}</strong></div>
+                  <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">Budget</span><strong>{sourceBrief.budget}</strong></div>
+                  <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">{id ? "Durasi" : "Duration"}</span><strong>{sourceBrief.duration}</strong></div>
+                </div>
+              </fieldset>
+            </>
+          ) : (
+            <>
+              <fieldset>
+                <legend className="mb-7 font-display text-3xl">01. {t.contact}</legend>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Field label={id ? "Nama" : "Name"} name="name" required/>
+                  <Field label={id ? "Perusahaan" : "Company"} name="company"/>
+                  <Field label="WhatsApp" name="whatsapp" required/>
+                  <Field label="Email" name="email" type="email" required/>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend className="mb-7 font-display text-3xl">02. {t.event}</legend>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Field label={id ? "Jenis acara" : "Event type"} name="eventType" required options={["Corporate event", "Brand activation", "Wedding", "Festival", "Private event", "Other"]}/>
+                  <Field label={id ? "Tanggal acara" : "Event date"} name="date" type="date" required/>
+                  <Field label={id ? "Kota" : "City"} name="city" required/>
+                  <Field label="Venue" name="venue"/>
+                  <Field label={id ? "Jumlah audiens" : "Audience size"} name="audience" type="number"/>
+                </div>
+              </fieldset>
+            </>
+          )}
           {isSelectedInquiry ? (
             <fieldset>
               <legend className="mb-7 font-display text-3xl">03. {id ? "Detail permintaan" : "Request details"}</legend>
               <div className="grid gap-6 md:grid-cols-2">
                 {selectedTalent?.performanceFormats.length ? <Field label={id ? "Format penampilan" : "Performance format"} name="performanceFormat" required options={selectedTalent.performanceFormats}/> : null}
-                <Field label={id ? "Budget yang disiapkan untuk talent" : "Budget allocated for talent"} name="budget" required options={["< Rp10 jt", "Rp10–25 jt", "Rp25–50 jt", "Rp50–100 jt", "Rp100 jt+"]}/>
-                <Field label={id ? "Durasi tampil" : "Performance duration"} name="duration" options={["15–30 minutes", "30–60 minutes", "60–90 minutes", "90+ minutes"]}/>
+                {!sourceBriefId ? <Field label={id ? "Budget yang disiapkan untuk talent" : "Budget allocated for talent"} name="budget" required options={["< Rp10 jt", "Rp10–25 jt", "Rp25–50 jt", "Rp50–100 jt", "Rp100 jt+"]}/> : null}
+                {!sourceBriefId ? <Field label={id ? "Durasi tampil" : "Performance duration"} name="duration" options={["15–30 minutes", "30–60 minutes", "60–90 minutes", "90+ minutes"]}/> : null}
                 <Field label={id ? "Kebutuhan / catatan tambahan" : "Requirements / additional notes"} name="notes" area/>
               </div>
             </fieldset>
