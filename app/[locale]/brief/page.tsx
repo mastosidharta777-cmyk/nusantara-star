@@ -11,7 +11,8 @@ export default async function BriefPage({ params, searchParams }: { params: Prom
   if (!isLocale(locale)) notFound();
 
   const query = await searchParams;
-  const initialResult = query.ref ? await loadPublicBriefResult(query.ref) : null;
+  const referencedBrief = query.ref ? await loadPublicBriefResult(query.ref) : null;
+  const initialResult = query.talent ? null : referencedBrief;
   const candidate = query.talent ? await loadPublicTalent(query.talent) : null;
   const selectedTalent = candidate && !candidate.id.startsWith("demo-")
     ? {
@@ -23,5 +24,14 @@ export default async function BriefPage({ params, searchParams }: { params: Prom
     : null;
   const initialCategory = query.category ? categoryDefaults[query.category] : undefined;
 
-  return <BriefForm locale={locale} copy={copy[locale].brief} selectedTalent={selectedTalent} initialCategory={initialCategory} initialResult={initialResult}/>;
+  return <BriefForm
+    key={`${query.talent ?? "discovery"}:${query.ref ?? "new"}`}
+    locale={locale}
+    copy={copy[locale].brief}
+    selectedTalent={selectedTalent}
+    initialCategory={initialCategory}
+    initialResult={initialResult}
+    sourceBriefId={query.talent ? referencedBrief?.briefId ?? null : null}
+    sourceBrief={query.talent ? referencedBrief?.brief ?? null : null}
+  />;
 }
