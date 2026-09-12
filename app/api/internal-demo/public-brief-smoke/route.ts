@@ -34,19 +34,19 @@ export async function GET() {
       .from("talents")
       .insert({
         name: talentMarker,
-        category: "singer",
-        genres: ["pop"],
-        music_styles: ["pop"],
+        category: "Band",
+        genres: ["Pop", "Jazz"],
+        music_styles: ["Pop", "Jazz"],
         vibe_tags: ["corporate"],
         capability_tags: [],
         base_city: "Jakarta",
         service_cities: ["Jakarta"],
-        performance_formats: ["solo"],
-        event_types: ["corporate"],
+        performance_formats: ["Full Band"],
+        event_types: [],
         audience_tags: ["corporate"],
-        budget_min: 10000000,
-        budget_max: 15000000,
-        reliability_score: 90,
+        budget_min: 90000000,
+        budget_max: 130000000,
+        reliability_score: 70,
         last_calendar_updated_at: new Date().toISOString(),
         status: "verified",
         onboarding_status: "approved",
@@ -56,14 +56,6 @@ export async function GET() {
       .single();
     if (talentError || !talent?.id) throw new Error(`QA talent insert failed: ${talentError?.message ?? "missing id"}`);
     talentId = String(talent.id);
-
-    const { error: availabilityError } = await supabase.from("talent_availability").insert({
-      talent_id: talentId,
-      event_date: eventDate,
-      status: "available",
-      notes: "Temporary launch-readiness QA talent; automatic cleanup",
-    });
-    if (availabilityError) throw new Error(`QA availability insert failed: ${availabilityError.message}`);
 
     const request = new Request("https://preview.local/api/brief", {
       method: "POST",
@@ -78,9 +70,9 @@ export async function GET() {
         city: "Jakarta",
         venue: "Preview QA Venue",
         audience: "250",
-        category: "Singer",
-        genre: "Pop",
-        budget: "Rp10–25 jt",
+        category: "Band",
+        genre: "apa saja",
+        budget: "Rp50–100 jt",
         duration: "30–60 minutes",
         notes: "Controlled launch readiness smoke test",
         website: "",
@@ -94,7 +86,7 @@ export async function GET() {
       briefId?: string;
       requestMode?: string;
       nextStep?: string;
-      recommendations?: unknown;
+      candidates?: Array<Record<string, unknown>>;
       error?: string;
     } | null;
     if (!response.ok || !payload?.briefId) {
@@ -123,8 +115,9 @@ export async function GET() {
     const checks = {
       submissionAccepted: payload.ok === true && payload.received === true,
       discoveryMode: payload.requestMode === "discovery",
-      curationHandoff: payload.nextStep === "admin_curation",
-      publicRecommendationsWithheld: !("recommendations" in payload),
+      candidateReviewHandoff: payload.nextStep === "candidate_review",
+      buyerSafeCandidateReturned: payload.candidates?.some((item) => item.id === talentId) === true,
+      internalScoringWithheld: payload.candidates?.every((item) => !("score" in item) && !("reasons" in item)) === true,
       contactPersisted:
         row?.buyer_name === marker &&
         row?.buyer_company === "Nusantara Star QA" &&
@@ -133,6 +126,9 @@ export async function GET() {
       sourceTextExcludesContact: Boolean(row?.source_text) && !String(row.source_text).includes(marker) && !String(row.source_text).includes(email),
       briefStartsNew: row?.status === "new",
       qaTalentMatchedInternally: Boolean(qaMatch),
+      unknownAvailabilityStillRequiresConfirmation:
+        payload.candidates?.find((item) => item.id === talentId)?.availabilityStatus === "unknown" &&
+        payload.candidates?.find((item) => item.id === talentId)?.requiresLiveConfirmation === true,
       frozenMatchSnapshot: Boolean(qaMatch?.engine_version && qaMatch?.generated_at),
     };
 
