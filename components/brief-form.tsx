@@ -61,10 +61,10 @@ function formatFeeRange(candidate: DiscoveryCandidate, locale: Locale) {
   return `${formatter.format(candidate.feeMin)} – ${formatter.format(candidate.feeMax)}`;
 }
 
-export function BriefForm({ locale, copy: t, selectedTalent = null, initialCategory }: { locale: Locale; copy: C; selectedTalent?: SelectedTalent; initialCategory?: string }) {
+export function BriefForm({ locale, copy: t, selectedTalent = null, initialCategory, initialResult = null }: { locale: Locale; copy: C; selectedTalent?: SelectedTalent; initialCategory?: string; initialResult?: SubmitResponse | null }) {
   const id = locale === "id";
   const isSelectedInquiry = Boolean(selectedTalent);
-  const [result, setResult] = useState<SubmitResponse | null>(null);
+  const [result, setResult] = useState<SubmitResponse | null>(initialResult);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -102,13 +102,17 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(data?.error ?? (id ? "Permintaan gagal dikirim" : "Request submission failed"));
-      setResult({
+      const nextResult: SubmitResponse = {
         ok: true,
         briefId: data?.briefId,
         requestedTalent: data?.requestedTalent ?? null,
         candidates: Array.isArray(data?.candidates) ? data.candidates : [],
         nextStep: data?.nextStep,
-      });
+      };
+      setResult(nextResult);
+      if (!isSelectedInquiry && nextResult.briefId) {
+        window.history.replaceState(null, "", `/${locale}/brief?ref=${nextResult.briefId}`);
+      }
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       setError(err instanceof Error ? err.message : (id ? "Permintaan gagal dikirim" : "Request submission failed"));
@@ -192,7 +196,7 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
             {result.briefId ? <p className="mt-6 text-xs text-black/40">{id ? "Referensi" : "Reference"}: {result.briefId}</p> : null}
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href={`/${locale}/talent`} className="bg-ink px-5 py-3 text-xs font-bold uppercase tracking-[.1em] text-white">{id ? "Jelajahi talent" : "Browse talent"}</Link>
-              <button type="button" onClick={() => setResult(null)} className="border border-black px-5 py-3 text-xs font-bold uppercase tracking-[.1em]">{id ? "Ubah brief" : "Edit brief"}</button>
+              <button type="button" onClick={() => { setResult(null); window.history.replaceState(null, "", `/${locale}/brief`); }} className="border border-black px-5 py-3 text-xs font-bold uppercase tracking-[.1em]">{id ? "Ubah brief" : "Edit brief"}</button>
             </div>
           </div>
         </div>
