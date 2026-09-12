@@ -38,7 +38,34 @@ export type PublicBriefResult = {
   briefId: string;
   candidates: PublicBriefCandidate[];
   nextStep: "candidate_review" | "admin_curation";
+  brief: {
+    eventType: string;
+    eventDate: string;
+    city: string;
+    venue: string;
+    audienceSize: number | null;
+    category: string;
+    genreStyle: string[];
+    budget: string;
+    duration: string;
+  };
 };
+
+function budgetLabel(row: BriefRow) {
+  if (row.budget_min == null && row.budget_max === 10_000_000) return "< Rp10 jt";
+  if (row.budget_min === 10_000_000 && row.budget_max === 25_000_000) return "Rp10–25 jt";
+  if (row.budget_min === 25_000_000 && row.budget_max === 50_000_000) return "Rp25–50 jt";
+  if (row.budget_min === 50_000_000 && row.budget_max === 100_000_000) return "Rp50–100 jt";
+  if (row.budget_min === 100_000_000 && row.budget_max == null) return "Rp100 jt+";
+  return "Belum ditentukan";
+}
+
+function durationLabel(minutes: number | null) {
+  if (minutes === 30) return "15–30 menit";
+  if (minutes === 60) return "30–60 menit";
+  if (minutes === 90) return "60–90 menit";
+  return "Belum ditentukan";
+}
 
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -97,5 +124,16 @@ export async function loadPublicBriefResult(briefId: string): Promise<PublicBrie
     briefId: data.id,
     candidates,
     nextStep: candidates.length ? "candidate_review" : "admin_curation",
+    brief: {
+      eventType: data.event_type ?? "Belum ditentukan",
+      eventDate: data.event_date ?? "Belum ditentukan",
+      city: data.city ?? "Belum ditentukan",
+      venue: data.venue ?? "Belum ditentukan",
+      audienceSize: data.audience_size,
+      category: data.talent_category ?? "Belum ditentukan",
+      genreStyle: data.genre_style ?? [],
+      budget: budgetLabel(data as BriefRow),
+      duration: durationLabel(data.performance_duration_minutes),
+    },
   };
 }
