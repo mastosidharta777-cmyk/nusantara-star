@@ -8,7 +8,12 @@ type Rider={version_no:number;source_filename?:string|null;missing_questions?:Qu
 export function TalentRiderCompletion({talentId,token}:{talentId:string;token:string}){
   const[rider,setRider]=useState<Rider|null>(null);const[answers,setAnswers]=useState<Record<string,string>>({});const[editable,setEditable]=useState(true);const[busy,setBusy]=useState(false);const[error,setError]=useState("");const[message,setMessage]=useState("");const[migrationRequired,setMigrationRequired]=useState(false);
   async function load(){const r=await fetch(`/api/talent-onboarding/rider-status?talentId=${encodeURIComponent(talentId)}&token=${encodeURIComponent(token)}`,{cache:"no-store"});const d=await r.json().catch(()=>null);if(!r.ok)throw new Error(d?.detail??d?.error??"Gagal memuat status rider");setMigrationRequired(Boolean(d.migrationRequired));setRider(d.rider??null);setAnswers(d.rider?.answers??{});setEditable(d.editable!==false)}
-  useEffect(()=>{load().catch(e=>setError(e.message))},[]);
+  useEffect(()=>{
+    const sync=()=>load().catch(e=>setError(e.message));
+    sync();
+    window.addEventListener("ns:onboarding-state-changed",sync);
+    return()=>window.removeEventListener("ns:onboarding-state-changed",sync);
+  },[]);
   async function submit(){setBusy(true);setError("");setMessage("");try{const r=await fetch("/api/talent-onboarding/rider-status",{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({talentId,token,answers})});const d=await r.json().catch(()=>null);if(!r.ok)throw new Error(d?.detail??d?.error??"Gagal menyimpan jawaban rider");setRider(d.rider);setAnswers(d.rider?.answers??answers);setMessage(d.rider?.missing_questions?.length?"Jawaban tersimpan. Masih ada informasi dasar yang perlu dilengkapi.":"")}catch(e){setError(e instanceof Error?e.message:"Gagal menyimpan jawaban rider")}finally{setBusy(false)}}
   if(migrationRequired||!rider)return null;
   const questions=rider.missing_questions??[];
