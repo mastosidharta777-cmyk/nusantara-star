@@ -7,11 +7,23 @@ import type { Locale } from "@/lib/i18n";
 
 type C = { eyebrow: string; title: string; body: string; contact: string; event: string; talent: string; submit: string; note: string; success: string };
 type SelectedTalent = { id: string; name: string; category: string; performanceFormats: string[] } | null;
+type DiscoveryCandidate = {
+  id: string;
+  name: string;
+  category: string;
+  baseCity: string;
+  feeMin: number;
+  feeMax: number;
+  tier: "strong_match" | "acceptable_alternative";
+  availabilityStatus: "available" | "tentative" | "booked" | "unavailable" | "unknown";
+  requiresLiveConfirmation: boolean;
+};
 type SubmitResponse = {
   ok: true;
   briefId?: string;
   requestedTalent?: { id: string; name: string } | null;
-  nextStep?: "admin_curation" | "live_talent_confirmation";
+  candidates?: DiscoveryCandidate[];
+  nextStep?: "admin_curation" | "candidate_review" | "live_talent_confirmation";
 };
 
 type FieldProps = {
@@ -39,6 +51,15 @@ const Field = ({ label, name, type = "text", required = false, options, area = f
     )}
   </label>
 );
+
+function formatFeeRange(candidate: DiscoveryCandidate, locale: Locale) {
+  const formatter = new Intl.NumberFormat(locale === "id" ? "id-ID" : "en-US", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0,
+  });
+  return `${formatter.format(candidate.feeMin)} – ${formatter.format(candidate.feeMax)}`;
+}
 
 export function BriefForm({ locale, copy: t, selectedTalent = null, initialCategory }: { locale: Locale; copy: C; selectedTalent?: SelectedTalent; initialCategory?: string }) {
   const id = locale === "id";
@@ -85,6 +106,7 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
         ok: true,
         briefId: data?.briefId,
         requestedTalent: data?.requestedTalent ?? null,
+        candidates: Array.isArray(data?.candidates) ? data.candidates : [],
         nextStep: data?.nextStep,
       });
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -126,15 +148,47 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
   }
 
   if (result) {
+    const candidates = result.candidates ?? [];
+    const hasCandidates = candidates.length > 0;
     return (
       <section className="px-5 py-16 md:px-10 md:py-24">
         <div className="mx-auto max-w-[820px]">
           <div className="border border-black/15 bg-white p-7 md:p-10">
             <CheckCircle2 size={36} className="text-ember"/>
             <p className="eyebrow mt-6">{id ? "Brief diterima" : "Brief received"}</p>
-            <h1 className="mt-4 font-display text-4xl leading-tight md:text-6xl">{id ? "Brief Anda sudah masuk ke tim Nusantara Star." : "Your brief is now with the Nusantara Star team."}</h1>
-            <p className="mt-6 max-w-2xl text-sm leading-7 text-black/55">{id ? "Tim kami akan meninjau kebutuhan acara, memilih kandidat yang paling sesuai, lalu melakukan konfirmasi langsung mengenai ketersediaan, fee acara, rider, dan ketentuan. Setelah itu Anda akan menerima pilihan talent yang sudah dikurasi." : "Our team will review your event needs, select the best-fit candidates, then confirm availability, event-specific fees, rider requirements and terms directly. You will then receive a curated set of talent options."}</p>
-            <p className="mt-4 max-w-2xl text-sm font-semibold text-black/65">{id ? "Belum ada talent yang dikonfirmasi atau dibooking pada tahap ini." : "No talent is confirmed or booked at this stage."}</p>
+            <h1 className="mt-4 font-display text-4xl leading-tight md:text-6xl">{hasCandidates
+              ? (id ? "Kandidat awal sudah ditemukan untuk acara Anda." : "Preliminary candidates found for your event.")
+              : (id ? "Brief Anda sudah masuk ke tim Nusantara Star." : "Your brief is now with the Nusantara Star team.")}</h1>
+            <p className="mt-6 max-w-2xl text-sm leading-7 text-black/55">{hasCandidates
+              ? (id ? "Pilihan ini dicocokkan otomatis dari kategori, kota, kebutuhan acara, dan budget yang Anda kirim. Kisaran fee berasal dari data indikatif talent; availability pada tanggal acara, rider, ketentuan, dan penawaran final tetap dikonfirmasi langsung dengan talent/manager." : "These options were matched automatically from your category, city, event needs and budget. Fee ranges come from each talent's indicative data; date-specific availability, rider, terms and the final offer still require direct confirmation with the talent/manager.")
+              : (id ? "Belum ada kandidat yang lolos filter otomatis. Tim kami akan meninjau kebutuhan acara dan menyiapkan alternatif yang paling sesuai." : "No candidate passed the automatic filters yet. Our team will review your event needs and prepare the most suitable alternatives.")}</p>
+            {hasCandidates ? (
+              <div className="mt-8 space-y-4">
+                <p className="text-[10px] font-bold uppercase tracking-[.17em] text-black/45">{id ? `${candidates.length} kandidat awal` : `${candidates.length} preliminary candidate${candidates.length === 1 ? "" : "s"}`}</p>
+                {candidates.map((candidate, index) => (
+                  <article key={candidate.id} className="border border-black/15 p-5 md:p-6">
+                    <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[.14em] text-ember">{candidate.tier === "strong_match"
+                          ? (id ? "Paling sesuai" : "Best match")
+                          : (id ? "Alternatif sesuai" : "Suitable alternative")}</p>
+                        <h2 className="mt-2 font-display text-3xl">{index + 1}. {candidate.name}</h2>
+                        <p className="mt-2 text-xs text-black/50">{candidate.category} · {candidate.baseCity}</p>
+                      </div>
+                      <div className="md:text-right">
+                        <p className="text-[10px] font-bold uppercase tracking-[.14em] text-black/40">{id ? "Kisaran fee indikatif" : "Indicative fee range"}</p>
+                        <p className="mt-2 font-semibold">{formatFeeRange(candidate, locale)}</p>
+                      </div>
+                    </div>
+                    <div className="mt-5 border-t border-black/10 pt-4">
+                      <p className="text-xs leading-6 text-black/55">{id ? "Availability untuk tanggal acara belum final dan wajib dikonfirmasi langsung." : "Availability for the event date is not final and must be confirmed directly."}</p>
+                      <Link href={`/${locale}/talent/${candidate.id}`} className="mt-4 inline-block border border-black px-4 py-2 text-[10px] font-bold uppercase tracking-[.1em]">{id ? "Lihat profil" : "View profile"}</Link>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+            <p className="mt-6 max-w-2xl text-sm font-semibold text-black/65">{id ? "Belum ada talent yang dikonfirmasi atau dibooking pada tahap ini." : "No talent is confirmed or booked at this stage."}</p>
             {result.briefId ? <p className="mt-6 text-xs text-black/40">{id ? "Referensi" : "Reference"}: {result.briefId}</p> : null}
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href={`/${locale}/talent`} className="bg-ink px-5 py-3 text-xs font-bold uppercase tracking-[.1em] text-white">{id ? "Jelajahi talent" : "Browse talent"}</Link>
