@@ -36,6 +36,9 @@ type TalentRow = {
   id: string;
   name: string;
   category: string;
+  supply_service_ids: string[] | null;
+  primary_supply_service_id: string | null;
+  supply_other_service: string | null;
   supply_type: SupplyType;
   onboarding_status: string;
   public_visible: boolean;
@@ -58,7 +61,7 @@ export async function loadAdminTalentDetail(talentId: string) {
   if (!supabase) throw new Error("Supabase server environment is not configured");
 
   const [{ data: talent, error: talentError }, { data: policies, error: policyError }, { data: media, error: mediaError }] = await Promise.all([
-    supabase.from("talents").select("id,name,category,supply_type,onboarding_status,public_visible,base_city,budget_min,budget_max,last_calendar_updated_at,status").eq("id", talentId).maybeSingle(),
+    supabase.from("talents").select("id,name,category,supply_service_ids,primary_supply_service_id,supply_other_service,supply_type,onboarding_status,public_visible,base_city,budget_min,budget_max,last_calendar_updated_at,status").eq("id", talentId).maybeSingle(),
     supabase.from("talent_payment_policy_templates").select("*").eq("talent_id", talentId).eq("is_active", true).order("sequence_no", { ascending: true }),
     supabase.from("talent_media").select("*").eq("talent_id", talentId).eq("is_active", true).order("sort_order", { ascending: true }),
   ]);

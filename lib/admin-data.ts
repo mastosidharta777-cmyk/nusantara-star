@@ -6,6 +6,9 @@ type SupplyRow = {
   id: string;
   name: string;
   category: string;
+  supply_service_ids: string[] | null;
+  primary_supply_service_id: string | null;
+  supply_other_service: string | null;
   supply_type: SupplyType;
   onboarding_status: string;
   base_city: string | null;
@@ -76,7 +79,7 @@ export async function loadAdminDashboardData() {
   const [{ data: supplyRows, error: supplyError }, { data: briefs, error: briefError }] = await Promise.all([
     supabase
       .from("talents")
-      .select("id,name,category,supply_type,onboarding_status,base_city,budget_min,budget_max,status,public_visible,last_calendar_updated_at")
+      .select("id,name,category,supply_service_ids,primary_supply_service_id,supply_other_service,supply_type,onboarding_status,base_city,budget_min,budget_max,status,public_visible,last_calendar_updated_at")
       .order("created_at", { ascending: false }),
     supabase
       .from("briefs")
