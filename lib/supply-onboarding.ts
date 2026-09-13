@@ -1,216 +1,65 @@
 export const SUPPLY_TYPES = ["talent", "professional", "production_partner"] as const;
-
 export type SupplyType = (typeof SUPPLY_TYPES)[number];
 export type NonTalentSupplyType = Exclude<SupplyType, "talent">;
 
-export const SUPPLY_TYPE_LABELS: Record<SupplyType, string> = {
-  talent: "Talent",
-  professional: "Professional",
-  production_partner: "Production Partner",
-};
-
+export const SUPPLY_TYPE_LABELS: Record<SupplyType, string> = { talent: "Talent", professional: "Professional", production_partner: "Production Partner" };
+// Kept only for the existing Talent flow and legacy category migration.
 export const SUPPLY_CATEGORIES: Record<SupplyType, readonly string[]> = {
-  talent: [
-    "Solo",
-    "Duo/Trio",
-    "Band",
-    "DJ",
-    "MC/Host",
-    "Speaker",
-    "Traditional/Ethnic",
-    "Specialty Performer",
-  ],
-  professional: [
-    "Music Director",
-    "Music Producer / Arranger",
-    "Session Musician",
-    "FOH / Monitor Engineer",
-    "Stage Manager",
-    "Production Manager",
-    "Show Director",
-    "Photographer",
-    "Videographer / Editor",
-    "Choreographer",
-    "Lighting Designer",
-  ],
-  production_partner: [
-    "Sound System",
-    "Lighting",
-    "Stage / Rigging",
-    "LED / Multimedia",
-    "Backline",
-    "Event Production",
-    "Technical Crew",
-    "Equipment Rental",
-    "Power / Genset",
-    "Transport / Logistics",
-    "Event Equipment",
-  ],
+  talent: ["Solo", "Duo/Trio", "Band", "DJ", "MC/Host", "Speaker", "Traditional/Ethnic", "Specialty Performer"],
+  professional: ["Music Director", "Music Producer / Arranger", "Session Musician", "FOH / Monitor Engineer", "Stage Manager", "Production Manager", "Show Director", "Photographer", "Videographer / Editor", "Choreographer", "Lighting Designer"],
+  production_partner: ["Sound System", "Lighting", "Stage / Rigging", "LED / Multimedia", "Backline", "Event Production", "Technical Crew", "Equipment Rental", "Power / Genset", "Transport / Logistics", "Event Equipment"],
 };
 
-export type SupplyDetailField = {
-  key: string;
-  label: string;
-  placeholder?: string;
-  kind?: "text" | "textarea";
-  required?: boolean;
+export type SupplyServiceOption = { id: string; label: string };
+export const OTHER_SUPPLY_SERVICE_ID = "other";
+const makeOptions = (items: readonly (readonly [string, string])[]): readonly SupplyServiceOption[] => [...items.map(([id, label]) => ({ id, label })), { id: OTHER_SUPPLY_SERVICE_ID, label: "Lainnya" }];
+export const SUPPLY_SERVICE_OPTIONS: Record<NonTalentSupplyType, readonly SupplyServiceOption[]> = {
+  professional: makeOptions([
+    ["music_director", "Music Director"], ["music_producer_arranger", "Music Producer / Arranger"], ["session_musician", "Session Musician"], ["foh_monitor_engineer", "FOH / Monitor Engineer"], ["stage_manager", "Stage Manager"], ["production_manager", "Production Manager"], ["show_director", "Show Director"], ["photographer", "Photographer"], ["videographer_editor", "Videographer / Editor"], ["choreographer", "Choreographer"], ["lighting_designer", "Lighting Designer"],
+  ]),
+  production_partner: makeOptions([
+    ["sound_system", "Sound System"], ["lighting", "Lighting"], ["stage_rigging", "Stage / Rigging"], ["led_multimedia", "LED / Multimedia"], ["backline", "Backline"], ["event_production", "Event Production"], ["technical_crew", "Technical Crew"], ["equipment_rental", "Equipment Rental"], ["power_genset", "Power / Genset"], ["transport_logistics", "Transport / Logistics"], ["event_equipment", "Event Equipment"],
+  ]),
 };
 
+export type SupplyDetailField = { key: string; label: string; placeholder?: string; kind?: "text" | "textarea"; required?: boolean };
 const PROFESSIONAL_FIELDS: Record<string, readonly SupplyDetailField[]> = {
-  "Music Director": [
-    { key: "musicalScope", label: "Lingkup musikal utama", placeholder: "Contoh: pop orchestra, band, acoustic set", required: true },
-    { key: "ensembleScale", label: "Skala ensemble yang biasa ditangani", placeholder: "Contoh: 4–20 musisi" },
-    { key: "rehearsalCapability", label: "Kapabilitas rehearsal / preparation", placeholder: "Contoh: chart, cue, rehearsal planning" },
-  ],
-  "Music Producer / Arranger": [
-    { key: "productionStyles", label: "Gaya produksi / aransemen utama", required: true },
-    { key: "dawTools", label: "DAW / tools utama", placeholder: "Contoh: Pro Tools, Logic, Ableton" },
-    { key: "remoteCapability", label: "Kapabilitas kerja remote", placeholder: "Contoh: stem exchange, remote review" },
-  ],
-  "Session Musician": [
-    { key: "instruments", label: "Instrumen utama", required: true },
-    { key: "readingSkills", label: "Kemampuan membaca chart / notasi", placeholder: "Contoh: chord chart, number system, notation" },
-    { key: "remoteRecording", label: "Kapabilitas remote recording", placeholder: "Studio sendiri / remote stem / tidak tersedia" },
-  ],
-  "FOH / Monitor Engineer": [
-    { key: "consoleExperience", label: "Console yang dikuasai", required: true },
-    { key: "systemExperience", label: "Sistem audio yang biasa ditangani", placeholder: "Contoh: line array, IEM, festival patch" },
-    { key: "showScale", label: "Skala show yang biasa ditangani", placeholder: "Contoh: club, ballroom, festival" },
-  ],
-  "Stage Manager": [
-    { key: "productionScale", label: "Skala produksi yang biasa ditangani", required: true },
-    { key: "cueingSystems", label: "Sistem cue / rundown yang biasa digunakan" },
-    { key: "crewCoordination", label: "Lingkup koordinasi kru", placeholder: "Contoh: stage crew, artist liaison, changeover" },
-  ],
-  "Production Manager": [
-    { key: "projectScale", label: "Skala proyek yang biasa ditangani", required: true },
-    { key: "productionScope", label: "Lingkup produksi", placeholder: "Contoh: technical, vendor, schedule, venue" },
-    { key: "teamCapacity", label: "Ukuran tim yang biasa dikoordinasikan" },
-  ],
-  "Show Director": [
-    { key: "showFormats", label: "Format show utama", required: true },
-    { key: "creativeScope", label: "Lingkup creative/show direction", placeholder: "Contoh: cue, staging, visual, performance flow" },
-    { key: "teamCoordination", label: "Tim yang biasa dikoordinasikan" },
-  ],
-  Photographer: [
-    { key: "photographySpecialties", label: "Spesialisasi fotografi", placeholder: "Contoh: concert, corporate, backstage", required: true },
-    { key: "equipmentSummary", label: "Ringkasan equipment utama", kind: "textarea" },
-    { key: "deliveryCapability", label: "Output / delivery", placeholder: "Contoh: same-day selects, edited gallery" },
-  ],
-  "Videographer / Editor": [
-    { key: "productionSpecialties", label: "Spesialisasi video", placeholder: "Contoh: multicam, aftermovie, vertical content", required: true },
-    { key: "cameraEditingTools", label: "Camera / editing tools utama", kind: "textarea" },
-    { key: "deliverables", label: "Output / deliverables yang biasa dikerjakan" },
-  ],
-  Choreographer: [
-    { key: "danceStyles", label: "Gaya tari / movement utama", required: true },
-    { key: "castScale", label: "Skala cast yang biasa ditangani" },
-    { key: "rehearsalCapability", label: "Kapabilitas rehearsal / staging" },
-  ],
-  "Lighting Designer": [
-    { key: "lightingSystems", label: "Sistem / tipe lighting yang dikuasai", required: true },
-    { key: "consoleSoftware", label: "Console / software utama" },
-    { key: "showScale", label: "Skala show yang biasa ditangani" },
-  ],
+  music_director: [{ key: "musicalScope", label: "Lingkup musikal utama", placeholder: "Contoh: pop orchestra, band, acoustic set", required: true }, { key: "ensembleScale", label: "Skala ensemble yang biasa ditangani", placeholder: "Contoh: 4–20 musisi" }, { key: "rehearsalCapability", label: "Kapabilitas rehearsal / preparation", placeholder: "Contoh: chart, cue, rehearsal planning" }],
+  music_producer_arranger: [{ key: "productionStyles", label: "Gaya produksi / aransemen utama", required: true }, { key: "dawTools", label: "DAW / tools utama", placeholder: "Contoh: Pro Tools, Logic, Ableton" }, { key: "remoteCapability", label: "Kapabilitas kerja remote", placeholder: "Contoh: stem exchange, remote review" }],
+  session_musician: [{ key: "instruments", label: "Instrumen utama", required: true }, { key: "readingSkills", label: "Kemampuan membaca chart / notasi", placeholder: "Contoh: chord chart, number system, notation" }, { key: "remoteRecording", label: "Kapabilitas remote recording", placeholder: "Studio sendiri / remote stem / tidak tersedia" }],
+  foh_monitor_engineer: [{ key: "consoleExperience", label: "Console yang dikuasai", required: true }, { key: "systemExperience", label: "Sistem audio yang biasa ditangani", placeholder: "Contoh: line array, IEM, festival patch" }, { key: "showScale", label: "Skala show yang biasa ditangani", placeholder: "Contoh: club, ballroom, festival" }],
+  stage_manager: [{ key: "productionScale", label: "Skala produksi yang biasa ditangani", required: true }, { key: "cueingSystems", label: "Sistem cue / rundown yang biasa digunakan" }, { key: "crewCoordination", label: "Lingkup koordinasi kru", placeholder: "Contoh: stage crew, artist liaison, changeover" }],
+  production_manager: [{ key: "projectScale", label: "Skala proyek yang biasa ditangani", required: true }, { key: "productionScope", label: "Lingkup produksi", placeholder: "Contoh: technical, vendor, schedule, venue" }, { key: "teamCapacity", label: "Ukuran tim yang biasa dikoordinasikan" }],
+  show_director: [{ key: "showFormats", label: "Format show utama", required: true }, { key: "creativeScope", label: "Lingkup creative/show direction", placeholder: "Contoh: cue, staging, visual, performance flow" }, { key: "teamCoordination", label: "Tim yang biasa dikoordinasikan" }],
+  photographer: [{ key: "photographySpecialties", label: "Spesialisasi fotografi", placeholder: "Contoh: concert, corporate, backstage", required: true }, { key: "equipmentSummary", label: "Ringkasan equipment utama", kind: "textarea" }, { key: "deliveryCapability", label: "Output / delivery", placeholder: "Contoh: same-day selects, edited gallery" }],
+  videographer_editor: [{ key: "productionSpecialties", label: "Spesialisasi video", placeholder: "Contoh: multicam, aftermovie, vertical content", required: true }, { key: "cameraEditingTools", label: "Camera / editing tools utama", kind: "textarea" }, { key: "deliverables", label: "Output / deliverables yang biasa dikerjakan" }],
+  choreographer: [{ key: "danceStyles", label: "Gaya tari / movement utama", required: true }, { key: "castScale", label: "Skala cast yang biasa ditangani" }, { key: "rehearsalCapability", label: "Kapabilitas rehearsal / staging" }],
+  lighting_designer: [{ key: "lightingSystems", label: "Sistem / tipe lighting yang dikuasai", required: true }, { key: "consoleSoftware", label: "Console / software utama" }, { key: "showScale", label: "Skala show yang biasa ditangani" }],
 };
-
-const PARTNER_COMMON: readonly SupplyDetailField[] = [
-  { key: "legalBusinessName", label: "Nama legal perusahaan / pemilik usaha", required: true },
-  { key: "businessType", label: "Bentuk usaha", placeholder: "Contoh: PT, CV, usaha perorangan" },
-  { key: "yearsOperating", label: "Lama beroperasi", placeholder: "Contoh: 7 tahun" },
-  { key: "ownershipModel", label: "Model kepemilikan aset", placeholder: "Owned / mixed / partner network" },
-];
-
+const PARTNER_COMMON: readonly SupplyDetailField[] = [{ key: "legalBusinessName", label: "Nama legal perusahaan / pemilik usaha", required: true }, { key: "businessType", label: "Bentuk usaha", placeholder: "Contoh: PT, CV, usaha perorangan" }, { key: "yearsOperating", label: "Lama beroperasi", placeholder: "Contoh: 7 tahun" }, { key: "ownershipModel", label: "Model kepemilikan aset", placeholder: "Owned / mixed / partner network" }];
 const PARTNER_FIELDS: Record<string, readonly SupplyDetailField[]> = {
-  "Sound System": [
-    { key: "inventorySummary", label: "Ringkasan inventory audio", kind: "textarea", required: true },
-    { key: "capacityScale", label: "Kapasitas / skala layanan", placeholder: "Contoh: ballroom 1.000 pax, outdoor 3.000 pax" },
-    { key: "consoleSystems", label: "Console / system utama" },
-  ],
-  Lighting: [
-    { key: "inventorySummary", label: "Ringkasan inventory lighting", kind: "textarea", required: true },
-    { key: "consoleSystems", label: "Console / control system utama" },
-    { key: "capacityScale", label: "Skala produksi yang biasa ditangani" },
-  ],
-  "Stage / Rigging": [
-    { key: "inventorySummary", label: "Ringkasan stage / rigging inventory", kind: "textarea", required: true },
-    { key: "stageRiggingCapacity", label: "Kapasitas stage / rigging" },
-    { key: "safetyCertification", label: "Sertifikasi / prosedur keselamatan yang relevan" },
-  ],
-  "LED / Multimedia": [
-    { key: "inventorySummary", label: "Ringkasan inventory LED / multimedia", kind: "textarea", required: true },
-    { key: "processorSystems", label: "Processor / playback system utama" },
-    { key: "capacityScale", label: "Ukuran / skala sistem yang biasa disediakan" },
-  ],
-  Backline: [
-    { key: "inventorySummary", label: "Ringkasan inventory backline", kind: "textarea", required: true },
-    { key: "brandsInstruments", label: "Brand / instrumen utama" },
-    { key: "deliverySetup", label: "Kapabilitas delivery / setup" },
-  ],
-  "Event Production": [
-    { key: "productionScope", label: "Lingkup jasa produksi", kind: "textarea", required: true },
-    { key: "crewCapacity", label: "Kapasitas kru internal / network" },
-    { key: "projectScale", label: "Skala proyek yang biasa ditangani" },
-  ],
-  "Technical Crew": [
-    { key: "crewDisciplines", label: "Jenis kru yang tersedia", placeholder: "Contoh: audio, lighting, stagehand, rigger", required: true },
-    { key: "crewCapacity", label: "Jumlah kru yang dapat disediakan" },
-    { key: "certifications", label: "Sertifikasi / kompetensi khusus" },
-  ],
-  "Equipment Rental": [
-    { key: "inventorySummary", label: "Ringkasan inventory rental", kind: "textarea", required: true },
-    { key: "deliverySetup", label: "Delivery / setup support" },
-    { key: "serviceTerms", label: "Model layanan", placeholder: "Dry hire / dengan operator / paket" },
-  ],
-  "Power / Genset": [
-    { key: "inventorySummary", label: "Ringkasan genset / power inventory", kind: "textarea", required: true },
-    { key: "powerCapacity", label: "Rentang kapasitas daya" },
-    { key: "safetyCertification", label: "Sertifikasi / prosedur keselamatan yang relevan" },
-  ],
-  "Transport / Logistics": [
-    { key: "fleetCapacity", label: "Armada / kapasitas logistik", kind: "textarea", required: true },
-    { key: "serviceScope", label: "Lingkup layanan", placeholder: "Artist transport / equipment / trucking" },
-    { key: "permitsInsurance", label: "Perizinan / asuransi yang relevan" },
-  ],
-  "Event Equipment": [
-    { key: "inventorySummary", label: "Ringkasan equipment event", kind: "textarea", required: true },
-    { key: "capacityScale", label: "Kapasitas / skala inventory" },
-    { key: "deliverySetup", label: "Delivery / setup support" },
-  ],
+  sound_system: [{ key: "inventorySummary", label: "Ringkasan inventory audio", kind: "textarea", required: true }, { key: "capacityScale", label: "Kapasitas / skala layanan", placeholder: "Contoh: ballroom 1.000 pax, outdoor 3.000 pax" }, { key: "consoleSystems", label: "Console / system utama" }],
+  lighting: [{ key: "inventorySummary", label: "Ringkasan inventory lighting", kind: "textarea", required: true }, { key: "consoleSystems", label: "Console / control system utama" }, { key: "capacityScale", label: "Skala produksi yang biasa ditangani" }],
+  stage_rigging: [{ key: "inventorySummary", label: "Ringkasan stage / rigging inventory", kind: "textarea", required: true }, { key: "stageRiggingCapacity", label: "Kapasitas stage / rigging" }, { key: "safetyCertification", label: "Sertifikasi / prosedur keselamatan yang relevan" }],
+  led_multimedia: [{ key: "inventorySummary", label: "Ringkasan inventory LED / multimedia", kind: "textarea", required: true }, { key: "processorSystems", label: "Processor / playback system utama" }, { key: "capacityScale", label: "Ukuran / skala sistem yang biasa disediakan" }],
+  backline: [{ key: "inventorySummary", label: "Ringkasan inventory backline", kind: "textarea", required: true }, { key: "brandsInstruments", label: "Brand / instrumen utama" }, { key: "deliverySetup", label: "Kapabilitas delivery / setup" }],
+  event_production: [{ key: "productionScope", label: "Lingkup jasa produksi", kind: "textarea", required: true }, { key: "crewCapacity", label: "Kapasitas kru internal / network" }, { key: "projectScale", label: "Skala proyek yang biasa ditangani" }],
+  technical_crew: [{ key: "crewDisciplines", label: "Jenis kru yang tersedia", placeholder: "Contoh: audio, lighting, stagehand, rigger", required: true }, { key: "crewCapacity", label: "Jumlah kru yang dapat disediakan" }, { key: "certifications", label: "Sertifikasi / kompetensi khusus" }],
+  equipment_rental: [{ key: "inventorySummary", label: "Ringkasan inventory rental", kind: "textarea", required: true }, { key: "deliverySetup", label: "Delivery / setup support" }, { key: "serviceTerms", label: "Model layanan", placeholder: "Dry hire / dengan operator / paket" }],
+  power_genset: [{ key: "inventorySummary", label: "Ringkasan genset / power inventory", kind: "textarea", required: true }, { key: "powerCapacity", label: "Rentang kapasitas daya" }, { key: "safetyCertification", label: "Sertifikasi / prosedur keselamatan yang relevan" }],
+  transport_logistics: [{ key: "fleetCapacity", label: "Armada / kapasitas logistik", kind: "textarea", required: true }, { key: "serviceScope", label: "Lingkup layanan", placeholder: "Artist transport / equipment / trucking" }, { key: "permitsInsurance", label: "Perizinan / asuransi yang relevan" }],
+  event_equipment: [{ key: "inventorySummary", label: "Ringkasan equipment event", kind: "textarea", required: true }, { key: "capacityScale", label: "Kapasitas / skala inventory" }, { key: "deliverySetup", label: "Delivery / setup support" }],
 };
 
-export function isSupplyType(value: unknown): value is SupplyType {
-  return typeof value === "string" && (SUPPLY_TYPES as readonly string[]).includes(value);
-}
-
-export function categoryAllowedForSupply(supplyType: SupplyType, category: unknown) {
-  return typeof category === "string" && SUPPLY_CATEGORIES[supplyType].includes(category.trim());
-}
-
-export function supplyTypeLabel(value: string | null | undefined) {
-  return isSupplyType(value) ? SUPPLY_TYPE_LABELS[value] : "Supply";
-}
-
-export function supplyDetailFields(supplyType: NonTalentSupplyType, category: string): readonly SupplyDetailField[] {
-  if (supplyType === "professional") return PROFESSIONAL_FIELDS[category] ?? [];
-  return [...PARTNER_COMMON, ...(PARTNER_FIELDS[category] ?? [])];
-}
-
-export function sanitizeSupplyDetails(supplyType: NonTalentSupplyType, category: string, value: unknown) {
-  const source = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  const result: Record<string, string> = {};
-  for (const field of supplyDetailFields(supplyType, category)) {
-    const raw = source[field.key];
-    if (typeof raw !== "string") continue;
-    const clean = raw.trim().slice(0, field.kind === "textarea" ? 4000 : 1000);
-    if (clean) result[field.key] = clean;
-  }
-  return result;
-}
-
-export function missingRequiredSupplyDetails(supplyType: NonTalentSupplyType, category: string, value: unknown) {
-  const details = sanitizeSupplyDetails(supplyType, category, value);
-  return supplyDetailFields(supplyType, category)
-    .filter((field) => field.required && !details[field.key])
-    .map((field) => field.label);
-}
+export function isSupplyType(value: unknown): value is SupplyType { return typeof value === "string" && (SUPPLY_TYPES as readonly string[]).includes(value); }
+export function categoryAllowedForSupply(supplyType: SupplyType, category: unknown) { return typeof category === "string" && SUPPLY_CATEGORIES[supplyType].includes(category.trim()); }
+export function supplyTypeLabel(value: string | null | undefined) { return isSupplyType(value) ? SUPPLY_TYPE_LABELS[value] : "Supply"; }
+export function supplyServiceOptions(supplyType: NonTalentSupplyType) { return SUPPLY_SERVICE_OPTIONS[supplyType]; }
+export function supplyServiceLabel(supplyType: NonTalentSupplyType, id: string | null | undefined, other?: string | null) { if (id === OTHER_SUPPLY_SERVICE_ID) return other?.trim() ? `Lainnya: ${other.trim()}` : "Lainnya"; return supplyServiceOptions(supplyType).find((option) => option.id === id)?.label ?? "—"; }
+export function sanitizeSupplyServiceIds(supplyType: NonTalentSupplyType, value: unknown) { if (!Array.isArray(value)) return []; const allowed = new Set(supplyServiceOptions(supplyType).map((option) => option.id)); return Array.from(new Set(value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter((item) => allowed.has(item)))).slice(0, 12); }
+export function legacySupplyServiceState(supplyType: NonTalentSupplyType, category: unknown) { const label = typeof category === "string" ? category.trim() : ""; const known = supplyServiceOptions(supplyType).find((option) => option.label === label); return known ? { serviceIds: [known.id], primaryServiceId: known.id, otherService: "" } : label ? { serviceIds: [OTHER_SUPPLY_SERVICE_ID], primaryServiceId: OTHER_SUPPLY_SERVICE_ID, otherService: label } : { serviceIds: [], primaryServiceId: "", otherService: "" }; }
+export function normalizeSupplyServiceState(supplyType: NonTalentSupplyType, source: { supply_service_ids?: unknown; primary_supply_service_id?: unknown; supply_other_service?: unknown; category?: unknown }) { const knownIds = sanitizeSupplyServiceIds(supplyType, source.supply_service_ids); const legacy = knownIds.length ? null : legacySupplyServiceState(supplyType, source.category); const serviceIds = legacy?.serviceIds ?? knownIds; const requestedPrimary = typeof source.primary_supply_service_id === "string" ? source.primary_supply_service_id : ""; return { serviceIds, primaryServiceId: serviceIds.includes(requestedPrimary) ? requestedPrimary : legacy?.primaryServiceId ?? serviceIds[0] ?? "", otherService: typeof source.supply_other_service === "string" ? source.supply_other_service : legacy?.otherService ?? "" }; }
+export function supplyServiceSummary(supplyType: NonTalentSupplyType, serviceIds: unknown, primaryServiceId: unknown, otherService: unknown) { const ids = sanitizeSupplyServiceIds(supplyType, serviceIds); const primary = typeof primaryServiceId === "string" && ids.includes(primaryServiceId) ? primaryServiceId : ids[0] ?? ""; const other = typeof otherService === "string" ? otherService : ""; return { primary: primary ? supplyServiceLabel(supplyType, primary, other) : "—", additional: ids.filter((id) => id !== primary).map((id) => supplyServiceLabel(supplyType, id, other)) }; }
+export function supplyDetailFields(supplyType: NonTalentSupplyType, primaryServiceId: string | null | undefined): readonly SupplyDetailField[] { return supplyType === "professional" ? PROFESSIONAL_FIELDS[primaryServiceId ?? ""] ?? [] : [...PARTNER_COMMON, ...(PARTNER_FIELDS[primaryServiceId ?? ""] ?? [])]; }
+export function sanitizeSupplyDetails(supplyType: NonTalentSupplyType, primaryServiceId: string | null | undefined, value: unknown) { const source = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; const result: Record<string, string> = {}; for (const field of supplyDetailFields(supplyType, primaryServiceId)) { const raw = source[field.key]; if (typeof raw === "string") { const clean = raw.trim().slice(0, field.kind === "textarea" ? 4000 : 1000); if (clean) result[field.key] = clean; } } return result; }
+export function missingRequiredSupplyDetails(supplyType: NonTalentSupplyType, primaryServiceId: string | null | undefined, value: unknown) { const details = sanitizeSupplyDetails(supplyType, primaryServiceId, value); return supplyDetailFields(supplyType, primaryServiceId).filter((field) => field.required && !details[field.key]).map((field) => field.label); }

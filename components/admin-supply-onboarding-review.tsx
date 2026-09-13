@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { supplyDetailFields, supplyTypeLabel, type SupplyType } from "@/lib/supply-onboarding";
+import { supplyDetailFields, supplyServiceSummary, supplyTypeLabel, type SupplyType } from "@/lib/supply-onboarding";
 
 type ReviewData = {
   supply: {
@@ -90,7 +90,8 @@ export function AdminSupplyOnboardingReview({ supplyId }: { supplyId: string }) 
   const submitted = data?.submission?.status === "submitted";
   const approved = data?.supply.onboarding_status === "approved";
   const label = supplyTypeLabel(data?.supply.supply_type);
-  const detailFields = data?.supply && data?.submission?.category ? supplyDetailFields(data.supply.supply_type, data.submission.category) : [];
+  const services = data?.supply ? supplyServiceSummary(data.supply.supply_type, data?.submission?.supply_service_ids, data?.submission?.primary_supply_service_id, data?.submission?.supply_other_service) : null;
+  const detailFields = data?.supply ? supplyDetailFields(data.supply.supply_type, data?.submission?.primary_supply_service_id) : [];
 
   return (
     <section className="mt-5 border border-black/10 bg-white p-5 md:p-6">
@@ -105,14 +106,15 @@ export function AdminSupplyOnboardingReview({ supplyId }: { supplyId: string }) 
       {data?.submission ? (
         <div className="mt-5 grid gap-4 text-sm md:grid-cols-2">
           <div><b>Nama</b><p>{data.submission.name || "—"}</p></div>
-          <div><b>Kategori</b><p>{data.submission.category || "—"}</p></div>
+          <div><b>Layanan Utama</b><p>{services?.primary || "—"}</p></div>
+          <div><b>Layanan tambahan</b><p>{services?.additional.join(", ") || "—"}</p></div>
           <div><b>Kota basis</b><p>{data.submission.base_city || "—"}</p></div>
           <div><b>Kota layanan</b><p>{list(data.submission.service_cities)}</p></div>
           <div><b>Layanan / format</b><p>{list(data.submission.performance_formats)}</p></div>
           <div><b>Kapabilitas</b><p>{list(data.submission.capability_tags)}</p></div>
           <div className="md:col-span-2"><b>Jenis proyek / acara</b><p>{list(data.submission.event_types)}</p></div>
 
-          {detailFields.length ? <div className="md:col-span-2 border-y border-black/10 py-4"><p className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Detail {data.submission.category}</p><div className="grid gap-4 md:grid-cols-2">{detailFields.map((item) => <div key={item.key} className={item.kind === "textarea" ? "md:col-span-2" : ""}><b>{item.label}</b><p className="mt-1 whitespace-pre-wrap text-black/60">{detailValue(data.submission.supply_details, item.key)}</p></div>)}</div></div> : null}
+          {detailFields.length ? <div className="md:col-span-2 border-y border-black/10 py-4"><p className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Detail layanan utama: {services?.primary}</p><div className="grid gap-4 md:grid-cols-2">{detailFields.map((item) => <div key={item.key} className={item.kind === "textarea" ? "md:col-span-2" : ""}><b>{item.label}</b><p className="mt-1 whitespace-pre-wrap text-black/60">{detailValue(data.submission.supply_details, item.key)}</p></div>)}</div></div> : null}
 
           <div className="md:col-span-2"><b>Profil singkat</b><p className="mt-1 whitespace-pre-wrap text-black/60">{data.submission.bio || "—"}</p></div>
           <div><b>PIC utama</b><p>{data.submission.manager_name || "—"}</p></div>

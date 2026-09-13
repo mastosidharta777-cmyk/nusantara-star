@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { verifyAccessToken } from "@/lib/signed-access";
-import { categoryAllowedForSupply, missingRequiredSupplyDetails, sanitizeSupplyDetails, type NonTalentSupplyType } from "@/lib/supply-onboarding";
+import { OTHER_SUPPLY_SERVICE_ID, missingRequiredSupplyDetails, sanitizeSupplyDetails, sanitizeSupplyServiceIds, type NonTalentSupplyType } from "@/lib/supply-onboarding";
 import { talentOnboardingEditConflict } from "@/lib/talent-onboarding-state";
 
 export const runtime = "nodejs";
@@ -41,7 +41,7 @@ function auth(body: any) {
 async function loadSupply(s: ReturnType<typeof getServerClient>, supplyId: string) {
   const { data, error } = await s
     .from("talents")
-    .select("id,supply_type,name,category,base_city,service_cities,performance_formats,capability_tags,event_types,supply_details,bio,manager_name,manager_email,manager_whatsapp,portfolio_url,booking_limitations,onboarding_status,status")
+    .select("id,supply_type,name,category,supply_service_ids,primary_supply_service_id,supply_other_service,base_city,service_cities,performance_formats,capability_tags,event_types,supply_details,bio,manager_name,manager_email,manager_whatsapp,portfolio_url,booking_limitations,onboarding_status,status")
     .eq("id", supplyId)
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -58,16 +58,13 @@ export async function GET(request: Request) {
     }
     const s = getServerClient();
     const [{ data: supply, error: supplyError }, { data: submission, error: submissionError }] = await Promise.all([
-      s.from("talents").select("id,supply_type,name,category,base_city,service_cities,performance_formats,capability_tags,event_types,supply_details,bio,manager_name,manager_email,manager_whatsapp,portfolio_url,booking_limitations,onboarding_status,status").eq("id", supplyId).maybeSingle(),
+      s.from("talents").select("id,supply_type,name,category,supply_service_ids,primary_supply_service_id,supply_other_service,base_city,service_cities,performance_formats,capability_tags,event_types,supply_details,bio,manager_name,manager_email,manager_whatsapp,portfolio_url,booking_limitations,onboarding_status,status").eq("id", supplyId).maybeSingle(),
       s.from("talent_profile_submissions").select("*").eq("talent_id", supplyId).maybeSingle(),
     ]);
     if (supplyError) throw new Error(supplyError.message);
     if (submissionError) throw new Error(submissionError.message);
     if (!supply || !isNonTalent(supply.supply_type) || supply.status === "inactive") {
       return NextResponse.json({ error: "Profil supply tidak ditemukan" }, { status: 404 });
-    }
-    if (!categoryAllowedForSupply(supply.supply_type, supply.category)) {
-      return NextResponse.json({ error: "Kategori supply tidak valid. Hubungi admin Nusantara Star." }, { status: 409 });
     }
     return NextResponse.json({ ok: true, supply, submission });
   } catch (error) {
@@ -83,7 +80,6 @@ export async function PUT(request: Request) {
     const s = getServerClient();
     const supply = await loadSupply(s, supplyId);
     if (!supply || !isNonTalent(supply.supply_type) || supply.status === "inactive") return NextResponse.json({ error: "Profil supply tidak ditemukan" }, { status: 404 });
-    if (!categoryAllowedForSupply(supply.supply_type, supply.category)) return NextResponse.json({ error: "Kategori supply tidak valid. Hubungi admin Nusantara Star." }, { status: 409 });
     const editConflict = await talentOnboardingEditConflict(s, supplyId);
     if (editConflict) return editConflict;
 
@@ -91,12 +87,19 @@ export async function PUT(request: Request) {
     if (portfolioUrl === undefined) return NextResponse.json({ error: "Link portofolio utama tidak valid" }, { status: 400 });
     const bookingLimitations = text(body?.bookingLimitations);
     if (bookingLimitations && bookingLimitations.length > 2000) return NextResponse.json({ error: "Batasan booking maksimal 2.000 karakter" }, { status: 400 });
-    const supplyDetails = sanitizeSupplyDetails(supply.supply_type, supply.category, body?.supplyDetails);
+    const serviceIds = sanitizeSupplyServiceIds(supply.supply_type, body?.serviceIds);
+    const primaryServiceId = typeof body?.primaryServiceId === "string" && serviceIds.includes(body.primaryServiceId) ? body.primaryServiceId : null;
+    const otherService = text(body?.otherService);
+    if (otherService && otherService.length > 240) return NextResponse.json({ error: "Layanan lainnya maksimal 240 karakter" }, { status: 400 });
+    const supplyDetails = sanitizeSupplyDetails(supply.supply_type, primaryServiceId, body?.supplyDetails);
 
     const payload = {
       talent_id: supplyId,
       name: text(body?.name) ?? "",
       category: supply.category,
+      supply_service_ids: serviceIds,
+      primary_supply_service_id: primaryServiceId,
+      supply_other_service: serviceIds.includes(OTHER_SUPPLY_SERVICE_ID) ? otherService : null,
       base_city: text(body?.baseCity),
       service_cities: textArray(body?.serviceCities),
       performance_formats: textArray(body?.serviceFormats),
@@ -143,8 +146,7 @@ export async function POST(request: Request) {
     const s = getServerClient();
     const supply = await loadSupply(s, supplyId);
     if (!supply || !isNonTalent(supply.supply_type) || supply.status === "inactive") return NextResponse.json({ error: "Profil supply tidak ditemukan" }, { status: 404 });
-    if (!categoryAllowedForSupply(supply.supply_type, supply.category)) return NextResponse.json({ error: "Kategori supply tidak valid. Hubungi admin Nusantara Star." }, { status: 409 });
-    const { data: submission, error } = await s.from("talent_profile_submissions").select("name,category,base_city,performance_formats,capability_tags,supply_details,bio,manager_name,manager_email,manager_whatsapp,portfolio_url,status").eq("talent_id", supplyId).maybeSingle();
+    const { data: submission, error } = await s.from("talent_profile_submissions").select("name,category,supply_service_ids,primary_supply_service_id,supply_other_service,base_city,performance_formats,capability_tags,supply_details,bio,manager_name,manager_email,manager_whatsapp,portfolio_url,status").eq("talent_id", supplyId).maybeSingle();
     if (error) throw new Error(error.message);
     if (!submission) return NextResponse.json({ error: "Simpan profil terlebih dahulu" }, { status: 409 });
     if (submission.status === "submitted") return NextResponse.json({ ok: true, alreadySubmitted: true });
@@ -152,14 +154,17 @@ export async function POST(request: Request) {
 
     const missing: string[] = [];
     if (!text(submission.name)) missing.push(supply.supply_type === "production_partner" ? "Nama perusahaan / brand" : "Nama profesional");
-    if (!text(submission.category)) missing.push("Kategori");
     if (!text(submission.base_city)) missing.push("Kota basis");
     if (!text(submission.bio)) missing.push("Profil singkat");
     if (!text(submission.manager_name)) missing.push("PIC utama");
     if (!text(submission.manager_email) && !text(submission.manager_whatsapp)) missing.push("Kontak PIC (WhatsApp atau email)");
     if (!text(submission.portfolio_url)) missing.push("Link portofolio utama");
-    if (!textArray(submission.capability_tags).length && !textArray(submission.performance_formats).length) missing.push("Minimal satu layanan / kapabilitas");
-    missing.push(...missingRequiredSupplyDetails(supply.supply_type, supply.category, submission.supply_details));
+    const serviceIds = sanitizeSupplyServiceIds(supply.supply_type, submission.supply_service_ids);
+    const primaryServiceId = typeof submission.primary_supply_service_id === "string" ? submission.primary_supply_service_id : "";
+    if (!serviceIds.length) missing.push("Minimal satu layanan");
+    if (!primaryServiceId || !serviceIds.includes(primaryServiceId)) missing.push("Layanan Utama");
+    if (serviceIds.includes(OTHER_SUPPLY_SERVICE_ID) && !text(submission.supply_other_service)) missing.push("Penjelasan layanan lainnya");
+    missing.push(...missingRequiredSupplyDetails(supply.supply_type, primaryServiceId, submission.supply_details));
     if (missing.length) return NextResponse.json({ error: `Lengkapi: ${Array.from(new Set(missing)).join(", ")}`, missingFields: Array.from(new Set(missing)) }, { status: 409 });
 
     const { data, error: rpcError } = await s.rpc("ns_submit_supply_profile_v1", { p_talent_id: supplyId });

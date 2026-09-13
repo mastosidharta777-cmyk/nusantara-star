@@ -35,14 +35,15 @@ export async function POST(request: Request) {
     if (createNewTalent) {
       const supplyType = isSupplyType(body?.supplyType) ? body.supplyType : null;
       const category = typeof body?.category === "string" ? body.category.trim() : "";
-      if (!supplyType || !categoryAllowedForSupply(supplyType, category)) {
-        return NextResponse.json({ error: "Pilih jenis supply dan kategori yang valid" }, { status: 400 });
+      if (!supplyType || (supplyType === "talent" && !categoryAllowedForSupply(supplyType, category))) {
+        return NextResponse.json({ error: supplyType === "talent" ? "Pilih kategori Talent yang valid" : "Pilih jenis supply yang valid" }, { status: 400 });
       }
       subjectId = randomUUID();
       const { error } = await supabase.from("talents").insert({
         id: subjectId,
         name: "",
-        category,
+        // Non-talent services are selected by the registrant; category stays only as a legacy compatibility field.
+        category: supplyType === "talent" ? category : "",
         supply_type: supplyType,
         status: "draft",
         onboarding_status: "not_started",
