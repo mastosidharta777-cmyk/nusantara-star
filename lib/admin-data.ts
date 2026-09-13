@@ -19,6 +19,15 @@ type SupplyRow = {
   last_calendar_updated_at: string | null;
 };
 
+type SupplySubmissionSnapshot = {
+  talent_id: string;
+  name: string | null;
+  base_city: string | null;
+  supply_service_ids: string[] | null;
+  primary_supply_service_id: string | null;
+  supply_other_service: string | null;
+};
+
 type BriefRow = {
   id: string;
   event_type: string | null;
@@ -76,11 +85,14 @@ function getFreshness(lastUpdated: string | null) {
 export async function loadAdminDashboardData() {
   const supabase = getServerClient();
 
-  const [{ data: supplyRows, error: supplyError }, { data: briefs, error: briefError }] = await Promise.all([
+  const [{ data: supplyRows, error: supplyError }, { data: submissions, error: submissionError }, { data: briefs, error: briefError }] = await Promise.all([
     supabase
       .from("talents")
       .select("id,name,category,supply_service_ids,primary_supply_service_id,supply_other_service,supply_type,onboarding_status,base_city,budget_min,budget_max,status,public_visible,last_calendar_updated_at")
       .order("created_at", { ascending: false }),
+    supabase
+      .from("talent_profile_submissions")
+      .select("talent_id,name,base_city,supply_service_ids,primary_supply_service_id,supply_other_service"),
     supabase
       .from("briefs")
       .select("id,event_type,event_date,city,talent_category,budget_min,budget_max,request_mode,requested_talent_id,status,created_at")
@@ -88,15 +100,31 @@ export async function loadAdminDashboardData() {
       .limit(20),
   ]);
 
-  if (supplyError || briefError) {
-    throw new Error(supplyError?.message ?? briefError?.message ?? "Failed to load admin data");
+  if (supplyError || submissionError || briefError) {
+    throw new Error(supplyError?.message ?? submissionError?.message ?? briefError?.message ?? "Failed to load admin data");
   }
 
   const rows = (supplyRows ?? []) as SupplyRow[];
   const adminTalents: AdminTalent[] = rows
     .filter((row): row is SupplyRow & { supply_type: "talent" } => row.supply_type === "talent")
     .map((talent) => ({ ...talent, ...getFreshness(talent.last_calendar_updated_at) }));
-  const supplyIntake = rows.filter((row): row is AdminSupplyIntake => row.supply_type === "professional" || row.supply_type === "production_partner");
+  const submissionByTalentId = new Map(
+    ((submissions ?? []) as SupplySubmissionSnapshot[]).map((submission) => [submission.talent_id, submission]),
+  );
+  const supplyIntake = rows
+    .filter((row): row is AdminSupplyIntake => row.supply_type === "professional" || row.supply_type === "production_partner")
+    .map((supply) => {
+      const submission = submissionByTalentId.get(supply.id);
+      if (!submission) return supply;
+      return {
+        ...supply,
+        name: submission.name || supply.name,
+        base_city: submission.base_city || supply.base_city,
+        supply_service_ids: submission.supply_service_ids ?? supply.supply_service_ids,
+        primary_supply_service_id: submission.primary_supply_service_id ?? supply.primary_supply_service_id,
+        supply_other_service: submission.supply_other_service ?? supply.supply_other_service,
+      };
+    });
 
   const talentNameMap = new Map(adminTalents.map((talent) => [talent.id, talent.name]));
   const briefRows: AdminBrief[] = ((briefs ?? []) as BriefRow[]).map((brief) => ({
