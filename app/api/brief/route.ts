@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { persistBrief } from "@/lib/brief-persistence";
+import { isBriefReference, loadBriefContinuation } from "@/lib/brief-continuation";
 import { persistMatchSnapshot } from "@/lib/match-persistence";
 import { parseBriefWithAI } from "@/lib/talent-engine/ai-brief";
 import { rankTalents } from "@/lib/talent-engine/matching";
@@ -131,6 +132,50 @@ export async function POST(request: Request) {
     const category = textValue(input.category, 120), genre = textValue(input.genre, 180), budget = textValue(input.budget, 80), duration = textValue(input.duration, 80), notes = textValue(input.notes, 1500);
     let performanceFormat = textValue(input.performanceFormat, 160);
     const requestedTalentId = textValue(input.requestedTalentId, 100);
+    const sourceBriefId = textValue(input.sourceBriefId, 100);
+
+    if (sourceBriefId) {
+      if (!isBriefReference(sourceBriefId) || !requestedTalentId) return NextResponse.json({ error: "Referensi brief lanjutan tidak valid" }, { status: 400 });
+      const [source, roster] = await Promise.all([loadBriefContinuation(sourceBriefId), loadEngineTalents()]);
+      if (!source) return NextResponse.json({ error: "Brief sebelumnya tidak ditemukan atau tidak dapat dilanjutkan" }, { status: 404 });
+      const requestedTalent = roster.talents.find((talent) => talent.id === requestedTalentId) ?? null;
+      if (!requestedTalent) return NextResponse.json({ error: "Talent yang dipilih tidak valid atau tidak lagi tersedia untuk inquiry" }, { status: 400 });
+      const eligible = rankTalents(roster.talents, source.brief, 3).some((match) => match.talent.id === requestedTalent.id);
+      if (!eligible) return NextResponse.json({ error: "Talent ini tidak lagi termasuk kandidat untuk brief tersebut" }, { status: 409 });
+
+      if (requestedTalent.performanceFormats.length) {
+        if (!performanceFormat) return NextResponse.json({ error: "Pilih format penampilan yang diminta" }, { status: 400 });
+        const canonicalFormat = requestedTalent.performanceFormats.find((format) => format.trim().toLowerCase() === performanceFormat.trim().toLowerCase());
+        if (!canonicalFormat) return NextResponse.json({ error: "Format penampilan tidak valid untuk talent yang dipilih" }, { status: 400 });
+        performanceFormat = canonicalFormat;
+      }
+
+      const extraRequirements = directRequirements(performanceFormat, notes);
+      const directBrief: StructuredBrief = {
+        ...source.brief,
+        talentCategory: requestedTalent.category,
+        specialRequirements: [...(source.brief.specialRequirements ?? []), ...extraRequirements],
+        sourceText: [source.brief.sourceText, `Buyer memilih ${requestedTalent.name} dari kandidat brief ${sourceBriefId}.`, ...extraRequirements].filter(Boolean).join(" "),
+        fieldEvidence: {
+          ...(source.brief.fieldEvidence ?? {}),
+          talentCategory: { status: "explicit", sourceExcerpt: requestedTalent.name },
+          specialRequirements: extraRequirements.length
+            ? { status: "explicit", sourceExcerpt: extraRequirements.join("; ") }
+            : source.brief.fieldEvidence?.specialRequirements,
+        },
+      };
+      const persisted = await persistBrief(directBrief, source.contact, { requestMode: "direct_talent", requestedTalentId: requestedTalent.id });
+      return NextResponse.json({
+        ok: true,
+        received: true,
+        briefId: persisted.id,
+        sourceBriefId,
+        requestMode: "direct_talent",
+        requestedTalent: { id: requestedTalent.id, name: requestedTalent.name },
+        candidates: [],
+        nextStep: "live_talent_confirmation",
+      }, { status: 201 });
+    }
 
     if (!name || !whatsapp || !email || !eventType || !date || !city || !category || !budget) return NextResponse.json({ error: "Mohon lengkapi semua kolom wajib" }, { status: 400 });
     if (!validEmail(email)) return NextResponse.json({ error: "Format email tidak valid" }, { status: 400 });

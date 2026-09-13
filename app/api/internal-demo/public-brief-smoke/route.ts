@@ -27,6 +27,7 @@ export async function GET() {
   const eventDate = "2026-09-30";
   const supabase = getServerClient();
   let briefId: string | null = null;
+  let continuedBriefId: string | null = null;
   let talentId: string | null = null;
 
   try {
@@ -112,6 +113,28 @@ export async function GET() {
     const row = briefResult.data;
     const matches = matchesResult.data ?? [];
     const qaMatch = matches.find((item) => item.talent_id === talentId);
+
+    const continuation = await submitPublicBrief(new Request("https://preview.local/api/brief", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestedTalentId: talentId,
+        sourceBriefId: briefId,
+        performanceFormat: "Full Band",
+        notes: "Use the saved discovery brief",
+        website: "",
+      }),
+    }));
+    const continuationPayload = await continuation.json().catch(() => null) as { briefId?: string; requestMode?: string; requestedTalent?: { id?: string } | null; error?: string } | null;
+    if (!continuation.ok || !continuationPayload?.briefId) throw new Error(continuationPayload?.error ?? `Continuation failed ${continuation.status}`);
+    continuedBriefId = continuationPayload.briefId;
+    const { data: continuedBrief, error: continuedBriefError } = await supabase
+      .from("briefs")
+      .select("request_mode,requested_talent_id,event_type,event_date,city,budget_min,budget_max,buyer_name,buyer_whatsapp,buyer_email,special_requirements")
+      .eq("id", continuedBriefId)
+      .single();
+    if (continuedBriefError) throw new Error(continuedBriefError.message);
+
     const checks = {
       submissionAccepted: payload.ok === true && payload.received === true,
       discoveryMode: payload.requestMode === "discovery",
@@ -130,12 +153,33 @@ export async function GET() {
         payload.candidates?.find((item) => item.id === talentId)?.availabilityStatus === "unknown" &&
         payload.candidates?.find((item) => item.id === talentId)?.requiresLiveConfirmation === true,
       frozenMatchSnapshot: Boolean(qaMatch?.engine_version && qaMatch?.generated_at),
+      continuationUsesSavedBrief:
+        continuationPayload.requestMode === "direct_talent" &&
+        continuationPayload.requestedTalent?.id === talentId &&
+        continuedBrief?.request_mode === "direct_talent" &&
+        continuedBrief?.requested_talent_id === talentId &&
+        continuedBrief?.event_type === "Corporate event" &&
+        continuedBrief?.event_date === eventDate &&
+        continuedBrief?.city === "Jakarta" &&
+        Number(continuedBrief?.budget_min) === 50_000_000 &&
+        Number(continuedBrief?.budget_max) === 100_000_000,
+      continuationReusesContactWithoutClientResubmission:
+        continuedBrief?.buyer_name === marker &&
+        continuedBrief?.buyer_whatsapp === "+6281111111111" &&
+        continuedBrief?.buyer_email === email,
+      continuationPersistsRequestedFormat:
+        Array.isArray(continuedBrief?.special_requirements) &&
+        continuedBrief.special_requirements.includes("Format penampilan: Full Band"),
     };
 
     return NextResponse.json({ ok: Object.values(checks).every(Boolean), checks, internalMatchCount: matches.length, cleanup: "automatic" });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Unknown smoke error", cleanup: "attempted" }, { status: 500 });
   } finally {
+    if (continuedBriefId) {
+      const { error } = await supabase.from("briefs").delete().eq("id", continuedBriefId);
+      if (error) console.error("Public brief continuation smoke cleanup failed", error.message);
+    }
     if (briefId) {
       const { error } = await supabase.from("briefs").delete().eq("id", briefId);
       if (error) console.error("Public brief smoke cleanup failed", error.message);
