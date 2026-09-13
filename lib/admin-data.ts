@@ -64,7 +64,7 @@ function getServerClient() {
     throw new Error("Supabase server environment is not configured");
   }
 
-  return createClient(url, {
+  return createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
