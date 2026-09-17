@@ -74,17 +74,27 @@ export async function PUT(request: Request) {
     const supabase = getServerClient();
     const now = new Date().toISOString();
 
-    const { error } = await supabase.from("talent_availability").upsert(
-      {
-        talent_id: talentId,
-        event_date: eventDate,
-        status,
-        notes: "Updated by talent/manager from onboarding availability calendar",
-        updated_at: now,
-      },
-      { onConflict: "talent_id,event_date" },
-    );
-    if (error) throw new Error(error.message);
+    if (status === "unknown") {
+      // "Belum ditandai" clears the explicit override. A future Google sync may mark it tentative again if Google reports busy.
+      const { error } = await supabase
+        .from("talent_availability")
+        .delete()
+        .eq("talent_id", talentId)
+        .eq("event_date", eventDate);
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await supabase.from("talent_availability").upsert(
+        {
+          talent_id: talentId,
+          event_date: eventDate,
+          status,
+          notes: "Manual override by talent/manager from onboarding availability calendar",
+          updated_at: now,
+        },
+        { onConflict: "talent_id,event_date" },
+      );
+      if (error) throw new Error(error.message);
+    }
 
     const { error: talentError } = await supabase.from("talents").update({ last_calendar_updated_at: now, updated_at: now }).eq("id", talentId);
     if (talentError) throw new Error(talentError.message);
