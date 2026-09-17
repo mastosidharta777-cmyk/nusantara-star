@@ -18,6 +18,7 @@ import { verifyAccessToken } from "@/lib/signed-access";
 export const runtime = "nodejs";
 
 const COOKIE_NAME = "ns_google_calendar_oauth";
+type OAuthCookie = { talentId: string; token: string; nonce: string };
 
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -26,16 +27,14 @@ function getServerClient() {
   return createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-function readCookie(request: NextRequest) {
+function readCookie(request: NextRequest): OAuthCookie | null {
   const raw = request.cookies.get(COOKIE_NAME)?.value;
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as {
-      talentId?: string;
-      token?: string;
-      nonce?: string;
-    };
-    return parsed.talentId && parsed.token && parsed.nonce ? parsed : null;
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<OAuthCookie>;
+    if (typeof parsed.talentId !== "string" || typeof parsed.token !== "string" || typeof parsed.nonce !== "string") return null;
+    if (!parsed.talentId || !parsed.token || !parsed.nonce) return null;
+    return { talentId: parsed.talentId, token: parsed.token, nonce: parsed.nonce };
   } catch {
     return null;
   }
@@ -88,8 +87,8 @@ export async function GET(request: NextRequest) {
       throw cause;
     }
 
-    const token = await exchangeGoogleAuthorizationCode(code, request.nextUrl.origin);
-    const calendars = await listGoogleCalendars(token.access_token!);
+    const oauthToken = await exchangeGoogleAuthorizationCode(code, request.nextUrl.origin);
+    const calendars = await listGoogleCalendars(oauthToken.access_token!);
     if (!calendars.length) throw new Error("Tidak ada Google Calendar yang dapat dibaca");
 
     const selected = calendars.find((item) => item.id === existing?.calendar_id)
@@ -97,13 +96,13 @@ export async function GET(request: NextRequest) {
       ?? calendars.find((item) => item.selected)
       ?? calendars[0];
 
-    const refreshTokenEncrypted = token.refresh_token
-      ? encryptGoogleRefreshToken(token.refresh_token)
+    const refreshTokenEncrypted = oauthToken.refresh_token
+      ? encryptGoogleRefreshToken(oauthToken.refresh_token)
       : existing?.refresh_token_encrypted;
     if (!refreshTokenEncrypted) throw new Error("Google tidak memberikan refresh token. Hubungkan ulang dan izinkan akses kalender.");
 
     const now = new Date().toISOString();
-    const scopes = token.scope?.split(/\s+/).filter(Boolean) ?? [];
+    const scopes = oauthToken.scope?.split(/\s+/).filter(Boolean) ?? [];
     const { data: connectionData, error: connectionError } = await supabase
       .from("talent_calendar_connections")
       .upsert({
