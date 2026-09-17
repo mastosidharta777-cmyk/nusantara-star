@@ -1,0 +1,964 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { getSupabaseBrowserClient } from "@/lib/supabase";
+import { parseYouTubeVideoUrl } from "@/lib/youtube";
+
+type Asset = {
+  id: string;
+  asset_type: string;
+  provider: string;
+  original_filename: string | null;
+  title?: string | null;
+  description?: string | null;
+  upload_status: string;
+  review_status: string;
+};
+
+type RepertoireSong = { title: string; artist: string };
+type YesNo = "" | "yes" | "no";
+type Step = 1 | 2 | 3;
+type CategoryGroup = "music" | "host" | "speaker" | "specialty" | "unknown";
+
+type Profile = {
+  name: string;
+  category: string;
+  actType: string;
+  willingToPerformCovers: YesNo;
+  acceptsSongRequests: YesNo;
+  sampleRepertoire: RepertoireSong[];
+  repertoireGenres: string[];
+  repertoireStyles: string[];
+  repertoireEras: string[];
+  repertoireAiStatus: string;
+  baseCity: string;
+  genres: string;
+  musicStyles: string;
+  vibeTags: string;
+  capabilityTags: string;
+  performanceFormats: string;
+  bio: string;
+  bookingLimitations: string;
+  managerName: string;
+  managerEmail: string;
+  managerWhatsapp: string;
+  portfolioUrl: string;
+  baseRider: string;
+};
+
+type StringProfileKey = Exclude<
+  keyof Profile,
+  "sampleRepertoire" | "repertoireGenres" | "repertoireStyles" | "repertoireEras"
+>;
+
+const blank: Profile = {
+  name: "",
+  category: "",
+  actType: "",
+  willingToPerformCovers: "",
+  acceptsSongRequests: "",
+  sampleRepertoire: [],
+  repertoireGenres: [],
+  repertoireStyles: [],
+  repertoireEras: [],
+  repertoireAiStatus: "not_applicable",
+  baseCity: "",
+  genres: "",
+  musicStyles: "",
+  vibeTags: "",
+  capabilityTags: "",
+  performanceFormats: "",
+  bio: "",
+  bookingLimitations: "",
+  managerName: "",
+  managerEmail: "",
+  managerWhatsapp: "",
+  portfolioUrl: "",
+  baseRider: "",
+};
+
+const CATEGORIES = [
+  "Solo",
+  "Duo/Trio",
+  "Band",
+  "DJ",
+  "MC/Host",
+  "Speaker",
+  "Traditional/Ethnic",
+  "Specialty Performer",
+] as const;
+
+const MUSIC = {
+  performanceFormats: ["Full Band", "Acoustic", "Semi Acoustic", "Playback", "DJ Set", "Hybrid"],
+  vibeTags: ["Chill", "Elegant", "Romantic", "Upbeat", "Party", "High Energy"],
+  capabilityTags: ["Bilingual Repertoire", "Custom Setlist", "MC Interaction", "Singalong", "Danceable"],
+  genres: ["Pop", "Rock", "Jazz", "R&B/Soul", "Dangdut", "EDM", "Alternative", "Ethnic/World"],
+} as const;
+
+const HOST = {
+  performanceFormats: ["MC Solo", "Co-Host", "Moderator", "Bilingual Host"],
+  vibeTags: ["Formal", "Elegant", "Warm", "Energetic", "Interactive"],
+  capabilityTags: ["Bilingual Hosting", "Corporate Formal", "Audience Interaction", "Panel Moderation", "Cue & Rundown Coordination"],
+} as const;
+
+const SPEAKER = {
+  performanceFormats: ["Keynote", "Panel", "Workshop", "Moderator"],
+  vibeTags: ["Formal", "Inspirational", "Interactive", "Executive"],
+  capabilityTags: ["Bilingual Speaking", "Q&A", "Panel Discussion", "Presentation Deck", "Workshop Facilitation"],
+} as const;
+
+const SPECIALTY = {
+  performanceFormats: ["Solo Act", "Group Act", "Stage Show", "Roaming", "Interactive"],
+  vibeTags: ["Elegant", "Energetic", "Family Friendly", "Interactive", "Spectacular"],
+  capabilityTags: ["Custom Performance", "Audience Interaction", "Special Equipment", "Outdoor Performance", "Indoor Performance"],
+} as const;
+
+const split = (value: string) => value.split(",").map((x) => x.trim()).filter(Boolean);
+const join = (value: unknown) => (Array.isArray(value) ? value.join(", ") : "");
+const toYesNo = (value: unknown): YesNo => value === true ? "yes" : value === false ? "no" : "";
+const toBool = (value: YesNo) => value === "yes" ? true : value === "no" ? false : null;
+
+function categoryGroup(category: string): CategoryGroup {
+  const key = category.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  if (["mc/host", "mc host", "mc", "host", "master of ceremony"].includes(key)) return "host";
+  if (["speaker", "pembicara", "keynote speaker"].includes(key)) return "speaker";
+  if (["specialty performer", "special performer", "performer", "specialty"].includes(key)) return "specialty";
+  if (["solo", "singer", "soloist", "vocalist", "duo", "trio", "duo/trio", "duo trio", "band", "dj", "traditional", "ethnic", "traditional/ethnic", "traditional ethnic"].includes(key)) return "music";
+  return "unknown";
+}
+
+function isSongActCategory(category: string) {
+  const key = category.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  return ["solo", "singer", "soloist", "vocalist", "duo", "trio", "duo/trio", "duo trio", "band"].includes(key);
+}
+
+function canonicalCategory(value: unknown) {
+  if (typeof value !== "string") return "";
+  const raw = value.trim();
+  const key = raw.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  if (["singer", "solo", "soloist", "vocalist"].includes(key)) return "Solo";
+  if (["duo", "trio", "duo/trio", "duo trio"].includes(key)) return "Duo/Trio";
+  if (key === "band") return "Band";
+  if (key === "dj") return "DJ";
+  if (["mc", "host", "mc/host", "mc host", "master of ceremony"].includes(key)) return "MC/Host";
+  if (["speaker", "pembicara", "keynote speaker"].includes(key)) return "Speaker";
+  if (["specialty performer", "special performer", "performer", "specialty"].includes(key)) return "Specialty Performer";
+  if (["traditional", "ethnic", "traditional/ethnic", "traditional ethnic"].includes(key)) return "Traditional/Ethnic";
+  return raw;
+}
+
+function normalizedActType(value: unknown) {
+  return value === "cover_entertainment" ? "cover_performer" : typeof value === "string" ? value : "";
+}
+
+function coverCapable(profile: Profile) {
+  return profile.actType === "cover_performer" || profile.actType === "mixed" || (profile.actType === "original_artist" && profile.willingToPerformCovers === "yes");
+}
+
+function cleanSongs(rows: RepertoireSong[]) {
+  return rows
+    .map((row) => ({ title: row.title.trim(), artist: row.artist.trim() }))
+    .filter((row) => row.title || row.artist)
+    .slice(0, 20);
+}
+
+function emptySongs(count = 10) {
+  return Array.from({ length: count }, () => ({ title: "", artist: "" }));
+}
+
+function parseRepertoireFile(text: string) {
+  const lines = text.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  const rows: RepertoireSong[] = [];
+  for (const line of lines) {
+    const delimiter = line.includes("\t") ? "\t" : line.includes(";") ? ";" : ",";
+    const parts = line.split(delimiter).map((x) => x.trim().replace(/^"|"$/g, ""));
+    if (parts.length < 2) continue;
+    const title = parts[0];
+    const artist = parts.slice(1).join(delimiter).trim();
+    if (/^judul( lagu)?$/i.test(title) && /^artis(t)?$/i.test(artist)) continue;
+    if (title && artist) rows.push({ title, artist });
+    if (rows.length === 20) break;
+  }
+  return rows;
+}
+
+const assetLabel = (type: string) => ({
+  profile_photo: "Foto profil",
+  press_photo: "Foto pers",
+  live_performance: "Video penampilan utama",
+  showreel: "Showreel",
+  event_clip: "Video acara",
+  rider_document: "Rider",
+}[type] ?? "File");
+
+const statusLabel = (upload: string, review: string) =>
+  upload !== "uploaded" ? "Sedang diunggah" : review === "approved" ? "Disetujui" : review === "rejected" ? "Ditolak" : "Terunggah · Menunggu tinjauan";
+
+const onboardingStatus = (status: string) =>
+  status === "not_started" ? "Belum dimulai" : status === "in_progress" ? "Sedang dilengkapi" : status === "submitted" ? "Sudah dikirim" : status === "approved" ? "Disetujui" : status === "rejected" ? "Perlu revisi" : status.replaceAll("_", " ");
+
+function resetCategorySpecific(profile: Profile, category: string): Profile {
+  return {
+    ...profile,
+    category,
+    actType: "",
+    willingToPerformCovers: "",
+    acceptsSongRequests: "",
+    sampleRepertoire: [],
+    repertoireGenres: [],
+    repertoireStyles: [],
+    repertoireEras: [],
+    repertoireAiStatus: "not_applicable",
+    genres: "",
+    musicStyles: "",
+    vibeTags: "",
+    capabilityTags: "",
+    performanceFormats: "",
+  };
+}
+
+function StepButton({ number, label, active, complete, onClick }: { number: Step; label: string; active: boolean; complete: boolean; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className={`flex min-w-0 items-center gap-2 text-left ${active ? "text-black" : "text-black/45"}`}>
+      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${active ? "border-black bg-black text-white" : complete ? "border-green-700 bg-green-50 text-green-800" : "border-black/15 bg-white"}`}>
+        {complete ? "✓" : number}
+      </span>
+      <span className="hidden text-xs font-semibold sm:block">{label}</span>
+    </button>
+  );
+}
+
+export function TalentOnboardingProgressive({ talentId, token }: { talentId: string; token: string }) {
+  const [profile, setProfile] = useState<Profile>(blank);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [status, setStatus] = useState("not_started");
+  const [revisionNote, setRevisionNote] = useState("");
+  const [step, setStep] = useState<Step>(1);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [categoryOther, setCategoryOther] = useState(false);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [youtubeVideoUrl, setYoutubeVideoUrl] = useState("");
+  const initialStepSet = useRef(false);
+
+  const locked = status === "submitted" || status === "approved";
+  const group = categoryGroup(profile.category);
+  const songAct = isSongActCategory(profile.category);
+  const canCover = coverCapable(profile);
+  const youtubePreview = parseYouTubeVideoUrl(youtubeVideoUrl);
+  const repertoireRows = canCover ? (profile.sampleRepertoire.length ? profile.sampleRepertoire : emptySongs()) : [];
+  const completeSongCount = cleanSongs(profile.sampleRepertoire).filter((row) => row.title && row.artist).length;
+
+  const hasPhoto = assets.some((asset) => asset.upload_status === "uploaded" && asset.asset_type === "profile_photo");
+  const hasVideo = assets.some((asset) => asset.upload_status === "uploaded" && ["live_performance", "showreel", "event_clip"].includes(asset.asset_type));
+  const basicComplete = Boolean(profile.name.trim() && profile.category.trim());
+  const contactComplete = Boolean(profile.managerName.trim() && (profile.managerWhatsapp.trim() || profile.managerEmail.trim()));
+  const songTypeComplete = !songAct || Boolean(profile.actType && (profile.actType !== "original_artist" || profile.willingToPerformCovers));
+  const repertoireComplete = !canCover || Boolean(profile.acceptsSongRequests && completeSongCount >= 10 && completeSongCount <= 20);
+  const performanceComplete = Boolean(profile.bio.trim() && songTypeComplete && hasVideo);
+  const readyToSubmit = basicComplete && contactComplete && performanceComplete && repertoireComplete && hasPhoto;
+
+  const formatOptions = group === "host" ? HOST.performanceFormats : group === "speaker" ? SPEAKER.performanceFormats : group === "specialty" ? SPECIALTY.performanceFormats : group === "music" ? MUSIC.performanceFormats : [];
+  const vibeOptions = group === "host" ? HOST.vibeTags : group === "speaker" ? SPEAKER.vibeTags : group === "specialty" ? SPECIALTY.vibeTags : group === "music" ? MUSIC.vibeTags : [];
+  const capabilityOptions = group === "host" ? HOST.capabilityTags : group === "speaker" ? SPEAKER.capabilityTags : group === "specialty" ? SPECIALTY.capabilityTags : group === "music" ? MUSIC.capabilityTags : [];
+  const riderHint = group === "host"
+    ? "Untuk MC/host, fokus pada mic, monitor/cue, lectern/teleprompter, briefing/rundown, perjalanan, dan hospitality bila ada."
+    : group === "speaker"
+      ? "Untuk speaker, fokus pada mic, lectern, layar/clicker, materi presentasi, perjalanan, akomodasi, dan kebutuhan pendamping bila ada."
+      : group === "specialty"
+        ? "Untuk specialty performer, jelaskan kebutuhan alat, ruang/panggung, keselamatan, transport peralatan, dan kondisi khusus yang wajib."
+        : group === "music"
+          ? "Untuk musisi/DJ, rider dapat mencakup personel, audio, backline, soundcheck, transport/bagasi alat, hospitality, dan akomodasi."
+          : "Tulis hanya kebutuhan teknis dan operasional yang benar-benar berlaku.";
+
+  async function refresh() {
+    const response = await fetch(`/api/talent-onboarding/profile?talentId=${encodeURIComponent(talentId)}&token=${encodeURIComponent(token)}`, { cache: "no-store" });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.error ?? "Gagal memuat pendaftaran");
+
+    const source = data.submission ?? data.talent;
+    const category = canonicalCategory(source?.category ?? "");
+    const nextAssets: Asset[] = data.assets ?? [];
+    const nextProfile: Profile = {
+      name: source?.name ?? "",
+      category,
+      actType: normalizedActType(source?.act_type),
+      willingToPerformCovers: toYesNo(source?.willing_to_perform_covers),
+      acceptsSongRequests: toYesNo(source?.accepts_song_requests),
+      sampleRepertoire: Array.isArray(source?.sample_repertoire) ? source.sample_repertoire.map((row: any) => ({ title: typeof row?.title === "string" ? row.title : "", artist: typeof row?.artist === "string" ? row.artist : "" })) : [],
+      repertoireGenres: Array.isArray(source?.repertoire_genres) ? source.repertoire_genres : [],
+      repertoireStyles: Array.isArray(source?.repertoire_styles) ? source.repertoire_styles : [],
+      repertoireEras: Array.isArray(source?.repertoire_eras) ? source.repertoire_eras : [],
+      repertoireAiStatus: source?.repertoire_ai_status ?? "not_applicable",
+      baseCity: source?.base_city ?? "",
+      genres: join(source?.genres),
+      musicStyles: join(source?.music_styles),
+      vibeTags: join(source?.vibe_tags),
+      capabilityTags: join(source?.capability_tags),
+      performanceFormats: join(source?.performance_formats),
+      bio: source?.bio ?? "",
+      bookingLimitations: source?.booking_limitations ?? "",
+      managerName: source?.manager_name ?? "",
+      managerEmail: source?.manager_email ?? "",
+      managerWhatsapp: source?.manager_whatsapp ?? "",
+      portfolioUrl: source?.portfolio_url ?? "",
+      baseRider: source?.base_rider ?? "",
+    };
+
+    setCategoryOther(Boolean(category && !CATEGORIES.includes(category as (typeof CATEGORIES)[number])));
+    setStatus(data.talent?.onboarding_status ?? "not_started");
+    setRevisionNote(typeof data.submission?.rejection_note === "string" ? data.submission.rejection_note : "");
+    setAssets(nextAssets);
+    setYoutubeVideoUrl(nextAssets.find((asset) => asset.provider === "youtube_unlisted")?.original_filename ?? "");
+    setProfile(nextProfile);
+
+    if (!initialStepSet.current) {
+      const basicReady = Boolean(nextProfile.name.trim() && nextProfile.category.trim());
+      const mediaReady = nextAssets.some((asset) => asset.upload_status === "uploaded" && ["live_performance", "showreel", "event_clip"].includes(asset.asset_type));
+      setStep(basicReady ? (nextProfile.bio.trim() && mediaReady ? 3 : 2) : 1);
+      initialStepSet.current = true;
+    }
+  }
+
+  async function refreshAssets() {
+    const response = await fetch(`/api/talent-onboarding/profile?talentId=${encodeURIComponent(talentId)}&token=${encodeURIComponent(token)}`, { cache: "no-store" });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.error ?? "Gagal memperbarui daftar media");
+    setAssets(data.assets ?? []);
+  }
+
+  async function refreshAssetsAfterSave() {
+    try {
+      await refreshAssets();
+      return "";
+    } catch {
+      return " Daftar media belum diperbarui; muat ulang halaman untuk melihatnya.";
+    }
+  }
+
+  async function persistDraft(value: Profile = profile) {
+    const repertoire = cleanSongs(value.sampleRepertoire);
+    const response = await fetch("/api/talent-onboarding/profile", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        talentId,
+        token,
+        ...value,
+        willingToPerformCovers: toBool(value.willingToPerformCovers),
+        acceptsSongRequests: toBool(value.acceptsSongRequests),
+        sampleRepertoire: repertoire,
+        genres: split(value.genres),
+        musicStyles: split(value.musicStyles),
+        vibeTags: split(value.vibeTags),
+        capabilityTags: split(value.capabilityTags),
+        performanceFormats: split(value.performanceFormats),
+      }),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(body?.error ?? "Gagal menyimpan profil");
+    return body;
+  }
+
+  useEffect(() => {
+    refresh().catch((cause) => setError(cause instanceof Error ? cause.message : "Gagal memuat pendaftaran"));
+  }, []);
+
+  function field(key: StringProfileKey, label: string, optional = false) {
+    return (
+      <label className="block text-sm font-semibold">
+        {label} {optional ? <span className="font-normal text-black/45">(opsional)</span> : null}
+        <input disabled={locked} value={profile[key]} onChange={(event) => setProfile((current) => ({ ...current, [key]: event.target.value }))} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" />
+      </label>
+    );
+  }
+
+  function multi(key: StringProfileKey, label: string, options: readonly string[]) {
+    const selected = split(profile[key]);
+    const extras = selected.filter((value) => !options.includes(value));
+    const toggle = (value: string) => setProfile((current) => {
+      const values = split(current[key]);
+      return { ...current, [key]: (values.includes(value) ? values.filter((item) => item !== value) : [...values, value]).join(", ") };
+    });
+
+    return (
+      <fieldset className="block text-sm font-semibold">
+        <legend>{label}</legend>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {options.map((option) => (
+            <label key={option} className={`cursor-pointer border px-3 py-2 text-xs font-semibold ${selected.includes(option) ? "border-black bg-black text-white" : "border-black/15 bg-white"}`}>
+              <input disabled={locked} type="checkbox" checked={selected.includes(option)} onChange={() => toggle(option)} className="sr-only" />
+              {option}
+            </label>
+          ))}
+        </div>
+        <input disabled={locked} value={extras.join(", ")} onChange={(event) => setProfile((current) => ({ ...current, [key]: [...selected.filter((value) => options.includes(value)), ...split(event.target.value)].join(", ") }))} placeholder="Lainnya, pisahkan dengan koma" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" />
+      </fieldset>
+    );
+  }
+
+  async function saveDraft(successMessage = "Profil tersimpan sebagai draf.") {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await persistDraft(profile);
+      setMessage(successMessage);
+      await refresh();
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Gagal menyimpan profil");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAndGo(nextStep: Step) {
+    if (nextStep > step && !basicComplete) {
+      setError("Isi Nama talent dan Kategori terlebih dahulu.");
+      return;
+    }
+    const saved = await saveDraft("Progres tersimpan.");
+    if (saved) {
+      setStep(nextStep);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  async function uploadPhoto(file: File | null) {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await persistDraft(profile);
+      const response = await fetch("/api/talent-onboarding/photo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ talentId, token, fileName: file.name, mimeType: file.type, sizeBytes: file.size, assetType: "profile_photo" }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Unggah foto gagal");
+      const client = getSupabaseBrowserClient();
+      if (!client) throw new Error("Penyimpanan foto belum tersedia");
+      const { error: uploadError } = await client.storage.from("talent-photos").uploadToSignedUrl(payload.path, payload.token, file, { contentType: file.type });
+      if (uploadError) throw uploadError;
+      const verify = await fetch("/api/talent-onboarding/photo", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, assetId: payload.assetId }) });
+      if (!verify.ok) throw new Error("Foto terunggah tetapi belum dapat diverifikasi");
+      const notice = await refreshAssetsAfterSave();
+      setMessage(`Foto profil berhasil disimpan.${notice}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unggah foto gagal");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadVideo() {
+    if (!videoFile) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await persistDraft(profile);
+      const response = await fetch("/api/talent-onboarding/video", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ talentId, token, fileName: videoFile.name, mimeType: videoFile.type, sizeBytes: videoFile.size, assetType: "live_performance" }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Unggah video gagal");
+      const put = await fetch(payload.uploadUrl, { method: "PUT", headers: { "content-type": videoFile.type }, body: videoFile });
+      if (!put.ok) throw new Error("Unggah video gagal");
+      const verify = await fetch("/api/talent-onboarding/video", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, assetId: payload.assetId }) });
+      if (!verify.ok) throw new Error("Video terunggah tetapi belum dapat diverifikasi");
+      const notice = await refreshAssetsAfterSave();
+      setMessage(`Video berhasil disimpan.${notice}`);
+      setVideoFile(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unggah video gagal");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveYoutubeVideo() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await persistDraft(profile);
+      const response = await fetch("/api/talent-onboarding/youtube", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, url: youtubeVideoUrl }) });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error ?? "Link YouTube belum dapat disimpan");
+      const notice = await refreshAssetsAfterSave();
+      setMessage(`Link YouTube tersimpan.${notice}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Link YouTube belum dapat disimpan");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadBio(file: File | null) {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await persistDraft(profile);
+      const form = new FormData();
+      form.set("talentId", talentId);
+      form.set("token", token);
+      form.set("talentName", profile.name);
+      form.set("category", profile.category);
+      form.set("baseCity", profile.baseCity);
+      form.set("file", file);
+      const response = await fetch("/api/talent-onboarding/bio", { method: "POST", body: form });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error ?? "Gagal memproses dokumen bio");
+      if (typeof body?.bio !== "string" || !body.bio.trim()) throw new Error("AI tidak menghasilkan bio");
+      const next = { ...profile, bio: body.bio.trim() };
+      setProfile(next);
+      await persistDraft(next);
+      setMessage("Bio sudah dirapikan AI dan tersimpan sebagai draf. Periksa dan edit bila perlu.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Gagal memproses dokumen bio");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadRider(file: File | null) {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await persistDraft(profile);
+      const response = await fetch("/api/talent-onboarding/rider", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, fileName: file.name, mimeType: file.type, sizeBytes: file.size }) });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Unggah rider gagal");
+      const client = getSupabaseBrowserClient();
+      if (!client) throw new Error("Penyimpanan rider belum tersedia");
+      const { error: uploadError } = await client.storage.from("talent-documents").uploadToSignedUrl(payload.path, payload.token, file, { contentType: file.type });
+      if (uploadError) throw uploadError;
+      const verify = await fetch("/api/talent-onboarding/rider", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, assetId: payload.assetId }) });
+      const result = await verify.json().catch(() => null);
+      if (!verify.ok) throw new Error(result?.error ?? "Rider belum dapat diverifikasi");
+      const notice = await refreshAssetsAfterSave();
+      setMessage(`${result?.warning ?? "Rider tersimpan untuk internal."}${notice}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unggah rider gagal");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retryRider(assetId: string) {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await persistDraft(profile);
+      const response = await fetch("/api/talent-onboarding/rider", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, assetId }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Rider belum dapat diproses ulang");
+      const notice = await refreshAssetsAfterSave();
+      setMessage(`${result?.warning ?? "Rider berhasil dirapikan AI."}${notice}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Rider belum dapat diproses ulang");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function chooseCategory(value: string) {
+    if (value === "__other") {
+      setCategoryOther(true);
+      setProfile((current) => resetCategorySpecific(current, ""));
+      return;
+    }
+    setCategoryOther(false);
+    setProfile((current) => current.category === value ? current : resetCategorySpecific(current, value));
+  }
+
+  function chooseActType(value: string) {
+    setProfile((current) => {
+      const next = { ...current, actType: value };
+      if (value === "cover_performer" || value === "mixed") {
+        next.willingToPerformCovers = "yes";
+        next.sampleRepertoire = current.sampleRepertoire.length ? current.sampleRepertoire : emptySongs();
+      } else {
+        next.willingToPerformCovers = "";
+        next.acceptsSongRequests = "";
+        next.sampleRepertoire = [];
+        next.repertoireGenres = [];
+        next.repertoireStyles = [];
+        next.repertoireEras = [];
+        next.repertoireAiStatus = "not_applicable";
+      }
+      return next;
+    });
+  }
+
+  function chooseCoverWillingness(value: YesNo) {
+    setProfile((current) => ({
+      ...current,
+      willingToPerformCovers: value,
+      acceptsSongRequests: value === "yes" ? current.acceptsSongRequests : "",
+      sampleRepertoire: value === "yes" ? (current.sampleRepertoire.length ? current.sampleRepertoire : emptySongs()) : [],
+      repertoireGenres: value === "yes" ? current.repertoireGenres : [],
+      repertoireStyles: value === "yes" ? current.repertoireStyles : [],
+      repertoireEras: value === "yes" ? current.repertoireEras : [],
+      repertoireAiStatus: value === "yes" ? "pending" : "not_applicable",
+    }));
+  }
+
+  function updateSong(index: number, key: keyof RepertoireSong, value: string) {
+    setProfile((current) => {
+      const rows = current.sampleRepertoire.length ? [...current.sampleRepertoire] : emptySongs();
+      rows[index] = { ...rows[index], [key]: value };
+      return { ...current, sampleRepertoire: rows };
+    });
+  }
+
+  function addSong() {
+    setProfile((current) => current.sampleRepertoire.length >= 20 ? current : { ...current, sampleRepertoire: [...current.sampleRepertoire, { title: "", artist: "" }] });
+  }
+
+  function removeSong(index: number) {
+    setProfile((current) => ({ ...current, sampleRepertoire: current.sampleRepertoire.filter((_, rowIndex) => rowIndex !== index) }));
+  }
+
+  async function uploadRepertoire(file: File | null) {
+    if (!file) return;
+    setError("");
+    try {
+      const text = await file.text();
+      const rows = parseRepertoireFile(text);
+      if (!rows.length) throw new Error("Tidak ada baris Judul Lagu + Artis yang terbaca.");
+      setProfile((current) => ({ ...current, sampleRepertoire: rows, repertoireAiStatus: "pending", repertoireGenres: [], repertoireStyles: [], repertoireEras: [] }));
+      setMessage(`${rows.length} lagu dimuat. Simpan draf agar AI mengelompokkan genre, gaya, dan era.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "File daftar lagu tidak dapat dibaca");
+    }
+  }
+
+  async function submit() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await persistDraft(profile);
+      const response = await fetch("/api/talent-onboarding/profile", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token }) });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error ?? "Gagal mengirim profil");
+      setMessage("Profil berhasil dikirim untuk ditinjau.");
+      await refresh();
+      window.dispatchEvent(new Event("ns:onboarding-state-changed"));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Gagal mengirim profil");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reopen() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/talent-onboarding/profile", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, action: "reopen" }) });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error ?? "Profil belum dapat dibuka kembali");
+      await refresh();
+      window.dispatchEvent(new Event("ns:onboarding-state-changed"));
+      setMessage("Profil sudah dapat diedit kembali.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Profil belum dapat dibuka kembali");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const submitLabel = status === "approved" ? "Sudah disetujui" : status === "submitted" ? "Sudah dikirim" : busy ? "Memproses…" : "Kirim untuk Tinjauan";
+
+  return (
+    <main className="min-h-screen bg-[#f5f3ee] px-5 py-10 text-[#171713] md:px-10">
+      <div className="mx-auto max-w-3xl">
+        <p className="eyebrow">Nusantara Star · Pendaftaran Talent</p>
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-4xl font-semibold tracking-[-0.03em]">Buat profil talent</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-black/55">Mulai dari informasi dasar. Detail booking dan rider dapat dilengkapi bertahap; setiap langkah dapat disimpan sebagai draf.</p>
+          </div>
+          <span className="border border-black/10 bg-white px-3 py-2 text-xs font-semibold uppercase">{onboardingStatus(status)}</span>
+        </div>
+
+        <div className="mt-7 flex items-center justify-between border border-black/10 bg-white px-4 py-4 sm:px-6">
+          <StepButton number={1} label="Profil dasar" active={step === 1} complete={basicComplete} onClick={() => setStep(1)} />
+          <span className="mx-2 h-px flex-1 bg-black/10" />
+          <StepButton number={2} label="Penampilan" active={step === 2} complete={performanceComplete} onClick={() => basicComplete && setStep(2)} />
+          <span className="mx-2 h-px flex-1 bg-black/10" />
+          <StepButton number={3} label="Booking & rider" active={step === 3} complete={readyToSubmit} onClick={() => basicComplete && setStep(3)} />
+        </div>
+
+        {status === "submitted" ? (
+          <div className="mt-5 border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+            <p className="font-semibold">Profil sedang ditinjau admin.</p>
+            <p className="mt-2">Data dikunci agar admin meninjau versi yang sama. Jika masih ada yang perlu diperbaiki, pilih Edit kembali lalu kirim ulang setelah selesai.</p>
+            <button type="button" disabled={busy} onClick={reopen} className="mt-3 border border-blue-900 px-4 py-2 text-xs font-semibold disabled:opacity-40">{busy ? "Membuka…" : "Edit kembali"}</button>
+          </div>
+        ) : null}
+
+        {status === "rejected" ? (
+          <div className="mt-5 border border-amber-300 bg-amber-50 p-4 text-sm">
+            <p className="font-semibold">Profil dikembalikan untuk revisi.</p>
+            <p className="mt-2 whitespace-pre-wrap text-black/65">{revisionNote || "Periksa kembali data profil, lalu simpan dan kirim ulang."}</p>
+          </div>
+        ) : null}
+
+        {step === 1 ? (
+          <section className="mt-5 border border-black/10 bg-white p-5 md:p-6">
+            <div className="mb-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-black/45">Langkah 1 dari 3</p>
+              <h2 className="mt-2 text-xl font-semibold">Profil dasar</h2>
+              <p className="mt-1 text-sm text-black/50">Cukup mulai dengan identitas talent dan kontak yang dapat dihubungi.</p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {field("name", "Nama talent")}
+              <label className="block text-sm font-semibold">
+                Kategori
+                <select disabled={locked} value={categoryOther ? "__other" : profile.category} onChange={(event) => chooseCategory(event.target.value)} className="mt-2 w-full border border-black/15 bg-white px-3 py-3 font-normal disabled:bg-black/5">
+                  <option value="">Pilih</option>
+                  {CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+                  <option value="__other">Lainnya</option>
+                </select>
+                {categoryOther ? <input disabled={locked} value={profile.category} onChange={(event) => setProfile((current) => ({ ...current, category: event.target.value }))} placeholder="Tulis kategori lainnya" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" /> : null}
+              </label>
+              {field("baseCity", "Kota asal", true)}
+              {field("managerName", "Manajer / PIC", true)}
+              {field("managerWhatsapp", "WhatsApp manajer/PIC", true)}
+              {field("managerEmail", "Email manajer/PIC", true)}
+            </div>
+            <div className="mt-5 border-t border-black/10 pt-5">
+              <label className="block text-sm font-semibold">
+                Foto profil <span className="font-normal text-black/45">(boleh dilengkapi nanti)</span>
+                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || locked || !basicComplete} onChange={(event) => uploadPhoto(event.target.files?.[0] ?? null)} className="mt-3 block w-full text-sm font-normal" />
+              </label>
+              {!basicComplete ? <p className="mt-2 text-xs text-black/45">Isi Nama talent dan Kategori sebelum mengunggah foto.</p> : hasPhoto ? <p className="mt-2 text-xs font-semibold text-green-700">✓ Foto profil sudah tersimpan.</p> : null}
+            </div>
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+              <button type="button" disabled={busy || locked || !basicComplete} onClick={() => saveDraft()} className="border border-black/15 px-4 py-2 text-sm font-semibold disabled:opacity-40">Simpan Draf</button>
+              <button type="button" disabled={busy || locked || !basicComplete} onClick={() => saveAndGo(2)} className="border border-black bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">Simpan & lanjut</button>
+            </div>
+          </section>
+        ) : null}
+
+        {step === 2 ? (
+          <section className="mt-5 border border-black/10 bg-white p-5 md:p-6">
+            <div className="mb-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-black/45">Langkah 2 dari 3</p>
+              <h2 className="mt-2 text-xl font-semibold">Penampilan & media</h2>
+              <p className="mt-1 text-sm text-black/50">Isi informasi yang membantu buyer memahami karakter dan melihat contoh penampilan.</p>
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-2">
+              {songAct ? (
+                <label className="block text-sm font-semibold">
+                  Jenis musisi
+                  <select disabled={locked} value={profile.actType} onChange={(event) => chooseActType(event.target.value)} className="mt-2 w-full border border-black/15 bg-white px-3 py-3 font-normal disabled:bg-black/5">
+                    <option value="">Pilih</option>
+                    <option value="original_artist">Artis dengan lagu original</option>
+                    <option value="cover_performer">Penampil lagu cover</option>
+                    <option value="mixed">Original + cover</option>
+                  </select>
+                </label>
+              ) : null}
+              {songAct && profile.actType === "original_artist" ? (
+                <label className="block text-sm font-semibold">
+                  Bersedia membawakan lagu cover?
+                  <select disabled={locked} value={profile.willingToPerformCovers} onChange={(event) => chooseCoverWillingness(event.target.value as YesNo)} className="mt-2 w-full border border-black/15 bg-white px-3 py-3 font-normal disabled:bg-black/5">
+                    <option value="">Pilih</option>
+                    <option value="yes">Ya</option>
+                    <option value="no">Tidak</option>
+                  </select>
+                </label>
+              ) : null}
+              {formatOptions.length ? multi("performanceFormats", "Format penampilan", formatOptions) : null}
+              {group === "music" && profile.actType !== "cover_performer" ? multi("genres", songAct ? "Genre karya original" : "Genre", MUSIC.genres) : null}
+              {vibeOptions.length ? multi("vibeTags", "Karakter / suasana penampilan", vibeOptions) : null}
+              {capabilityOptions.length ? multi("capabilityTags", "Kemampuan lain", capabilityOptions) : null}
+            </div>
+
+            <div className="mt-6 border-t border-black/10 pt-5">
+              <label className="block text-sm font-semibold">
+                Bio singkat
+                <textarea disabled={locked} value={profile.bio} onChange={(event) => setProfile((current) => ({ ...current, bio: event.target.value }))} rows={5} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" />
+              </label>
+              <label className="mt-3 block text-xs font-semibold">
+                Upload file bio <span className="font-normal text-black/45">(opsional)</span>
+                <input type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" disabled={busy || locked} onChange={(event) => uploadBio(event.target.files?.[0] ?? null)} className="mt-2 block w-full font-normal" />
+                <span className="mt-1 block font-normal text-black/45">PDF/DOCX/TXT maks. 5 MB. AI hanya membantu merapikan; hasil tetap dapat diedit.</span>
+              </label>
+            </div>
+
+            <div className="mt-6 border-t border-black/10 pt-5">
+              <p className="text-sm font-semibold">Video penampilan utama</p>
+              <p className="mt-1 text-xs text-black/45">Pilih salah satu: link YouTube atau upload MP4/WebM.</p>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold">
+                    Link video YouTube
+                    <input type="url" inputMode="url" disabled={busy || locked} value={youtubeVideoUrl} onChange={(event) => setYoutubeVideoUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" />
+                  </label>
+                  <button type="button" disabled={busy || locked || !youtubePreview} onClick={saveYoutubeVideo} className="mt-3 border border-black bg-black px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">Simpan Link YouTube</button>
+                  {youtubeVideoUrl.trim() && !youtubePreview ? <p className="mt-2 text-xs text-red-700">Link video YouTube belum valid.</p> : null}
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold">
+                    Atau upload video
+                    <input type="file" accept="video/mp4,video/webm" disabled={busy || locked} onChange={(event) => setVideoFile(event.target.files?.[0] ?? null)} className="mt-2 block w-full text-sm font-normal" />
+                  </label>
+                  {videoFile ? <button type="button" disabled={busy || locked} onClick={uploadVideo} className="mt-3 border border-black bg-black px-3 py-2 text-xs font-semibold text-white">Unggah Video</button> : null}
+                </div>
+              </div>
+              {youtubePreview ? <div className="mt-4 aspect-video w-full max-w-xl overflow-hidden bg-black"><iframe src={youtubePreview.embedUrl} title="Pratinjau video YouTube" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen className="h-full w-full" /></div> : null}
+              {hasVideo ? <p className="mt-3 text-xs font-semibold text-green-700">✓ Video penampilan sudah tersimpan.</p> : null}
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+              <button type="button" disabled={busy} onClick={() => setStep(1)} className="border border-black/15 px-4 py-2 text-sm font-semibold">Kembali</button>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={busy || locked} onClick={() => saveDraft()} className="border border-black/15 px-4 py-2 text-sm font-semibold disabled:opacity-40">Simpan Draf</button>
+                <button type="button" disabled={busy || locked} onClick={() => saveAndGo(3)} className="border border-black bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">Simpan & lanjut</button>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {step === 3 ? (
+          <section className="mt-5 border border-black/10 bg-white p-5 md:p-6">
+            <div className="mb-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-black/45">Langkah 3 dari 3</p>
+              <h2 className="mt-2 text-xl font-semibold">Detail booking & rider</h2>
+              <p className="mt-1 text-sm text-black/50">Lengkapi bagian yang relevan. Rider dan batasan booking membantu mencegah mismatch saat ada permintaan.</p>
+            </div>
+
+            {canCover ? (
+              <div className="border-b border-black/10 pb-6">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Contoh daftar lagu</p>
+                    <p className="mt-1 text-xs leading-5 text-black/50">Untuk talent yang menerima lagu cover, isi 10–20 lagu. Cukup Judul Lagu + Artis.</p>
+                  </div>
+                  <span className={`text-xs font-semibold ${completeSongCount >= 10 && completeSongCount <= 20 ? "text-green-700" : "text-black/45"}`}>{completeSongCount}/20 lengkap</span>
+                </div>
+                <label className="mt-4 block text-xs font-semibold">
+                  Unggah CSV/TXT <span className="font-normal text-black/45">(opsional)</span>
+                  <input type="file" accept=".csv,.txt,text/csv,text/plain" disabled={locked} onChange={(event) => uploadRepertoire(event.target.files?.[0] ?? null)} className="mt-2 block w-full font-normal" />
+                  <span className="mt-1 block font-normal text-black/45">Dua kolom: Judul Lagu, Artis. Maks. 20 baris.</span>
+                </label>
+                <div className="mt-4 space-y-2">
+                  {repertoireRows.map((song, index) => (
+                    <div key={index} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                      <input disabled={locked} value={song.title} onChange={(event) => updateSong(index, "title", event.target.value)} placeholder="Judul lagu" className="border border-black/15 px-3 py-2 text-sm" />
+                      <input disabled={locked} value={song.artist} onChange={(event) => updateSong(index, "artist", event.target.value)} placeholder="Artis" className="border border-black/15 px-3 py-2 text-sm" />
+                      <button type="button" disabled={locked || repertoireRows.length <= 10} onClick={() => removeSong(index)} className="border border-black/10 px-3 py-2 text-xs disabled:opacity-30">Hapus</button>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" disabled={locked || repertoireRows.length >= 20} onClick={addSong} className="mt-3 border border-black/15 px-3 py-2 text-xs font-semibold disabled:opacity-30">+ Tambah lagu</button>
+                <label className="mt-5 block text-sm font-semibold">
+                  Menerima permintaan lagu dari klien?
+                  <select disabled={locked} value={profile.acceptsSongRequests} onChange={(event) => setProfile((current) => ({ ...current, acceptsSongRequests: event.target.value as YesNo }))} className="mt-2 w-full border border-black/15 bg-white px-3 py-3 font-normal disabled:bg-black/5">
+                    <option value="">Pilih</option>
+                    <option value="yes">Ya</option>
+                    <option value="no">Tidak</option>
+                  </select>
+                </label>
+                {profile.repertoireAiStatus === "suggested" || profile.repertoireAiStatus === "approved" ? (
+                  <div className="mt-5 border border-black/10 bg-[#f8f7f3] p-4 text-sm">
+                    <p className="font-semibold">Ringkasan dari AI · akan diperiksa admin</p>
+                    <p className="mt-2 text-black/60"><b>Genre:</b> {profile.repertoireGenres.join(", ") || "—"}</p>
+                    <p className="mt-1 text-black/60"><b>Gaya:</b> {profile.repertoireStyles.join(", ") || "—"}</p>
+                    <p className="mt-1 text-black/60"><b>Era:</b> {profile.repertoireEras.join(", ") || "—"}</p>
+                  </div>
+                ) : profile.repertoireAiStatus === "pending" ? <p className="mt-4 text-xs text-black/50">Setelah 10–20 lagu lengkap disimpan, AI akan mencoba mengelompokkan genre, gaya, dan era.</p> : null}
+              </div>
+            ) : null}
+
+            <div className="mt-6 grid gap-5">
+              <label className="block text-sm font-semibold">
+                Batasan booking <span className="font-normal text-black/45">(opsional)</span>
+                <textarea disabled={locked} value={profile.bookingLimitations} onChange={(event) => setProfile((current) => ({ ...current, bookingLimitations: event.target.value }))} rows={3} maxLength={2000} placeholder="Kosongkan jika tidak ada. Isi hanya jenis acara atau kondisi yang tidak dapat diterima." className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" />
+                <span className="mt-1 block text-xs font-normal text-black/45">Batasan akan diperiksa terhadap kebutuhan buyer sebelum penawaran dikirim.</span>
+              </label>
+              <label className="block text-sm font-semibold">
+                Link media/portofolio utama <span className="font-normal text-black/45">(opsional)</span>
+                <input type="url" inputMode="url" disabled={locked} value={profile.portfolioUrl} onChange={(event) => setProfile((current) => ({ ...current, portfolioUrl: event.target.value }))} placeholder="https://" className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" />
+              </label>
+            </div>
+
+            <div className="mt-6 border-t border-black/10 pt-5">
+              <p className="text-sm font-semibold">Rider / kebutuhan operasional <span className="font-normal text-black/45">(opsional saat mengisi draf)</span></p>
+              <p className="mt-1 text-xs leading-5 text-black/50">{riderHint}</p>
+              <label className="mt-4 block text-sm font-semibold">
+                Rider dasar
+                <textarea disabled={locked} value={profile.baseRider} onChange={(event) => setProfile((current) => ({ ...current, baseRider: event.target.value }))} rows={5} placeholder={group === "host" ? "Contoh: handheld wireless mic, cue monitor, rundown final H-1..." : group === "speaker" ? "Contoh: lavalier mic, lectern, confidence monitor, clicker..." : "Tulis kebutuhan wajib yang memang berlaku."} className="mt-2 w-full border border-black/15 px-3 py-3 font-normal disabled:bg-black/5" />
+              </label>
+              <label className="mt-4 block text-sm font-semibold">
+                Dokumen rider <span className="font-normal text-black/45">(opsional)</span>
+                <input type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" disabled={busy || locked} onChange={(event) => uploadRider(event.target.files?.[0] ?? null)} className="mt-3 block w-full text-sm font-normal" />
+                <span className="mt-2 block text-xs font-normal text-black/45">PDF/DOCX/TXT maks. 15 MB.</span>
+              </label>
+            </div>
+
+            <div className="mt-6 border-t border-black/10 pt-5">
+              <p className="text-sm font-semibold">Kelengkapan sebelum ditinjau</p>
+              <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                <p className={basicComplete ? "text-green-700" : "text-black/45"}>{basicComplete ? "✓" : "○"} Nama & kategori</p>
+                <p className={contactComplete ? "text-green-700" : "text-black/45"}>{contactComplete ? "✓" : "○"} PIC + WhatsApp/email</p>
+                <p className={profile.bio.trim() ? "text-green-700" : "text-black/45"}>{profile.bio.trim() ? "✓" : "○"} Bio singkat</p>
+                <p className={songTypeComplete ? "text-green-700" : "text-black/45"}>{songTypeComplete ? "✓" : "○"} Jenis talent/musisi</p>
+                <p className={hasPhoto ? "text-green-700" : "text-black/45"}>{hasPhoto ? "✓" : "○"} Foto profil</p>
+                <p className={hasVideo ? "text-green-700" : "text-black/45"}>{hasVideo ? "✓" : "○"} Video penampilan</p>
+                {canCover ? <p className={repertoireComplete ? "text-green-700" : "text-black/45"}>{repertoireComplete ? "✓" : "○"} Daftar lagu & permintaan lagu</p> : null}
+              </div>
+              {!readyToSubmit ? <p className="mt-3 text-xs text-black/50">Draf tetap dapat disimpan. Tombol kirim akan memakai validasi server agar tidak ada persyaratan yang terlewat.</p> : <p className="mt-3 text-xs font-semibold text-green-700">Profil sudah memenuhi kelengkapan utama untuk dikirim.</p>}
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+              <button type="button" disabled={busy} onClick={() => setStep(2)} className="border border-black/15 px-4 py-2 text-sm font-semibold">Kembali</button>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={busy || locked} onClick={() => saveDraft()} className="border border-black/15 px-4 py-2 text-sm font-semibold disabled:opacity-40">Simpan Draf</button>
+                <button type="button" disabled={busy || locked} onClick={submit} className="border border-black bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">{submitLabel}</button>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {assets.length ? (
+          <section className="mt-5 border border-black/10 bg-white p-5">
+            <p className="text-sm font-semibold">Media & dokumen terunggah</p>
+            {assets.map((asset) => (
+              <div key={asset.id} className="mt-2 flex flex-col gap-2 border-t border-black/10 pt-2 text-xs md:flex-row md:items-center md:justify-between">
+                <span><strong>{assetLabel(asset.asset_type)}</strong>{asset.original_filename ? ` · ${asset.original_filename}` : ""}</span>
+                <span className="flex flex-wrap items-center gap-2 text-black/55">
+                  {statusLabel(asset.upload_status, asset.review_status)}
+                  {asset.asset_type === "rider_document" && asset.description?.includes("normalisasi AI belum berhasil") ? <button type="button" disabled={busy || locked} onClick={() => retryRider(asset.id)} className="border border-black/20 px-2 py-1 font-semibold text-black disabled:opacity-40">Coba AI lagi</button> : null}
+                </span>
+              </div>
+            ))}
+          </section>
+        ) : null}
+
+        {message ? <p className="mt-4 text-sm font-semibold text-green-700">{message}</p> : null}
+        {error ? <p className="mt-4 text-sm font-semibold text-red-700">{error}</p> : null}
+      </div>
+    </main>
+  );
+}
