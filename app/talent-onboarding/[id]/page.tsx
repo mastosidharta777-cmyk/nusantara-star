@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
 import { SupplyOnboardingForm } from "@/components/supply-onboarding-form";
+import { TalentAvailabilityCalendar } from "@/components/talent-availability-calendar";
 import { TalentOnboardingProgressive } from "@/components/talent-onboarding-progressive";
 import { TalentRiderCompletion } from "@/components/talent-rider-completion";
 import { verifyAccessToken } from "@/lib/signed-access";
@@ -28,5 +29,5 @@ export default async function TalentOnboardingPage({ params, searchParams }: { p
     return <SupplyOnboardingForm supplyId={id} token={token} supplyType={supply.supply_type} />;
   }
 
-  return <><TalentOnboardingProgressive talentId={id} token={token} /><TalentRiderCompletion talentId={id} token={token} /></>;
+  return <><TalentOnboardingProgressive talentId={id} token={token} /><TalentAvailabilityCalendar talentId={id} token={token} /><TalentRiderCompletion talentId={id} token={token} /></>;
 }
