@@ -7,6 +7,8 @@ import { copy, isLocale } from "@/lib/i18n";
 import { loadPublicTalents, publicCategoryId } from "@/lib/public-talents";
 import { Reveal } from "@/components/reveal";
 
+export const dynamic = "force-dynamic";
+
 const icons = [Mic2, Music2, Radio, Sparkles, Waves, Users];
 
 export default async function Home({ params }: { params: Promise<{ locale: string }> }) {
