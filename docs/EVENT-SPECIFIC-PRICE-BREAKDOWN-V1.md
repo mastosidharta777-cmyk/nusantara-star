@@ -47,3 +47,17 @@ If the engagement requires travel, the agency may:
 2. leave those components at zero and state clearly that they are excluded / buyer-arranged.
 
 This keeps nationwide talent bookable without presenting misleading all-in pricing.
+
+
+## Deal handoff rule
+
+After the buyer selects a proposal item, that frozen proposal snapshot becomes the baseline for Deal Sheet review:
+
+- buyer price comes from the selected proposal item;
+- talent payable comes from the linked confirmed talent/manager offer, never from the buyer-facing Talent Fee;
+- direct costs come from transport + accommodation + technical/backline/rider + other buyer-facing components;
+- taxes/payment fees come from the corresponding proposal component.
+
+These values are prefilled as a draft only. Admin must review them before saving. The system must flag any later Deal Review amount that differs from the selected proposal breakdown or confirmed talent offer.
+
+A buyer selection does not silently authorize repricing and does not auto-lock the deal.
