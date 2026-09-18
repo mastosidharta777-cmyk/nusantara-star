@@ -40,10 +40,11 @@ The report source remains visible in admin so an allegation/observation is not m
 3. While at least one incident remains open, party checklist updates are paused.
 4. Admin reviews the report and any evidence.
 5. Talent cancellation may enter the existing replacement recovery engine.
-6. Cancellation/refund/settlement decisions remain in the existing admin commercial workflow.
-7. Admin resolution requires a written resolution note.
-8. When the last open incident is resolved, the booking restores to its prior secured/pre_show state.
-9. Show completion remains blocked while any incident is open.
+6. If an incident is the basis of an active replacement recovery, that incident cannot be resolved until recovery reaches replacement_secured, closed_no_replacement, or void.
+7. Cancellation/refund/settlement decisions remain in the existing admin commercial workflow.
+8. Admin resolution requires a written resolution note.
+9. When the last open incident is resolved, the booking restores to its prior secured/pre_show state.
+10. Show completion remains blocked while any incident is open.
 
 ## Evidence
 
