@@ -266,14 +266,127 @@ begin
 end;
 $$;
 
--- ns_confirm_booking_advance_party_v2 is also updated in production so that when
--- a revised Show Advance becomes fully confirmed during pre-show, every checklist
--- item moves to that revision, the system task is auto-completed, and all
--- buyer/talent/admin tasks reopen as pending.
+create or replace function public.ns_confirm_booking_advance_party_v2(
+  p_booking_id uuid,
+  p_party text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path=public
+as $
+declare
+  b public.bookings%rowtype;
+  a public.booking_advances%rowtype;
+  v_now timestamptz:=now();
+  v_snapshot jsonb;
+  v_ref text;
+  v_show_advance_item uuid;
+begin
+  if p_party not in ('buyer','talent') then raise exception 'Invalid Show Advance party'; end if;
+
+  select * into b from public.bookings where id=p_booking_id for update;
+  if not found then raise exception 'Booking not found'; end if;
+  if b.status not in ('secured','pre_show') then raise exception 'Booking is not eligible for Show Advance confirmation'; end if;
+
+  select * into a from public.booking_advances where booking_id=b.id for update;
+  if not found then raise exception 'Show Advance has not been started'; end if;
+  if a.admin_reviewed_revision_no is distinct from a.revision_no or a.admin_reviewed_at is null then
+    raise exception 'Current Show Advance revision has not passed admin review';
+  end if;
+  if p_party='buyer' and a.buyer_submission is null then raise exception 'Buyer/EO event details are missing'; end if;
+  if p_party='talent' and a.talent_submission is null then raise exception 'Talent/manager details are missing'; end if;
+
+  if a.status='confirmed' and a.confirmed_revision_no=a.revision_no then
+    return jsonb_build_object('ok',true,'status','confirmed','revisionNo',a.revision_no,'alreadyConfirmed',true);
+  end if;
+
+  v_ref:=case when p_party='buyer' then 'signed_buyer_advance' else 'signed_talent_advance' end;
+
+  if p_party='buyer' then
+    if a.buyer_confirmed_at is not null then
+      return jsonb_build_object('ok',true,'status',a.status,'revisionNo',a.revision_no,'alreadyConfirmed',true,'party','buyer');
+    end if;
+    update public.booking_advances
+    set buyer_confirmed_at=v_now,buyer_confirmation_reference=v_ref,updated_at=v_now
+    where booking_id=b.id returning * into a;
+  else
+    if a.talent_confirmed_at is not null then
+      return jsonb_build_object('ok',true,'status',a.status,'revisionNo',a.revision_no,'alreadyConfirmed',true,'party','talent');
+    end if;
+    update public.booking_advances
+    set talent_confirmed_at=v_now,talent_confirmation_reference=v_ref,updated_at=v_now
+    where booking_id=b.id returning * into a;
+  end if;
+
+  insert into public.booking_advance_party_actions(booking_id,revision_no,party,action,source,payload_snapshot)
+  values(b.id,a.revision_no,p_party,'confirmed','signed_link',null);
+
+  if a.buyer_confirmed_at is not null and a.talent_confirmed_at is not null then
+    v_snapshot:=jsonb_build_object(
+      'schema_version',2,
+      'booking_id',b.id,'brief_id',b.brief_id,'talent_id',b.talent_id,'event_date',b.event_date,
+      'revision_no',a.revision_no,'event_timezone',a.event_timezone,
+      'venue_name',a.venue_name,'venue_address',a.venue_address,
+      'load_in_at_local',a.load_in_at_local,'call_at_local',a.call_at_local,'soundcheck_at_local',a.soundcheck_at_local,
+      'show_start_at_local',a.show_start_at_local,'show_end_at_local',a.show_end_at_local,
+      'performance_duration_minutes',a.performance_duration_minutes,
+      'buyer_pic_name',a.buyer_pic_name,'buyer_pic_phone',a.buyer_pic_phone,
+      'onsite_pic_name',a.onsite_pic_name,'onsite_pic_phone',a.onsite_pic_phone,
+      'technical_pic_name',a.technical_pic_name,'technical_pic_phone',a.technical_pic_phone,
+      'talent_pic_name',a.talent_pic_name,'talent_pic_phone',a.talent_pic_phone,
+      'personnel_count',a.personnel_count,'lineup_notes',a.lineup_notes,'rider_version_id',a.rider_version_id,
+      'transport_notes',a.transport_notes,'accommodation_notes',a.accommodation_notes,'hospitality_notes',a.hospitality_notes,
+      'technical_notes',a.technical_notes,'backline_notes',a.backline_notes,'talent_operational_notes',a.talent_operational_notes,
+      'access_loading_notes',a.access_loading_notes,'parking_notes',a.parking_notes,
+      'buyer_confirmation_source','signed_link','talent_confirmation_source','signed_link','confirmed_at',v_now
+    );
+
+    update public.booking_advances
+    set status='confirmed',confirmed_revision_no=revision_no,confirmed_snapshot=v_snapshot,confirmed_at=v_now,updated_at=v_now
+    where booking_id=b.id returning * into a;
+
+    insert into public.booking_advance_confirmations(
+      booking_id,revision_no,snapshot,buyer_confirmation_reference,talent_confirmation_reference,confirmed_at
+    ) values(b.id,a.revision_no,v_snapshot,'signed_buyer_advance','signed_talent_advance',v_now);
+
+    if b.status='pre_show' then
+      update public.pre_show_checklist_items
+      set advance_revision_no=a.revision_no,
+          status=case when item_key='show_advance' then 'done' else 'pending' end,
+          completed_at=case when item_key='show_advance' then v_now else null end,
+          updated_at=v_now
+      where booking_id=b.id;
+
+      select id into v_show_advance_item
+      from public.pre_show_checklist_items
+      where booking_id=b.id and item_key='show_advance'
+      limit 1;
+
+      if v_show_advance_item is not null then
+        insert into public.pre_show_task_confirmations(
+          checklist_item_id,booking_id,party,response,note,advance_revision_no
+        )
+        values(v_show_advance_item,b.id,'system','done','Auto-confirmed from revised Show Advance',a.revision_no)
+        on conflict(checklist_item_id,party,advance_revision_no)
+        do update set response='done',note=excluded.note,updated_at=v_now;
+      end if;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'ok',true,'status',a.status,'revisionNo',a.revision_no,'party',p_party,
+    'buyerConfirmed',a.buyer_confirmed_at is not null,'talentConfirmed',a.talent_confirmed_at is not null,
+    'confirmedAt',a.confirmed_at
+  );
+end;
+$;
 
 revoke all on function public.ns_set_pre_show_task_party_v1(uuid,uuid,text,text,text) from public,anon,authenticated;
 grant execute on function public.ns_set_pre_show_task_party_v1(uuid,uuid,text,text,text) to service_role;
 revoke all on function public.ns_initialize_pre_show_v1(uuid) from public,anon,authenticated;
 grant execute on function public.ns_initialize_pre_show_v1(uuid) to service_role;
+revoke all on function public.ns_confirm_booking_advance_party_v2(uuid,text) from public,anon,authenticated;
+grant execute on function public.ns_confirm_booking_advance_party_v2(uuid,text) to service_role;
 revoke all on function public.ns_complete_show_v1(uuid) from public,anon,authenticated;
 grant execute on function public.ns_complete_show_v1(uuid) to service_role;
