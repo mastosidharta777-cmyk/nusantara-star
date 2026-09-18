@@ -43,6 +43,7 @@ export default async function BuyerTermsPage({ params, searchParams }: { params:
   if (!data) notFound();
   const isId = locale === "id";
   const { booking, deal, brief, talent, proposalItem, offer, snapshot, milestones, accepted, termsReady } = data;
+  const offerValidUntil = snapshot?.offer_valid_until ?? offer.quote_valid_until;
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] px-5 py-10 text-[#171713] md:px-10 md:py-16">
@@ -100,7 +101,7 @@ export default async function BuyerTermsPage({ params, searchParams }: { params:
             <p><span className="text-black/45">{isId ? "Pembatalan:" : "Cancellation:"}</span><br />{snapshot?.terms.cancellation_terms ?? deal.cancellation_terms ?? (isId ? "Belum dikunci" : "Not locked")}</p>
             {(snapshot?.terms.rider_notes ?? deal.rider_notes) ? <p><span className="text-black/45">{isId ? "Rider / kebutuhan teknis:" : "Rider / technical requirements:"}</span><br />{snapshot?.terms.rider_notes ?? deal.rider_notes}</p> : null}
             {(snapshot?.terms.special_conditions ?? deal.special_conditions) ? <p><span className="text-black/45">{isId ? "Ketentuan khusus:" : "Special conditions:"}</span><br />{snapshot?.terms.special_conditions ?? deal.special_conditions}</p> : null}
-            <p className="text-xs text-black/45">{isId ? "Penawaran talent berlaku sampai" : "Talent offer valid until"}: {(snapshot?.offer_valid_until ?? offer.quote_valid_until) ? new Date(snapshot?.offer_valid_until ?? offer.quote_valid_until).toLocaleString(isId ? "id-ID" : "en-US") : "—"}</p>
+            <p className="text-xs text-black/45">{isId ? "Penawaran talent berlaku sampai" : "Talent offer valid until"}: {offerValidUntil ? new Date(offerValidUntil).toLocaleString(isId ? "id-ID" : "en-US") : "—"}</p>
           </div>
         </section>
 
