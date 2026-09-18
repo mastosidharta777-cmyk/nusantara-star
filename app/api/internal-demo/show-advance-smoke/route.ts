@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 import { POST as bookingAction } from "@/app/api/internal-demo/admin/booking/route";
 import { POST as showAdvanceAction } from "@/app/api/internal-demo/admin/show-advance/route";
 import { POST as operationsAction } from "@/app/api/internal-demo/admin/operations/route";
+import { POST as partyAdvanceAction } from "@/app/api/show-advance/party/route";
+import { signAccessToken } from "@/lib/signed-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -203,8 +205,22 @@ export async function GET() {
       throw new Error(`Pre-show gate failed: ${JSON.stringify(blockedPreShow.json)}`);
     }
 
-    const save1 = await post(showAdvanceAction, {
+    const buyerToken = signAccessToken("buyer_advance", bookingId, new Date(Date.now() + 60 * 60 * 1000));
+    const talentToken = signAccessToken("talent_advance", bookingId, new Date(Date.now() + 60 * 60 * 1000));
+
+    const blockedAdminSave = await post(showAdvanceAction, {
       bookingId,
+      action: "save",
+      payload: { venue_name: "Admin must not own this" },
+    }, true);
+    if (blockedAdminSave.response.ok || blockedAdminSave.response.status !== 409) {
+      throw new Error(`Admin data-entry gate failed: ${JSON.stringify(blockedAdminSave.json)}`);
+    }
+
+    const buyerSave1 = await post(partyAdvanceAction, {
+      bookingId,
+      party: "buyer",
+      token: buyerToken,
       action: "save",
       payload: {
         event_timezone: "Asia/Jakarta",
@@ -215,31 +231,70 @@ export async function GET() {
         soundcheck_at_local: `${eventDate}T17:00`,
         show_start_at_local: `${eventDate}T20:00`,
         show_end_at_local: `${eventDate}T21:00`,
-        performance_duration_minutes: 60,
         buyer_pic_name: "Buyer Smoke",
         buyer_pic_phone: "081200000001",
         onsite_pic_name: "Onsite Smoke",
         onsite_pic_phone: "081200000002",
+        technical_pic_name: "Technical Smoke",
+        technical_pic_phone: "081200000004",
+        technical_notes: "PA and four monitor mixes",
+        transport_notes: "Self transport",
+        accommodation_notes: "No hotel required",
+        hospitality_notes: "Meal and water",
+        access_loading_notes: "Loading gate A",
+        parking_notes: "Two vehicle slots",
+      },
+    });
+    if (!buyerSave1.response.ok || Number(buyerSave1.json?.revisionNo ?? 0) !== 1) {
+      throw new Error(`Buyer advance save failed: ${JSON.stringify(buyerSave1.json)}`);
+    }
+
+    const blockedReviewBeforeTalent = await post(showAdvanceAction, { bookingId, action: "review" }, true);
+    if (blockedReviewBeforeTalent.response.ok || blockedReviewBeforeTalent.response.status !== 409) {
+      throw new Error(`Review should wait for talent submission: ${JSON.stringify(blockedReviewBeforeTalent.json)}`);
+    }
+
+    const talentSave1 = await post(partyAdvanceAction, {
+      bookingId,
+      party: "talent",
+      token: talentToken,
+      action: "save",
+      payload: {
         talent_pic_name: "Manager Smoke",
         talent_pic_phone: "081200000003",
         personnel_count: 4,
         lineup_notes: "Vocal, guitar, bass, drums",
-        technical_notes: "PA and four monitor mixes",
-        transport_notes: "Self transport",
+        backline_notes: "Drum kit and bass amp required",
+        talent_operational_notes: "Schedule workable",
       },
-    }, true);
-    if (!save1.response.ok || Number(save1.json?.advance?.revision_no ?? 0) !== 1) {
-      throw new Error(`Advance save failed: ${JSON.stringify(save1.json)}`);
+    });
+    if (!talentSave1.response.ok || Number(talentSave1.json?.revisionNo ?? 0) !== 2) {
+      throw new Error(`Talent advance save failed: ${JSON.stringify(talentSave1.json)}`);
     }
 
-    const confirm1 = await post(showAdvanceAction, {
+    const review1 = await post(showAdvanceAction, { bookingId, action: "review" }, true);
+    if (!review1.response.ok || Number(review1.json?.revisionNo ?? 0) !== 2) {
+      throw new Error(`Admin merged review failed: ${JSON.stringify(review1.json)}`);
+    }
+
+    const buyerConfirm1 = await post(partyAdvanceAction, {
       bookingId,
+      party: "buyer",
+      token: buyerToken,
       action: "confirm",
-      buyerConfirmationReference: "WA buyer smoke",
-      talentConfirmationReference: "WA manager smoke",
-    }, true);
-    if (!confirm1.response.ok || confirm1.json?.status !== "confirmed") {
-      throw new Error(`Advance confirm failed: ${JSON.stringify(confirm1.json)}`);
+    });
+    if (!buyerConfirm1.response.ok || buyerConfirm1.json?.buyerConfirmed !== true || buyerConfirm1.json?.talentConfirmed !== false) {
+      throw new Error(`Buyer final confirmation failed: ${JSON.stringify(buyerConfirm1.json)}`);
+    }
+
+    const talentConfirm1 = await post(partyAdvanceAction, {
+      bookingId,
+      party: "talent",
+      token: talentToken,
+      action: "confirm",
+    });
+    if (!talentConfirm1.response.ok || talentConfirm1.json?.status !== "confirmed" || Number(talentConfirm1.json?.revisionNo ?? 0) !== 2) {
+      throw new Error(`Talent final confirmation failed: ${JSON.stringify(talentConfirm1.json)}`);
     }
 
     const preShow = await post(operationsAction, { bookingId, action: "initialize_pre_show" });
@@ -247,8 +302,10 @@ export async function GET() {
       throw new Error(`Pre-show start failed: ${JSON.stringify(preShow.json)}`);
     }
 
-    const save2 = await post(showAdvanceAction, {
+    const buyerSave2 = await post(partyAdvanceAction, {
       bookingId,
+      party: "buyer",
+      token: buyerToken,
       action: "save",
       payload: {
         event_timezone: "Asia/Jakarta",
@@ -259,21 +316,22 @@ export async function GET() {
         soundcheck_at_local: `${eventDate}T17:00`,
         show_start_at_local: `${eventDate}T20:00`,
         show_end_at_local: `${eventDate}T21:00`,
-        performance_duration_minutes: 60,
         buyer_pic_name: "Buyer Smoke",
         buyer_pic_phone: "081200000001",
         onsite_pic_name: "Onsite Smoke",
         onsite_pic_phone: "081200000002",
-        talent_pic_name: "Manager Smoke",
-        talent_pic_phone: "081200000003",
-        personnel_count: 4,
-        lineup_notes: "Vocal, guitar, bass, drums",
+        technical_pic_name: "Technical Smoke",
+        technical_pic_phone: "081200000004",
         technical_notes: "PA and four monitor mixes",
         transport_notes: "Self transport",
+        accommodation_notes: "No hotel required",
+        hospitality_notes: "Meal and water",
+        access_loading_notes: "Loading gate A",
+        parking_notes: "Two vehicle slots",
       },
-    }, true);
-    if (!save2.response.ok || Number(save2.json?.advance?.revision_no ?? 0) !== 2) {
-      throw new Error(`Advance revision save failed: ${JSON.stringify(save2.json)}`);
+    });
+    if (!buyerSave2.response.ok || Number(buyerSave2.json?.revisionNo ?? 0) !== 3) {
+      throw new Error(`Buyer revision save failed: ${JSON.stringify(buyerSave2.json)}`);
     }
 
     const { data: checklistItem, error: checklistError } = await supabase
@@ -295,14 +353,37 @@ export async function GET() {
       throw new Error(`Revision reconfirmation gate failed: ${JSON.stringify(blockedChecklist.json)}`);
     }
 
-    const confirm2 = await post(showAdvanceAction, {
+    const blockedConfirmBeforeReview = await post(partyAdvanceAction, {
       bookingId,
+      party: "buyer",
+      token: buyerToken,
       action: "confirm",
-      buyerConfirmationReference: "WA buyer smoke revision 2",
-      talentConfirmationReference: "WA manager smoke revision 2",
-    }, true);
-    if (!confirm2.response.ok || confirm2.json?.status !== "confirmed" || Number(confirm2.json?.revisionNo ?? 0) !== 2) {
-      throw new Error(`Revision reconfirm failed: ${JSON.stringify(confirm2.json)}`);
+    });
+    if (blockedConfirmBeforeReview.response.ok || blockedConfirmBeforeReview.response.status !== 409) {
+      throw new Error(`Party confirmation should require admin review: ${JSON.stringify(blockedConfirmBeforeReview.json)}`);
+    }
+
+    const review2 = await post(showAdvanceAction, { bookingId, action: "review" }, true);
+    if (!review2.response.ok || Number(review2.json?.revisionNo ?? 0) !== 3) {
+      throw new Error(`Revision 3 review failed: ${JSON.stringify(review2.json)}`);
+    }
+
+    const buyerConfirm2 = await post(partyAdvanceAction, {
+      bookingId,
+      party: "buyer",
+      token: buyerToken,
+      action: "confirm",
+    });
+    if (!buyerConfirm2.response.ok) throw new Error(`Buyer reconfirm failed: ${JSON.stringify(buyerConfirm2.json)}`);
+
+    const talentConfirm2 = await post(partyAdvanceAction, {
+      bookingId,
+      party: "talent",
+      token: talentToken,
+      action: "confirm",
+    });
+    if (!talentConfirm2.response.ok || talentConfirm2.json?.status !== "confirmed" || Number(talentConfirm2.json?.revisionNo ?? 0) !== 3) {
+      throw new Error(`Talent reconfirm failed: ${JSON.stringify(talentConfirm2.json)}`);
     }
 
     const checklistDone = await post(operationsAction, {
@@ -331,11 +412,15 @@ export async function GET() {
       ok: true,
       checks: {
         preShowBlockedBeforeAdvance: true,
-        revision1Confirmed: true,
+        adminDataEntryBlocked: true,
+        buyerAndTalentOwnTheirInputs: true,
+        reviewWaitsForBothParties: true,
+        revision2ConfirmedBySignedParties: true,
         preShowChecklistGenerated: 8,
-        revision2InvalidatedOldConfirmation: true,
+        revision3InvalidatedOldConfirmation: true,
         checklistBlockedUntilReconfirm: true,
-        revision2Confirmed: true,
+        confirmationRequiresAdminReview: true,
+        revision3ConfirmedBySignedParties: true,
         showCompleted: true,
         confirmationHistory: confirmationCount,
       },
