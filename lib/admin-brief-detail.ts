@@ -119,6 +119,8 @@ type BookingRecord = {
   talent_payable: number | null;
   direct_cost: number | null;
   buyer_terms_accepted_at: string | null;
+  buyer_terms_snapshot: Record<string, unknown> | null;
+  buyer_terms_accepted_snapshot: Record<string, unknown> | null;
   financial_security_type: string | null;
   financial_security_status: string;
   financial_security_reference: string | null;
@@ -189,7 +191,7 @@ export async function loadAdminBriefDetail(id: string) {
       .maybeSingle(),
     supabase
       .from("bookings")
-      .select("id,status,event_date,venue,city,buyer_price,talent_payable,direct_cost,buyer_terms_accepted_at,financial_security_type,financial_security_status,financial_security_reference,secured_at")
+      .select("id,status,event_date,venue,city,buyer_price,talent_payable,direct_cost,buyer_terms_accepted_at,buyer_terms_snapshot,buyer_terms_accepted_snapshot,financial_security_type,financial_security_status,financial_security_reference,secured_at")
       .eq("brief_id", id)
       .maybeSingle(),
   ]);
