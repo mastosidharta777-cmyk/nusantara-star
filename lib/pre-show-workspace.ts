@@ -135,6 +135,7 @@ export async function loadPreShowWorkspace(bookingId: string, party: PreShowPart
       .from("incident_evidence")
       .select("id,incident_id,uploaded_by_party,evidence_type,provider,storage_key,external_url,original_filename,upload_status,created_at")
       .eq("booking_id", booking.id)
+      .eq("uploaded_by_party", party)
       .eq("upload_status", "uploaded")
       .order("created_at", { ascending: true }),
   ]);
@@ -185,10 +186,15 @@ export async function loadPreShowWorkspace(bookingId: string, party: PreShowPart
     } as IncidentEvidence;
   }));
 
-  const incidents = (incidentResult.data ?? []).map((row) => ({
-    ...row,
-    evidence: evidenceRows.filter((evidence) => evidence.incident_id === row.id),
-  })) as OperationalIncident[];
+  const incidents = (incidentResult.data ?? []).map((row) => {
+    const ownReport = row.reported_by_party === party;
+    return {
+      ...row,
+      summary: ownReport ? row.summary : "Ada laporan kejadian dari pihak lain yang sedang ditinjau Nusantara Star.",
+      details: ownReport ? row.details : null,
+      evidence: ownReport ? evidenceRows.filter((evidence) => evidence.incident_id === row.id) : [],
+    };
+  }) as OperationalIncident[];
 
   return {
     booking: {
