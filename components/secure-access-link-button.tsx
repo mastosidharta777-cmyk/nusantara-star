@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-type Scope = "buyer_proposal" | "buyer_terms" | "talent_offer";
+type Scope = "buyer_proposal" | "buyer_terms" | "buyer_payment" | "talent_offer";
 type Delivery = "open" | "copy";
 
 export function SecureAccessLinkButton({ scope, subjectId, label, delivery = "open" }: { scope: Scope; subjectId: string; label: string; delivery?: Delivery }) {
