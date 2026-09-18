@@ -83,7 +83,7 @@ export async function POST(request: Request) {
     if (action === "resolve_incident") {
       const incidentId = typeof body?.incidentId === "string" ? body.incidentId : "";
       const resolutionNotes = typeof body?.resolutionNotes === "string" && body.resolutionNotes.trim() ? body.resolutionNotes.trim() : null;
-      if (!incidentId) return NextResponse.json({ error: "Incident ID is required" }, { status: 400 });
+      if (!incidentId || !resolutionNotes) return NextResponse.json({ error: "Incident ID and resolution notes are required" }, { status: 400 });
       const { data, error } = await supabase.rpc("ns_resolve_incident_v1", { p_booking_id: bookingId, p_incident_id: incidentId, p_resolution_notes: resolutionNotes });
       if (error) return rpcError(error.message);
       return NextResponse.json(data ?? { ok: true, incidentStatus: "resolved" });
