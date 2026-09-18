@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { SecureAccessLinkButton } from "@/components/secure-access-link-button";
-import type { OperationsChecklistItem, OperationsIncident, TalentSettlement } from "@/lib/operations-data";
+import type { OperationsChecklistItem, OperationsIncident, OperationsPostShowConfirmation, TalentSettlement } from "@/lib/operations-data";
 import { bookingStatusLabel } from "@/lib/ui-language";
 
 type Booking = {
@@ -55,19 +55,29 @@ function checklistStatusLabel(status: OperationsChecklistItem["status"]) {
   return "Menunggu";
 }
 
+function postShowOutcomeLabel(outcome: OperationsPostShowConfirmation["outcome"]) {
+  if (outcome === "performed_as_agreed") return "Tampil sesuai kesepakatan";
+  if (outcome === "performed_with_issue") return "Tampil dengan kendala";
+  return "Tidak tampil";
+}
+
 export function AdminOperations({
   booking,
   checklist,
   incidents,
+  postShowConfirmations,
   settlements,
   advanceConfirmed,
+  currentAdvanceRevision,
   recoveryBlockingIncidentId,
 }: {
   booking: Booking;
   checklist: OperationsChecklistItem[];
   incidents: OperationsIncident[];
+  postShowConfirmations: OperationsPostShowConfirmation[];
   settlements: TalentSettlement[];
   advanceConfirmed: boolean;
+  currentAdvanceRevision: number | null;
   recoveryBlockingIncidentId: string | null;
 }) {
   const router = useRouter();
@@ -77,6 +87,7 @@ export function AdminOperations({
   const [incidentSummary, setIncidentSummary] = useState("");
   const [incidentDetails, setIncidentDetails] = useState("");
   const [resolutionNotes, setResolutionNotes] = useState<Record<string, string>>({});
+  const [completionOverrideReason, setCompletionOverrideReason] = useState("");
   const [settlementAmount, setSettlementAmount] = useState("");
   const [settlementProvider, setSettlementProvider] = useState("");
   const [settlementReference, setSettlementReference] = useState("");
@@ -88,6 +99,13 @@ export function AdminOperations({
   const remaining = Math.max(0, Number(booking.talent_payable ?? 0) - paid);
   const openIncidents = incidents.filter((row) => row.status === "open");
   const checklistReady = checklist.length > 0 && checklist.every((item) => item.status !== "pending");
+  const currentPostShowConfirmations = currentAdvanceRevision == null
+    ? []
+    : postShowConfirmations.filter((row) => row.advance_revision_no === currentAdvanceRevision);
+  const buyerPostShow = currentPostShowConfirmations.find((row) => row.party === "buyer");
+  const talentPostShow = currentPostShowConfirmations.find((row) => row.party === "talent");
+  const bothPartiesConfirmed = buyerPostShow?.outcome === "performed_as_agreed"
+    && talentPostShow?.outcome === "performed_as_agreed";
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     setBusy(action + (typeof extra.itemId === "string" ? `:${extra.itemId}` : ""));
@@ -190,15 +208,15 @@ export function AdminOperations({
       {["pre_show", "incident"].includes(booking.status) && advanceConfirmed ? (
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <div className="border border-black/10 bg-[#f5f3ee] p-4">
-            <p className="text-sm font-semibold">Buyer / EO checklist</p>
-            <p className="mt-1 text-xs leading-5 text-black/45">Venue/access, logistics, call sheet, dan emergency contacts.</p>
+            <p className="text-sm font-semibold">Buyer / EO workspace</p>
+            <p className="mt-1 text-xs leading-5 text-black/45">Checklist, laporan incident, dan konfirmasi hasil pertunjukan.</p>
             <div className="mt-3">
               <SecureAccessLinkButton scope="buyer_pre_show" subjectId={booking.id} label="Buat link Buyer / EO" delivery="copy" />
             </div>
           </div>
           <div className="border border-black/10 bg-[#f5f3ee] p-4">
-            <p className="text-sm font-semibold">Talent / Manager checklist</p>
-            <p className="mt-1 text-xs leading-5 text-black/45">Rider, lineup/backline, logistics acknowledgement, call sheet, dan emergency contacts.</p>
+            <p className="text-sm font-semibold">Talent / Manager workspace</p>
+            <p className="mt-1 text-xs leading-5 text-black/45">Checklist, laporan incident, dan konfirmasi hasil pertunjukan.</p>
             <div className="mt-3">
               <SecureAccessLinkButton scope="talent_pre_show" subjectId={booking.id} label="Buat link Talent / Manager" delivery="copy" />
             </div>
@@ -342,20 +360,82 @@ export function AdminOperations({
         </div>
       ) : null}
 
-      {booking.status === "pre_show" && advanceConfirmed && !checklistReady ? (
-        <div className="mt-6 border border-amber-500/30 bg-amber-50 p-4 text-sm text-amber-950">
-          Pertunjukan belum dapat ditandai selesai karena masih ada task pra-acara yang pending.
-        </div>
-      ) : null}
+      {["pre_show", "incident"].includes(booking.status) && advanceConfirmed ? (
+        <div className="mt-6 border-t border-black/10 pt-5">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold">Konfirmasi Hasil Pertunjukan</p>
+              <p className="mt-1 text-xs leading-5 text-black/45">
+                Buyer dan Talent mengisi hasil show melalui secure workspace masing-masing. Konfirmasi ini terikat ke Show Advance revision aktif.
+              </p>
+            </div>
+            <span className="text-xs font-semibold">Revision {currentAdvanceRevision ?? "—"}</span>
+          </div>
 
-      {booking.status === "pre_show" && openIncidents.length === 0 && advanceConfirmed && checklistReady ? (
-        <button
-          onClick={() => act("complete_show")}
-          disabled={busy !== null}
-          className="mt-6 bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
-        >
-          Tandai pertunjukan selesai
-        </button>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            {[
+              ["Buyer / EO", buyerPostShow],
+              ["Talent / Manager", talentPostShow],
+            ].map(([label, confirmation]) => {
+              const row = confirmation as OperationsPostShowConfirmation | undefined;
+              return (
+                <div key={String(label)} className="border border-black/10 bg-[#f5f3ee] p-4 text-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/45">{String(label)}</p>
+                  <p className="mt-2 font-semibold">{row ? postShowOutcomeLabel(row.outcome) : "Belum konfirmasi"}</p>
+                  {row?.note ? <p className="mt-2 text-xs leading-5 text-black/55">{row.note}</p> : null}
+                  {row ? <p className="mt-2 text-xs text-black/40">{new Date(row.confirmed_at).toLocaleString("id-ID")}</p> : null}
+                </div>
+              );
+            })}
+          </div>
+
+          {booking.status === "incident" ? (
+            <div className="mt-3 border border-amber-500/30 bg-amber-50 p-3 text-xs leading-5 text-amber-950">
+              Completion tetap terkunci selama incident masih aktif.
+            </div>
+          ) : null}
+
+          {booking.status === "pre_show" && !checklistReady ? (
+            <div className="mt-3 border border-amber-500/30 bg-amber-50 p-3 text-xs leading-5 text-amber-950">
+              Pertunjukan belum dapat ditandai selesai karena masih ada task pra-acara yang pending.
+            </div>
+          ) : null}
+
+          {booking.status === "pre_show" && openIncidents.length === 0 && checklistReady && bothPartiesConfirmed ? (
+            <button
+              onClick={() => act("complete_show")}
+              disabled={busy !== null}
+              className="mt-4 bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+            >
+              {busy === "complete_show" ? "Menyelesaikan…" : "Tandai pertunjukan selesai"}
+            </button>
+          ) : null}
+
+          {booking.status === "pre_show" && openIncidents.length === 0 && checklistReady && !bothPartiesConfirmed ? (
+            <div className="mt-4 border border-black/10 p-4">
+              <p className="text-sm font-semibold">Override admin bila konfirmasi pihak belum lengkap</p>
+              <p className="mt-1 text-xs leading-5 text-black/45">
+                Gunakan hanya setelah fakta operasional diperiksa. Override tidak mengubah atau menghapus laporan incident dan tidak otomatis memicu pembayaran.
+              </p>
+              <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+                <textarea
+                  value={completionOverrideReason}
+                  onChange={(event) => setCompletionOverrideReason(event.target.value)}
+                  maxLength={2000}
+                  placeholder="Alasan dan dasar verifikasi admin"
+                  className="min-h-20 border border-black/15 p-2 text-sm"
+                />
+                <button
+                  onClick={() => act("complete_show", { overrideReason: completionOverrideReason })}
+                  disabled={busy !== null || !completionOverrideReason.trim()}
+                  className="h-fit border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40"
+                >
+                  {busy === "complete_show" ? "Menyelesaikan…" : "Selesaikan dengan override"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="mt-6 border-t border-black/10 pt-5">
