@@ -75,6 +75,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
     loadRecoveryCaseForBrief(row.id),
   ]);
   const advanceConfirmed = showAdvanceIsCurrentAndConfirmed(showAdvance);
+  const currentAdvanceRevision = showAdvance?.advance?.revision_no ?? null;
   const recoveryCase = recoveryBriefCase ?? bookingRecoveryCase;
   const recoveryBlockingIncidentId = recoveryCase
     && booking
@@ -165,7 +166,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
         {selectedTalent && dealLocked ? <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} /> : null}
         {booking && dealLocked ? <AdminPaymentMilestones bookingId={booking.id} milestones={paymentMilestones} /> : null}
         {booking && dealLocked && showAdvance && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminShowAdvance bookingId={booking.id} bookingStatus={booking.status} data={showAdvance} /> : null}
-        {booking && dealLocked && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminOperations booking={booking} checklist={operations.checklist} incidents={operations.incidents} settlements={operations.settlements} advanceConfirmed={advanceConfirmed} recoveryBlockingIncidentId={recoveryBlockingIncidentId} /> : null}
+        {booking && dealLocked && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminOperations booking={booking} checklist={operations.checklist} incidents={operations.incidents} postShowConfirmations={operations.postShowConfirmations} settlements={operations.settlements} advanceConfirmed={advanceConfirmed} currentAdvanceRevision={currentAdvanceRevision} recoveryBlockingIncidentId={recoveryBlockingIncidentId} /> : null}
         {!recoveryCase && booking && booking.status === "incident" ? <AdminRecoveryPanel bookingId={booking.id} bookingStatus={booking.status} incidents={operations.incidents} recoveryCase={null} currentBriefId={row.id} /> : null}
       </div>
     </main>
