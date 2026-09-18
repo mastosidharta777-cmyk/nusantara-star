@@ -59,6 +59,9 @@ export function PreShowWorkspaceForm({
   const router = useRouter();
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [incidentBusy, setIncidentBusy] = useState(false);
+  const [postShowBusy, setPostShowBusy] = useState(false);
+  const [postShowOutcome, setPostShowOutcome] = useState(data.postShowConfirmation?.outcome ?? "performed_as_agreed");
+  const [postShowNote, setPostShowNote] = useState(data.postShowConfirmation?.note ?? "");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [incidentType, setIncidentType] = useState("late_arrival");
@@ -108,6 +111,38 @@ export function PreShowWorkspaceForm({
       setError(err instanceof Error ? err.message : "Gagal memperbarui checklist");
     } finally {
       setBusyItem(null);
+    }
+  }
+
+  async function savePostShowConfirmation() {
+    if (postShowOutcome !== "performed_as_agreed" && !postShowNote.trim()) {
+      setError("Catatan wajib diisi jika pertunjukan tidak berjalan sesuai kesepakatan.");
+      return;
+    }
+
+    setPostShowBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/pre-show/post-show-confirmation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          bookingId,
+          party,
+          token,
+          outcome: postShowOutcome,
+          note: postShowNote,
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error ?? body?.detail ?? "Konfirmasi hasil show gagal disimpan");
+      setMessage("Konfirmasi hasil pertunjukan tersimpan.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Konfirmasi hasil show gagal disimpan");
+    } finally {
+      setPostShowBusy(false);
     }
   }
 
@@ -268,6 +303,69 @@ export function PreShowWorkspaceForm({
               {data.advance.personnel_count ?? "—"} orang · {data.advance.lineup_notes ?? "—"}
             </div>
           </div>
+        </section>
+
+        <section className="mt-5 border border-black/10 bg-white p-5 md:p-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold">Konfirmasi hasil pertunjukan</h2>
+              <p className="mt-1 text-xs leading-5 text-black/45">
+                Isi setelah penampilan selesai. Konfirmasi ini tidak otomatis menutup incident, menentukan refund, atau memicu pembayaran.
+              </p>
+            </div>
+            {data.postShowConfirmation ? (
+              <span className="w-fit border border-emerald-700/20 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
+                Sudah dikonfirmasi
+              </span>
+            ) : null}
+          </div>
+
+          {data.postShowConfirmation ? (
+            <p className="mt-3 text-xs text-black/45">
+              Konfirmasi terakhir: {new Date(data.postShowConfirmation.confirmed_at).toLocaleString("id-ID")} · Show Advance revision {data.postShowConfirmation.advance_revision_no}
+            </p>
+          ) : null}
+
+          <div className="mt-4 grid gap-3 md:grid-cols-[260px_1fr]">
+            <label className="text-xs font-semibold">
+              Hasil pertunjukan
+              <select
+                value={postShowOutcome}
+                onChange={(event) => setPostShowOutcome(event.target.value as "performed_as_agreed" | "performed_with_issue" | "not_performed")}
+                className="mt-1 w-full border border-black/15 bg-white p-3 text-sm font-normal"
+              >
+                <option value="performed_as_agreed">Tampil sesuai kesepakatan</option>
+                <option value="performed_with_issue">Tampil dengan kendala</option>
+                <option value="not_performed">Tidak tampil</option>
+              </select>
+            </label>
+
+            <label className="text-xs font-semibold">
+              Catatan {postShowOutcome === "performed_as_agreed" ? <span className="font-normal text-black/40">(opsional)</span> : <span className="text-red-700">(wajib)</span>}
+              <textarea
+                value={postShowNote}
+                onChange={(event) => setPostShowNote(event.target.value)}
+                maxLength={2000}
+                className="mt-1 min-h-24 w-full border border-black/15 bg-white p-3 text-sm font-normal"
+                placeholder={postShowOutcome === "performed_as_agreed" ? "Catatan tambahan bila perlu." : "Jelaskan fakta yang berbeda dari kesepakatan."}
+              />
+            </label>
+          </div>
+
+          <button
+            type="button"
+            onClick={savePostShowConfirmation}
+            disabled={postShowBusy || (postShowOutcome !== "performed_as_agreed" && !postShowNote.trim())}
+            className="mt-4 bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+          >
+            {postShowBusy ? "Menyimpan…" : data.postShowConfirmation ? "Perbarui konfirmasi" : "Simpan konfirmasi hasil show"}
+          </button>
+
+          {postShowOutcome !== "performed_as_agreed" ? (
+            <p className="mt-3 text-xs leading-5 text-black/45">
+              Jika ada masalah operasional yang perlu penanganan, laporkan juga sebagai kejadian di bagian berikut agar masuk ke incident workflow.
+            </p>
+          ) : null}
         </section>
 
         <section className="mt-5 border border-black/10 bg-white p-5 md:p-6">
