@@ -10,7 +10,7 @@ export type PhotoSprite={col:number;row:number};
 export type PublicTalentCard={id:string;name:string;category:string;base_city:string|null;genres:string[];bio:string|null;photo_url:string|null;photo_sprite?:PhotoSprite|null;availability_status?:AvailabilityStatus|"unknown";availability_freshness?:AvailabilityFreshness;requires_live_confirmation?:boolean};
 export type PublicTalentDetail=PublicTalentCard&{performance_formats:string[];event_types:string[];show_duration_minutes:number|null;videos:{id:string;provider:"cloudflare_r2"|"youtube_unlisted";title:string|null;description:string|null;url:string;asset_type:string}[]};
 function isOperationalName(name:string){return!name.toUpperCase().startsWith("SECURE-SMOKE-")}
-function validDate(value:string|undefined){return Boolean(value&&/^\\d{4}-\\d{2}-\\d{2}$/.test(value)&&!Number.isNaN(new Date(`${value}T00:00:00Z`).getTime()))}
+function validDate(value:string|undefined){return Boolean(value&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(new Date(`${value}T00:00:00Z`).getTime()))}
 function publicAvailabilityStatus(value:unknown):AvailabilityStatus|"unknown"{return value==="available"||value==="tentative"||value==="booked"||value==="unavailable"?value:"unknown"}
 export function publicCategoryId(category:string){const x=category.trim().toLowerCase();if(/(singer|penyanyi|vocalist|vokalis|solo)/.test(x))return"singer";if(/(band|group)/.test(x))return"band";if(/(mc|host|master of ceremony)/.test(x))return"mc";if(/\bdj\b|disc jockey/.test(x))return"dj";if(/(traditional|tradisional|cultural|budaya|ethnic|etnik)/.test(x))return"traditional";if(/(speaker|pembicara)/.test(x))return"speaker";if(/(special performer|specialty performer|specialty)/.test(x))return"specialty";return"other"}
 
