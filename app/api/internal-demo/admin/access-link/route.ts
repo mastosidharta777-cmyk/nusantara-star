@@ -18,7 +18,7 @@ function getServerClient() {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
-    const allowedScopes: SignedAccessScope[] = ["buyer_proposal", "buyer_terms", "talent_offer", "talent_onboarding"];
+    const allowedScopes: SignedAccessScope[] = ["buyer_proposal", "buyer_terms", "buyer_payment", "talent_offer", "talent_onboarding"];
     const scope = typeof body?.scope === "string" && allowedScopes.includes(body.scope as SignedAccessScope) ? body.scope as SignedAccessScope : null;
     const createNewTalent = scope === "talent_onboarding" && body?.createNewTalent === true;
     let subjectId = typeof body?.subjectId === "string" ? body.subjectId : "";
@@ -86,6 +86,39 @@ export async function POST(request: Request) {
       if (!Number.isFinite(offerExpiry.getTime()) || offerExpiry.getTime() <= Date.now()) return NextResponse.json({ error: "Talent offer has expired" }, { status: 409 });
       if (offerExpiry < expiresAt) expiresAt = offerExpiry;
       path = `/id/terms/${encodeURIComponent(subjectId)}`;
+    } else if (scope === "buyer_payment") {
+      if (!(await commercialIntegrityReady(supabase))) {
+        return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
+      }
+      const { data: payment, error: paymentError } = await supabase
+        .from("payments")
+        .select("id,booking_id,payment_type,status,request_reference,request_issued_at,request_due_date,request_snapshot,payment_instructions_snapshot")
+        .eq("id", subjectId)
+        .maybeSingle();
+      if (paymentError) throw new Error(paymentError.message);
+      if (!payment || !["buyer_deposit","buyer_balance","buyer_full_payment"].includes(payment.payment_type ?? "")) {
+        return NextResponse.json({ error: "Buyer payment request is not available" }, { status: 404 });
+      }
+      if (!["pending","paid"].includes(payment.status) || !payment.request_reference || !payment.request_issued_at || !payment.request_due_date || !payment.request_snapshot || !payment.payment_instructions_snapshot) {
+        return NextResponse.json({ error: "Payment request snapshot is incomplete" }, { status: 409 });
+      }
+      const { data: booking, error: bookingError } = await supabase
+        .from("bookings")
+        .select("id,deal_id,buyer_terms_accepted_at,buyer_terms_accepted_deal_id,buyer_terms_acceptance_source,buyer_terms_snapshot,buyer_terms_accepted_snapshot")
+        .eq("id", payment.booking_id)
+        .maybeSingle();
+      if (bookingError) throw new Error(bookingError.message);
+      const acceptanceValid = Boolean(
+        booking?.deal_id
+        && booking.buyer_terms_accepted_at
+        && booking.buyer_terms_accepted_deal_id === booking.deal_id
+        && booking.buyer_terms_acceptance_source === "signed_buyer_link"
+        && booking.buyer_terms_snapshot
+        && JSON.stringify(booking.buyer_terms_accepted_snapshot ?? null) === JSON.stringify(booking.buyer_terms_snapshot)
+      );
+      if (!acceptanceValid) return NextResponse.json({ error: "Buyer terms acceptance is not valid for this payment request" }, { status: 409 });
+      expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      path = `/id/payment/${encodeURIComponent(subjectId)}`;
     } else if (scope === "talent_offer") {
       const { data: row, error } = await supabase.from("availability_requests").select("id").eq("id", subjectId).maybeSingle();
       if (error) throw new Error(error.message);
