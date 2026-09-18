@@ -89,7 +89,6 @@ export async function POST(request: Request) {
     const fileName = clean(body?.fileName);
     const mimeType = clean(body?.mimeType);
     const sizeBytes = Number(body?.sizeBytes ?? 0);
-    const allowed = ALLOWED.get(mimeType as keyof typeof Object);
     const typed = ALLOWED.get(mimeType as "image/jpeg" | "image/png" | "image/webp" | "application/pdf");
     if (!fileName || !typed || !Number.isSafeInteger(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_BYTES) {
       return NextResponse.json({ error: "Gunakan JPG, PNG, WebP, atau PDF maksimal 15 MB" }, { status: 400 });
