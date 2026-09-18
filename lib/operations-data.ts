@@ -25,6 +25,7 @@ export type OperationsChecklistItem = {
 
 export type OperationsIncidentEvidence = {
   id: string;
+  incident_id: string;
   uploaded_by_party: "buyer" | "talent" | "admin";
   evidence_type: "photo" | "document" | "link";
   provider: "supabase_storage" | "external_url";
@@ -143,9 +144,7 @@ export async function loadOperationsData(bookingId: string | null) {
 
   const incidents = (incidentsResult.data ?? []).map((incident) => ({
     ...incident,
-    evidence: evidence
-      .filter((row) => row.incident_id === incident.id)
-      .map(({ incident_id: _incidentId, ...row }) => row),
+    evidence: evidence.filter((row) => row.incident_id === incident.id),
   })) as OperationsIncident[];
 
   return {
