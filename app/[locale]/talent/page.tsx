@@ -10,7 +10,7 @@ export default async function TalentPage({params,searchParams}:{params:Promise<{
   const {locale}=await params;
   if(!isLocale(locale)) notFound();
   const {category,genre,date}=await searchParams;
-  const selectedDate=date&&/^\\d{4}-\\d{2}-\\d{2}$/.test(date)?date:null;
+  const selectedDate=date&&/^\d{4}-\d{2}-\d{2}$/.test(date)?date:null;
   const loadedTalents=await loadPublicTalents(selectedDate??undefined);
   const allTalents=loadedTalents.filter(t=>!t.id.startsWith("demo-"));
   const selectedCategory:string|null=category&&categories.some(item=>item.id===category)?category:null;
