@@ -2,22 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { commercialIntegrityReady } from "@/lib/commercial-integrity";
-import { resolveMilestoneAmounts, type BuyerMilestone } from "@/lib/secure-booking";
 
 export const runtime = "nodejs";
-
-const BUYER_PAYMENT_TYPES = ["buyer_deposit", "buyer_balance", "buyer_full_payment"];
-
-type ActivePaymentRow = {
-  id: string;
-  payment_type: string | null;
-  amount: number;
-  status: string;
-  idempotency_key: string | null;
-  provider?: string | null;
-  provider_reference?: string | null;
-  evidence_key?: string | null;
-};
 
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -58,71 +44,46 @@ export async function POST(request: Request) {
     const integrityReady = await commercialIntegrityReady(supabase);
 
     if (action === "create_next_buyer_payment") {
-      const { data: milestones, error: milestoneError } = await supabase
-        .from("payment_milestones")
-        .select("sequence_no,milestone_type,calculation_type,percentage,amount,status")
-        .eq("booking_id", bookingId)
-        .eq("party", "buyer")
-        .order("sequence_no");
-      if (milestoneError) throw new Error(milestoneError.message);
-      if (!milestones?.length) return NextResponse.json({ error: "No buyer payment milestones found" }, { status: 409 });
+      if (!integrityReady) return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
 
-      let activePayments: ActivePaymentRow[] = [];
-      if (integrityReady) {
-        const { data, error } = await supabase
-          .from("payments")
-          .select("id,payment_type,amount,status,idempotency_key,provider,provider_reference,evidence_key")
-          .eq("booking_id", bookingId)
-          .in("payment_type", BUYER_PAYMENT_TYPES)
-          .in("status", ["pending", "paid"])
-          .order("created_at");
-        if (error) throw new Error(error.message);
-        activePayments = (data ?? []) as ActivePaymentRow[];
-      } else {
-        const { data, error } = await supabase
-          .from("payments")
-          .select("id,payment_type,amount,status,idempotency_key")
-          .eq("booking_id", bookingId)
-          .in("payment_type", BUYER_PAYMENT_TYPES)
-          .in("status", ["pending", "paid"])
-          .order("created_at");
-        if (error) throw new Error(error.message);
-        activePayments = (data ?? []) as ActivePaymentRow[];
+      const paymentMethod = typeof body?.paymentMethod === "string" ? body.paymentMethod : "";
+      const providerName = typeof body?.providerName === "string" ? body.providerName.trim() : "";
+      const destination = typeof body?.destination === "string" ? body.destination.trim() : "";
+      const accountName = typeof body?.accountName === "string" ? body.accountName.trim() : "";
+      const instructionNotes = typeof body?.instructionNotes === "string" ? body.instructionNotes.trim() : "";
+      if (!["bank_transfer", "payment_link", "other"].includes(paymentMethod) || !providerName || !destination) {
+        return NextResponse.json({ error: "Payment method, provider/bank, and payment destination are required" }, { status: 400 });
       }
 
-      const pending = activePayments.find((row) => row.status === "pending");
-      if (pending) return NextResponse.json({ ok: true, payment: pending, reused: true });
+      const { data: payment, error: requestError } = await supabase.rpc("ns_create_buyer_payment_request_v1", {
+        p_booking_id: bookingId,
+        p_payment_instructions: {
+          method: paymentMethod,
+          provider_name: providerName,
+          destination,
+          account_name: accountName || null,
+          notes: instructionNotes || null,
+        },
+      });
+      if (requestError) return NextResponse.json({ error: requestError.message }, { status: 409 });
+      if (!payment) return NextResponse.json({ error: "Payment request could not be created" }, { status: 409 });
 
-      const resolved = resolveMilestoneAmounts(milestones as BuyerMilestone[], buyerPrice);
-      const paidTotal = activePayments.filter((row) => {
-        if (row.status !== "paid") return false;
-        if (!integrityReady) return true;
-        return Boolean(row.provider?.trim()) && Boolean(row.provider_reference?.trim()) && Boolean(row.evidence_key?.trim());
-      }).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
-      let cumulative = 0;
-      let next = resolved[0];
-      for (const row of resolved) {
-        cumulative += row.resolvedAmount;
-        if (paidTotal < cumulative) { next = row; break; }
-      }
-      if (!next || paidTotal >= buyerPrice) return NextResponse.json({ error: "Buyer payment is already fully paid" }, { status: 409 });
-
-      const amount = Math.min(next.resolvedAmount, buyerPrice - paidTotal);
-      if (amount <= 0) return NextResponse.json({ error: "Next buyer milestone amount is invalid" }, { status: 409 });
-      const milestoneType = (milestones.find((row) => row.sequence_no === next.sequence_no)?.milestone_type ?? "other") as string;
-      const paymentType = milestoneType === "full_payment" ? "buyer_full_payment" : milestoneType === "deposit" || milestoneType === "booking_fee" ? "buyer_deposit" : "buyer_balance";
-      const idempotencyKey = `buyer-payment:${bookingId}:${next.sequence_no}`;
-
-      const existingByKey = activePayments.find((row) => row.idempotency_key === idempotencyKey);
-      if (existingByKey) return NextResponse.json({ ok: true, payment: existingByKey, reused: true, milestoneSequence: next.sequence_no });
-
-      const { data: payment, error: insertError } = await supabase.from("payments").insert({ booking_id: bookingId, payment_type: paymentType, amount, status: "pending", idempotency_key: idempotencyKey }).select("id,status,payment_type,amount,idempotency_key").single();
-      if (insertError || !payment) {
-        const { data: raced } = await supabase.from("payments").select("id,status,payment_type,amount,idempotency_key").eq("idempotency_key", idempotencyKey).maybeSingle();
-        if (raced) return NextResponse.json({ ok: true, payment: raced, reused: true, milestoneSequence: next.sequence_no });
-        throw new Error(insertError?.message ?? "Payment creation failed");
-      }
-      return NextResponse.json({ ok: true, payment, milestoneSequence: next.sequence_no, source: "booking_payment_milestone" });
+      return NextResponse.json({
+        ok: true,
+        payment: {
+          id: payment.id,
+          status: payment.status,
+          payment_type: payment.payment_type,
+          amount: Number(payment.amount),
+          currency: payment.currency,
+          payment_milestone_id: payment.payment_milestone_id,
+          request_reference: payment.request_reference,
+          request_issued_at: payment.request_issued_at,
+          request_due_date: payment.request_due_date,
+          payment_instructions_snapshot: payment.payment_instructions_snapshot,
+        },
+        source: "ns_create_buyer_payment_request_v1",
+      });
     }
 
     const paymentId = typeof body?.paymentId === "string" ? body.paymentId : "";
