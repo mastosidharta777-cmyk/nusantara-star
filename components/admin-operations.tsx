@@ -61,12 +61,14 @@ export function AdminOperations({
   incidents,
   settlements,
   advanceConfirmed,
+  recoveryBlockingIncidentId,
 }: {
   booking: Booking;
   checklist: OperationsChecklistItem[];
   incidents: OperationsIncident[];
   settlements: TalentSettlement[];
   advanceConfirmed: boolean;
+  recoveryBlockingIncidentId: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -312,7 +314,11 @@ export function AdminOperations({
                   })}
                 </div>
               ) : null}
-              {incident.status === "open" ? (
+              {incident.status === "open" && incident.id === recoveryBlockingIncidentId ? (
+                <div className="mt-3 border border-amber-500/30 bg-amber-50 p-3 text-xs leading-5 text-amber-950">
+                  Incident ini menjadi dasar recovery talent pengganti. Selesaikan atau tutup recovery terlebih dahulu sebelum incident dapat di-resolve.
+                </div>
+              ) : incident.status === "open" ? (
                 <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
                   <input
                     value={resolutionNotes[incident.id] ?? ""}
