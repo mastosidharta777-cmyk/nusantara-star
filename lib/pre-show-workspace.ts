@@ -49,7 +49,6 @@ export type OperationalIncident = {
   report_source: "signed_link" | "admin_portal" | "system";
   occurred_at: string;
   resolved_at: string | null;
-  resolution_notes: string | null;
   evidence: IncidentEvidence[];
 };
 
@@ -129,7 +128,7 @@ export async function loadPreShowWorkspace(bookingId: string, party: PreShowPart
       .order("updated_at", { ascending: true }),
     supabase
       .from("incidents")
-      .select("id,incident_type,summary,details,status,reported_by_party,report_source,occurred_at,resolved_at,resolution_notes")
+      .select("id,incident_type,summary,details,status,reported_by_party,report_source,occurred_at,resolved_at")
       .eq("booking_id", booking.id)
       .order("occurred_at", { ascending: false }),
     supabase
