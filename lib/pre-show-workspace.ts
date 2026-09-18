@@ -26,6 +26,33 @@ export type PreShowTask = {
   confirmations: PreShowConfirmation[];
 };
 
+export type IncidentEvidence = {
+  id: string;
+  incident_id: string;
+  uploaded_by_party: "buyer" | "talent" | "admin";
+  evidence_type: "photo" | "document" | "link";
+  provider: "supabase_storage" | "external_url";
+  original_filename: string | null;
+  external_url: string | null;
+  signed_url: string | null;
+  upload_status: "pending_upload" | "uploaded";
+  created_at: string;
+};
+
+export type OperationalIncident = {
+  id: string;
+  incident_type: string;
+  summary: string;
+  details: string | null;
+  status: "open" | "resolved";
+  reported_by_party: "buyer" | "talent" | "admin" | "system";
+  report_source: "signed_link" | "admin_portal" | "system";
+  occurred_at: string;
+  resolved_at: string | null;
+  resolution_notes: string | null;
+  evidence: IncidentEvidence[];
+};
+
 export type PreShowWorkspace = {
   booking: {
     id: string;
@@ -58,7 +85,9 @@ export type PreShowWorkspace = {
   };
   tasks: PreShowTask[];
   partyTasks: PreShowTask[];
+  incidents: OperationalIncident[];
   allTasksComplete: boolean;
+  checklistPausedByIncident: boolean;
 };
 
 function getServerClient() {
@@ -77,9 +106,9 @@ export async function loadPreShowWorkspace(bookingId: string, party: PreShowPart
     .eq("id", bookingId)
     .maybeSingle();
   if (bookingError) throw new Error(bookingError.message);
-  if (!booking || booking.status !== "pre_show") return null;
+  if (!booking || !["pre_show", "incident"].includes(booking.status)) return null;
 
-  const [briefResult, talentResult, advanceResult, taskResult, confirmationResult] = await Promise.all([
+  const [briefResult, talentResult, advanceResult, taskResult, confirmationResult, incidentResult, evidenceResult] = await Promise.all([
     supabase.from("briefs").select("event_type").eq("id", booking.brief_id).maybeSingle(),
     supabase.from("talents").select("name").eq("id", booking.talent_id).maybeSingle(),
     supabase
@@ -98,6 +127,17 @@ export async function loadPreShowWorkspace(bookingId: string, party: PreShowPart
       .select("checklist_item_id,party,response,note,advance_revision_no,updated_at")
       .eq("booking_id", booking.id)
       .order("updated_at", { ascending: true }),
+    supabase
+      .from("incidents")
+      .select("id,incident_type,summary,details,status,reported_by_party,report_source,occurred_at,resolved_at,resolution_notes")
+      .eq("booking_id", booking.id)
+      .order("occurred_at", { ascending: false }),
+    supabase
+      .from("incident_evidence")
+      .select("id,incident_id,uploaded_by_party,evidence_type,provider,storage_key,external_url,original_filename,upload_status,created_at")
+      .eq("booking_id", booking.id)
+      .eq("upload_status", "uploaded")
+      .order("created_at", { ascending: true }),
   ]);
 
   if (briefResult.error) throw new Error(briefResult.error.message);
@@ -105,6 +145,8 @@ export async function loadPreShowWorkspace(bookingId: string, party: PreShowPart
   if (advanceResult.error) throw new Error(advanceResult.error.message);
   if (taskResult.error) throw new Error(taskResult.error.message);
   if (confirmationResult.error) throw new Error(confirmationResult.error.message);
+  if (incidentResult.error) throw new Error(incidentResult.error.message);
+  if (evidenceResult.error) throw new Error(evidenceResult.error.message);
 
   const advance = advanceResult.data;
   if (
@@ -123,6 +165,31 @@ export async function loadPreShowWorkspace(bookingId: string, party: PreShowPart
     );
     return { ...row, confirmations: currentConfirmations } as PreShowTask;
   });
+
+  const evidenceRows = await Promise.all((evidenceResult.data ?? []).map(async (row) => {
+    let signedUrl: string | null = null;
+    if (row.provider === "supabase_storage" && row.storage_key) {
+      const { data: signed } = await supabase.storage.from("incident-evidence").createSignedUrl(row.storage_key, 3600);
+      signedUrl = signed?.signedUrl ?? null;
+    }
+    return {
+      id: row.id,
+      incident_id: row.incident_id,
+      uploaded_by_party: row.uploaded_by_party,
+      evidence_type: row.evidence_type,
+      provider: row.provider,
+      original_filename: row.original_filename,
+      external_url: row.external_url,
+      signed_url: signedUrl,
+      upload_status: row.upload_status,
+      created_at: row.created_at,
+    } as IncidentEvidence;
+  }));
+
+  const incidents = (incidentResult.data ?? []).map((row) => ({
+    ...row,
+    evidence: evidenceRows.filter((evidence) => evidence.incident_id === row.id),
+  })) as OperationalIncident[];
 
   return {
     booking: {
@@ -156,6 +223,8 @@ export async function loadPreShowWorkspace(bookingId: string, party: PreShowPart
     },
     tasks,
     partyTasks: tasks.filter((task) => task.required_parties.includes(party)),
+    incidents,
     allTasksComplete: tasks.length > 0 && tasks.every((task) => task.status !== "pending" && task.advance_revision_no === advance.revision_no),
+    checklistPausedByIncident: booking.status === "incident",
   };
 }
