@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { AdminNewSupplyInvite } from "@/components/admin-new-supply-invite";
+import { OperationsFollowUpButton } from "@/components/operations-follow-up-button";
 import { loadAdminDashboardData } from "@/lib/admin-data";
 import { loadOperationsInbox } from "@/lib/operations-inbox";
 import { supplyServiceSummary, supplyTypeLabel } from "@/lib/supply-onboarding";
@@ -59,7 +60,19 @@ export default async function AdminPage() {
                     <p className="mt-1 text-sm leading-5 text-black/65">{item.detail}</p>
                     {item.amount != null ? <p className="mt-1 text-sm font-semibold">{money(item.amount)}</p> : null}
                   </div>
-                  <Link href={`/admin/briefs/${item.briefId}`} className="w-fit font-semibold underline underline-offset-4">Review</Link>
+                  <div className="flex flex-col items-start gap-2 md:items-end">
+                    {item.followUps.map((followUp) => (
+                      <OperationsFollowUpButton
+                        key={`${item.key}:${followUp.party}`}
+                        bookingId={item.bookingId}
+                        followUp={followUp}
+                        talentName={item.talentName}
+                        eventLabel={item.eventLabel}
+                        eventDate={item.eventDate}
+                      />
+                    ))}
+                    <Link href={`/admin/briefs/${item.briefId}`} className="w-fit font-semibold underline underline-offset-4">Review</Link>
+                  </div>
                 </article>
               ))}
             </div>
