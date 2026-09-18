@@ -60,7 +60,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
     .single();
   if (buyerContactError) throw new Error(`Buyer contact load failed: ${buyerContactError.message}`);
 
-  const { row, matches, selectedTalent, talentPolicyTemplates, commercialTerms, booking, payments, paymentMilestones } = detail;
+  const { row, matches, selectedTalent, talentPolicyTemplates, proposalDealDefaults, commercialTerms, booking, payments, paymentMilestones } = detail;
   const [deal, buyerPriority] = await Promise.all([
     selectedTalent ? loadDealReviewData(row.id) : Promise.resolve(null),
     loadBuyerPriorityState(row.id),
@@ -148,7 +148,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
         {selectedTalent && ["proposal_sent", "buyer_selected", "terms_agreed", "booked"].includes(row.status) ? (
           <details className="mt-5 border border-black/10 bg-white">
             <summary className="cursor-pointer px-5 py-4 text-sm font-semibold">Detail Kesepakatan Lanjutan</summary>
-            <div className="border-t border-black/10"><AdminDealSheetForm briefId={row.id} talentId={selectedTalent.id} talentName={selectedTalent.name} eventDate={row.event_date} initialTerms={commercialTerms} talentPolicyTemplates={talentPolicyTemplates} /></div>
+            <div className="border-t border-black/10"><AdminDealSheetForm briefId={row.id} talentId={selectedTalent.id} talentName={selectedTalent.name} eventDate={row.event_date} initialTerms={commercialTerms} proposalDefaults={proposalDealDefaults} talentPolicyTemplates={talentPolicyTemplates} /></div>
           </details>
         ) : null}
 

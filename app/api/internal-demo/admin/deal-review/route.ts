@@ -20,6 +20,23 @@ function numberOrNull(value: unknown) {
   return value === null || value === undefined ? null : Number(value);
 }
 
+function proposalCostBaseline(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { structured: false, directCosts: null as number | null, taxesAndPaymentFees: null as number | null };
+  const row = value as Record<string, unknown>;
+  const keys = ["talent_fee", "transport", "accommodation", "technical_rider", "taxes_fees", "other"];
+  const structured = keys.some((key) => Object.prototype.hasOwnProperty.call(row, key));
+  if (!structured) return { structured: false, directCosts: null as number | null, taxesAndPaymentFees: null as number | null };
+  const amount = (key: string) => {
+    const parsed = Number(row[key]);
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+  };
+  return {
+    structured: true,
+    directCosts: amount("transport") + amount("accommodation") + amount("technical_rider") + amount("other"),
+    taxesAndPaymentFees: amount("taxes_fees"),
+  };
+}
+
 function sameJson(a: unknown, b: unknown) {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
@@ -92,17 +109,18 @@ export async function POST(request: Request) {
     if (briefError || !brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
     if (termsError) throw new Error(termsError.message);
 
-    const { data: item, error: itemError } = await supabase.from("proposal_items").select("id,talent_offer_id,talent_id,buyer_price").eq("proposal_id", proposal.id).eq("talent_id", selection.talent_id).single();
+    const { data: item, error: itemError } = await supabase.from("proposal_items").select("id,talent_offer_id,talent_id,buyer_price,price_breakdown").eq("proposal_id", proposal.id).eq("talent_id", selection.talent_id).single();
     if (itemError || !item) return NextResponse.json({ error: "Selected proposal item not found" }, { status: 409 });
 
     const { data: offer, error: offerError } = await supabase.from("talent_offers").select("id,event_fee,status,availability_status,quote_valid_until").eq("id", item.talent_offer_id).single();
     if (offerError || !offer || offer.status !== "confirmed" || offer.availability_status !== "confirmed") return NextResponse.json({ error: "Talent offer is not confirmed" }, { status: 409 });
     if (offer.quote_valid_until && new Date(offer.quote_valid_until).getTime() <= Date.now()) return NextResponse.json({ error: "Talent offer has expired. Reconfirm before preparing the Deal Review." }, { status: 409 });
 
+    const proposalCosts = proposalCostBaseline(item.price_breakdown);
     const buyerPrice = terms ? Number(terms.buyer_price) : Number(item.buyer_price);
     const talentPayable = terms ? Number(terms.talent_payable) : Number(offer.event_fee);
-    const directCosts = terms ? numberOrNull(terms.direct_costs) : null;
-    const taxesAndPaymentFees = terms ? numberOrNull(terms.taxes_and_payment_fees) : null;
+    const directCosts = terms ? numberOrNull(terms.direct_costs) : proposalCosts.directCosts;
+    const taxesAndPaymentFees = terms ? numberOrNull(terms.taxes_and_payment_fees) : proposalCosts.taxesAndPaymentFees;
     const buyerSchedule = (terms?.buyer_payment_schedule ?? []) as DealMilestone[];
     const talentSchedule = (terms?.talent_payment_schedule ?? []) as DealMilestone[];
     const bookingReferenceDate = optionalDate(body?.bookingReferenceDate) ?? existing?.booking_reference_date ?? null;
@@ -114,6 +132,8 @@ export async function POST(request: Request) {
     const issues = [...review.unresolvedIssues];
     if (buyerPrice !== Number(item.buyer_price)) issues.push("Buyer price berbeda dari proposal yang dipilih buyer");
     if (talentPayable !== Number(offer.event_fee)) issues.push("Talent payable berbeda dari confirmed talent offer");
+    if (proposalCosts.structured && directCosts !== proposalCosts.directCosts) issues.push("Biaya langsung berbeda dari breakdown proposal yang dipilih buyer");
+    if (proposalCosts.structured && taxesAndPaymentFees !== proposalCosts.taxesAndPaymentFees) issues.push("Pajak/biaya pembayaran berbeda dari breakdown proposal yang dipilih buyer");
     if (!terms?.cancellation_terms) issues.push("Cancellation term belum dikonfirmasi");
     const nextIssues = [...new Set(issues)];
 

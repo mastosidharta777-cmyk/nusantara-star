@@ -58,6 +58,21 @@ type BuyerSelection = {
   status: string;
 };
 
+export type ProposalDealDefaults = {
+  proposal_id: string;
+  proposal_item_id: string;
+  buyer_price: number;
+  talent_payable: number;
+  direct_costs: number;
+  taxes_and_payment_fees: number;
+  buyer_payment_terms_text: string | null;
+  rider_notes: string | null;
+  included_costs: string | null;
+  excluded_costs: string | null;
+  offer_valid_until: string | null;
+  offer_current: boolean;
+};
+
 export type DealMilestone = {
   milestone_type: string;
   sequence_no: number;
@@ -136,6 +151,11 @@ type PaymentMilestone = {
   cancellation_note: string | null;
   status: string;
 };
+
+function breakdownAmount(value: Record<string, unknown> | null, key: string) {
+  const number = Number(value?.[key]);
+  return Number.isSafeInteger(number) && number >= 0 ? number : 0;
+}
 
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -265,15 +285,78 @@ export async function loadAdminBriefDetail(id: string) {
   const selectedTalent = buyerSelection ? roster.talents.find((talent) => talent.id === buyerSelection.talent_id) ?? null : null;
 
   let talentPolicyTemplates: TalentPolicyTemplate[] = [];
+  let proposalDealDefaults: ProposalDealDefaults | null = null;
   if (selectedTalent) {
-    const { data: policyData, error: policyError } = await supabase
-      .from("talent_payment_policy_templates")
-      .select("id,milestone_type,sequence_no,calculation_type,percentage,amount,due_basis,due_offset_days,refundable,cancellation_note,negotiable,notes")
-      .eq("talent_id", selectedTalent.id)
-      .eq("is_active", true)
-      .order("sequence_no", { ascending: true });
+    const [{ data: policyData, error: policyError }, { data: selectedProposal, error: proposalError }] = await Promise.all([
+      supabase
+        .from("talent_payment_policy_templates")
+        .select("id,milestone_type,sequence_no,calculation_type,percentage,amount,due_basis,due_offset_days,refundable,cancellation_note,negotiable,notes")
+        .eq("talent_id", selectedTalent.id)
+        .eq("is_active", true)
+        .order("sequence_no", { ascending: true }),
+      supabase
+        .from("proposals")
+        .select("id,version,status")
+        .eq("brief_id", id)
+        .eq("status", "selected")
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
     if (policyError) throw new Error(policyError.message);
+    if (proposalError) throw new Error(proposalError.message);
     talentPolicyTemplates = (policyData ?? []) as TalentPolicyTemplate[];
+
+    if (selectedProposal) {
+      const { data: item, error: itemError } = await supabase
+        .from("proposal_items")
+        .select("id,buyer_price,price_breakdown,payment_terms,included_costs,excluded_costs,rider_exceptions,talent_offer_id")
+        .eq("proposal_id", selectedProposal.id)
+        .eq("brief_id", id)
+        .eq("talent_id", selectedTalent.id)
+        .maybeSingle();
+      if (itemError) throw new Error(itemError.message);
+
+      if (item) {
+        const { data: offer, error: offerError } = await supabase
+          .from("talent_offers")
+          .select("id,event_fee,status,availability_status,quote_valid_until,rider_exceptions")
+          .eq("id", item.talent_offer_id)
+          .maybeSingle();
+        if (offerError) throw new Error(offerError.message);
+
+        if (offer?.event_fee != null) {
+          const breakdown = item.price_breakdown && typeof item.price_breakdown === "object" && !Array.isArray(item.price_breakdown)
+            ? item.price_breakdown as Record<string, unknown>
+            : null;
+          const directCosts =
+            breakdownAmount(breakdown, "transport")
+            + breakdownAmount(breakdown, "accommodation")
+            + breakdownAmount(breakdown, "technical_rider")
+            + breakdownAmount(breakdown, "other");
+          const taxesAndPaymentFees = breakdownAmount(breakdown, "taxes_fees");
+          const offerValidUntil = offer.quote_valid_until ?? null;
+          const offerCurrent = offer.status === "confirmed"
+            && offer.availability_status === "confirmed"
+            && Boolean(offerValidUntil && new Date(offerValidUntil).getTime() > Date.now());
+
+          proposalDealDefaults = {
+            proposal_id: selectedProposal.id,
+            proposal_item_id: item.id,
+            buyer_price: Number(item.buyer_price),
+            talent_payable: Number(offer.event_fee),
+            direct_costs: directCosts,
+            taxes_and_payment_fees: taxesAndPaymentFees,
+            buyer_payment_terms_text: item.payment_terms ?? null,
+            rider_notes: item.rider_exceptions ?? offer.rider_exceptions ?? null,
+            included_costs: item.included_costs ?? null,
+            excluded_costs: item.excluded_costs ?? null,
+            offer_valid_until: offerValidUntil,
+            offer_current: offerCurrent,
+          };
+        }
+      }
+    }
   }
 
   const generatedAt = usesPersistedSnapshot
@@ -286,6 +369,7 @@ export async function loadAdminBriefDetail(id: string) {
     brief,
     selectedTalent,
     talentPolicyTemplates,
+    proposalDealDefaults,
     commercialTerms: (commercialTermsResult.data ?? null) as CommercialTerms | null,
     booking,
     payments,

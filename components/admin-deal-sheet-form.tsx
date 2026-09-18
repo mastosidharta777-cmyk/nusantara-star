@@ -19,6 +19,21 @@ type Milestone = {
 
 type PolicyMilestone = Milestone & { id: string; negotiable: boolean };
 
+type ProposalDefaults = {
+  proposal_id: string;
+  proposal_item_id: string;
+  buyer_price: number;
+  talent_payable: number;
+  direct_costs: number;
+  taxes_and_payment_fees: number;
+  buyer_payment_terms_text: string | null;
+  rider_notes: string | null;
+  included_costs: string | null;
+  excluded_costs: string | null;
+  offer_valid_until: string | null;
+  offer_current: boolean;
+};
+
 type InitialTerms = {
   buyer_price: number;
   talent_payable: number;
@@ -40,24 +55,25 @@ function newMilestone(sequence: number): Milestone {
   return { milestone_type: sequence === 1 ? "deposit" : "balance", sequence_no: sequence, calculation_type: sequence === 1 ? "percentage" : "remaining_balance", percentage: null, amount: null, due_basis: sequence === 1 ? "booking_date" : "event_date", due_offset_days: 0, custom_due_date: null, refundable: null, cancellation_note: null, notes: null };
 }
 
-export function AdminDealSheetForm({ briefId, talentId, talentName, initialTerms, talentPolicyTemplates }: {
+export function AdminDealSheetForm({ briefId, talentId, talentName, initialTerms, proposalDefaults, talentPolicyTemplates }: {
   briefId: string;
   talentId: string;
   talentName: string;
   eventDate: string | null;
   initialTerms: InitialTerms;
+  proposalDefaults: ProposalDefaults | null;
   talentPolicyTemplates: PolicyMilestone[];
 }) {
   const router = useRouter();
   const locked = initialTerms?.status === "agreed";
-  const [buyerPrice, setBuyerPrice] = useState(String(initialTerms?.buyer_price ?? ""));
-  const [talentPayable, setTalentPayable] = useState(String(initialTerms?.talent_payable ?? ""));
-  const [directCosts, setDirectCosts] = useState(String(initialTerms?.direct_costs ?? 0));
-  const [taxFees, setTaxFees] = useState(String(initialTerms?.taxes_and_payment_fees ?? 0));
+  const [buyerPrice, setBuyerPrice] = useState(String(initialTerms?.buyer_price ?? proposalDefaults?.buyer_price ?? ""));
+  const [talentPayable, setTalentPayable] = useState(String(initialTerms?.talent_payable ?? proposalDefaults?.talent_payable ?? ""));
+  const [directCosts, setDirectCosts] = useState(String(initialTerms?.direct_costs ?? proposalDefaults?.direct_costs ?? 0));
+  const [taxFees, setTaxFees] = useState(String(initialTerms?.taxes_and_payment_fees ?? proposalDefaults?.taxes_and_payment_fees ?? 0));
   const [buyerSchedule, setBuyerSchedule] = useState<Milestone[]>(initialTerms?.buyer_payment_schedule?.length ? initialTerms.buyer_payment_schedule : []);
   const [talentSchedule, setTalentSchedule] = useState<Milestone[]>(initialTerms?.talent_payment_schedule?.length ? initialTerms.talent_payment_schedule : talentPolicyTemplates.map(({ id: _id, negotiable: _negotiable, ...row }) => row));
   const [cancellationTerms, setCancellationTerms] = useState(initialTerms?.cancellation_terms ?? "");
-  const [riderNotes, setRiderNotes] = useState(initialTerms?.rider_notes ?? "");
+  const [riderNotes, setRiderNotes] = useState(initialTerms?.rider_notes ?? proposalDefaults?.rider_notes ?? "");
   const [specialConditions, setSpecialConditions] = useState(initialTerms?.special_conditions ?? "");
   const [notes, setNotes] = useState(initialTerms?.notes ?? "");
   const [busy, setBusy] = useState(false);
@@ -107,6 +123,15 @@ export function AdminDealSheetForm({ briefId, talentId, talentName, initialTerms
   return <section className="border border-black/10 bg-white p-5 md:p-6">
     <p className="text-sm font-semibold">Detail Kesepakatan Lanjutan</p>
     <p className="mt-1 text-xs text-black/45">Edit hanya bila perlu. Kekurangan pendanaan akhir dihitung di server oleh sistem, bukan di browser.</p>
+    {!initialTerms && proposalDefaults ? <div className={`mt-4 border p-4 text-xs leading-5 ${proposalDefaults.offer_current ? "border-emerald-700/20 bg-emerald-50 text-emerald-950" : "border-amber-500/30 bg-amber-50 text-amber-950"}`}>
+      <p className="font-semibold">Baseline dari proposal yang dipilih buyer.</p>
+      <p className="mt-1">Harga buyer, biaya langsung, dan pajak berasal dari snapshot proposal. Fee talent berasal dari offer manager yang terhubung—bukan dari “Talent Fee” buyer-facing. Semua tetap draft sampai direview dan disimpan.</p>
+      {proposalDefaults.buyer_payment_terms_text ? <p className="mt-2"><strong>Terms proposal buyer:</strong> {proposalDefaults.buyer_payment_terms_text}</p> : null}
+      {proposalDefaults.included_costs ? <p className="mt-1"><strong>Termasuk:</strong> {proposalDefaults.included_costs}</p> : null}
+      {proposalDefaults.excluded_costs ? <p className="mt-1"><strong>Belum termasuk:</strong> {proposalDefaults.excluded_costs}</p> : null}
+      {proposalDefaults.offer_valid_until ? <p className="mt-1"><strong>Offer manager berlaku sampai:</strong> {new Date(proposalDefaults.offer_valid_until).toLocaleString("id-ID")}</p> : null}
+      {!proposalDefaults.offer_current ? <p className="mt-2 font-semibold">Offer manager sudah tidak current. Reconfirm sebelum Deal Review dilanjutkan.</p> : null}
+    </div> : null}
     <div className="mt-5 grid gap-4 md:grid-cols-2">
       <label className="text-sm font-semibold">Harga ke klien<input disabled={locked} value={buyerPrice} onChange={(e) => setBuyerPrice(e.target.value)} className="mt-2 w-full border border-black/15 p-3 font-normal" /></label>
       <label className="text-sm font-semibold">Fee talent<input disabled={locked} value={talentPayable} onChange={(e) => setTalentPayable(e.target.value)} className="mt-2 w-full border border-black/15 p-3 font-normal" /></label>
