@@ -19,6 +19,16 @@ function rpcError(message: string) {
   return NextResponse.json({ error: message }, { status: 409 });
 }
 
+async function showAdvanceConfirmed(supabase: ReturnType<typeof getServerClient>, bookingId: string) {
+  const { data, error } = await supabase
+    .from("booking_advances")
+    .select("revision_no,status,confirmed_revision_no,confirmed_at")
+    .eq("booking_id", bookingId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean(data && data.status === "confirmed" && data.confirmed_revision_no === data.revision_no && data.confirmed_at);
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
@@ -35,6 +45,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "set_checklist_status") {
+      if (!(await showAdvanceConfirmed(supabase, bookingId))) return rpcError("Current Show Advance requires reconfirmation before checklist updates");
       const itemId = typeof body?.itemId === "string" ? body.itemId : "";
       const status = typeof body?.status === "string" ? body.status : "";
       if (!itemId || !["pending", "done", "not_applicable"].includes(status)) return NextResponse.json({ error: "Invalid checklist update" }, { status: 400 });
@@ -65,6 +76,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "complete_show") {
+      if (!(await showAdvanceConfirmed(supabase, bookingId))) return rpcError("Current Show Advance requires reconfirmation before show completion");
       const { data, error } = await supabase.rpc("ns_complete_show_v1", { p_booking_id: bookingId });
       if (error) return rpcError(error.message);
       return NextResponse.json(data ?? { ok: true, bookingStatus: "completed" });
