@@ -49,6 +49,16 @@ export type OperationsIncident = {
   evidence: OperationsIncidentEvidence[];
 };
 
+export type OperationsPostShowConfirmation = {
+  id: string;
+  booking_id: string;
+  party: "buyer" | "talent";
+  outcome: "performed_as_agreed" | "performed_with_issue" | "not_performed";
+  note: string | null;
+  advance_revision_no: number;
+  confirmed_at: string;
+};
+
 export type TalentSettlement = {
   id: string;
   amount: number;
@@ -72,12 +82,13 @@ export async function loadOperationsData(bookingId: string | null) {
     return {
       checklist: [] as OperationsChecklistItem[],
       incidents: [] as OperationsIncident[],
+      postShowConfirmations: [] as OperationsPostShowConfirmation[],
       settlements: [] as TalentSettlement[],
     };
   }
 
   const supabase = getServerClient();
-  const [checklistResult, confirmationResult, incidentsResult, evidenceResult, settlementsResult] = await Promise.all([
+  const [checklistResult, confirmationResult, incidentsResult, evidenceResult, postShowResult, settlementsResult] = await Promise.all([
     supabase
       .from("pre_show_checklist_items")
       .select("id,checkpoint_code,item_key,label,due_date,status,notes,completed_at,required_parties,advance_revision_no")
@@ -101,6 +112,11 @@ export async function loadOperationsData(bookingId: string | null) {
       .eq("upload_status", "uploaded")
       .order("created_at", { ascending: true }),
     supabase
+      .from("post_show_confirmations")
+      .select("id,booking_id,party,outcome,note,advance_revision_no,confirmed_at")
+      .eq("booking_id", bookingId)
+      .order("confirmed_at", { ascending: true }),
+    supabase
       .from("talent_settlements")
       .select("id,amount,currency,provider,provider_reference,status,paid_at,notes")
       .eq("booking_id", bookingId)
@@ -111,6 +127,7 @@ export async function loadOperationsData(bookingId: string | null) {
   if (confirmationResult.error) throw new Error(confirmationResult.error.message);
   if (incidentsResult.error) throw new Error(incidentsResult.error.message);
   if (evidenceResult.error) throw new Error(evidenceResult.error.message);
+  if (postShowResult.error) throw new Error(postShowResult.error.message);
   if (settlementsResult.error) throw new Error(settlementsResult.error.message);
 
   const confirmations = (confirmationResult.data ?? []) as OperationsTaskConfirmation[];
@@ -150,6 +167,7 @@ export async function loadOperationsData(bookingId: string | null) {
   return {
     checklist,
     incidents,
+    postShowConfirmations: (postShowResult.data ?? []) as OperationsPostShowConfirmation[],
     settlements: (settlementsResult.data ?? []) as TalentSettlement[],
   };
 }
