@@ -341,11 +341,6 @@ export function PreShowWorkspaceForm({
                       })}
                     </div>
                   ) : null}
-                  {incident.status === "resolved" && incident.resolution_notes ? (
-                    <div className="mt-3 border border-black/10 bg-[#f5f3ee] p-3 text-xs leading-5">
-                      <strong>Catatan penyelesaian NS:</strong> {incident.resolution_notes}
-                    </div>
-                  ) : null}
                 </article>
               ))}
             </div>
