@@ -53,10 +53,10 @@ export default async function BuyerTermsPage({ params, searchParams }: { params:
 
         <section className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            [isId ? "Talent" : "Talent", talent.name],
-            [isId ? "Acara" : "Event", brief.event_type ?? "—"],
-            [isId ? "Tanggal" : "Date", booking.event_date ?? brief.event_date ?? "—"],
-            [isId ? "Kota" : "City", booking.city ?? brief.city ?? "—"],
+            [isId ? "Talent" : "Talent", snapshot?.event.talent_name ?? talent.name],
+            [isId ? "Acara" : "Event", snapshot?.event.event_type ?? brief.event_type ?? "—"],
+            [isId ? "Tanggal" : "Date", snapshot?.event.event_date ?? booking.event_date ?? brief.event_date ?? "—"],
+            [isId ? "Kota" : "City", snapshot?.event.city ?? booking.city ?? brief.city ?? "—"],
           ].map(([label, value]) => <div key={label} className="border border-black/10 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{label}</p><p className="mt-2 text-sm font-semibold">{value}</p></div>)}
         </section>
 
@@ -100,7 +100,7 @@ export default async function BuyerTermsPage({ params, searchParams }: { params:
             <p><span className="text-black/45">{isId ? "Pembatalan:" : "Cancellation:"}</span><br />{snapshot?.terms.cancellation_terms ?? deal.cancellation_terms ?? (isId ? "Belum dikunci" : "Not locked")}</p>
             {(snapshot?.terms.rider_notes ?? deal.rider_notes) ? <p><span className="text-black/45">{isId ? "Rider / kebutuhan teknis:" : "Rider / technical requirements:"}</span><br />{snapshot?.terms.rider_notes ?? deal.rider_notes}</p> : null}
             {(snapshot?.terms.special_conditions ?? deal.special_conditions) ? <p><span className="text-black/45">{isId ? "Ketentuan khusus:" : "Special conditions:"}</span><br />{snapshot?.terms.special_conditions ?? deal.special_conditions}</p> : null}
-            <p className="text-xs text-black/45">{isId ? "Penawaran talent berlaku sampai" : "Talent offer valid until"}: {offer.quote_valid_until ? new Date(offer.quote_valid_until).toLocaleString(isId ? "id-ID" : "en-US") : "—"}</p>
+            <p className="text-xs text-black/45">{isId ? "Penawaran talent berlaku sampai" : "Talent offer valid until"}: {(snapshot?.offer_valid_until ?? offer.quote_valid_until) ? new Date(snapshot?.offer_valid_until ?? offer.quote_valid_until).toLocaleString(isId ? "id-ID" : "en-US") : "—"}</p>
           </div>
         </section>
 
