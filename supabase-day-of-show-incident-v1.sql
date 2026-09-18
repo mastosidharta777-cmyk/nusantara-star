@@ -130,3 +130,69 @@ $$;
 
 revoke all on function public.ns_report_incident_v2(uuid,text,text,text,text,text) from public,anon,authenticated;
 grant execute on function public.ns_report_incident_v2(uuid,text,text,text,text,text) to service_role;
+
+create or replace function public.ns_resolve_incident_v1(
+  p_booking_id uuid,
+  p_incident_id uuid,
+  p_resolution_notes text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path=public
+as $
+declare
+  b public.bookings%rowtype;
+  i public.incidents%rowtype;
+  v_open integer;
+  v_restore text;
+begin
+  select * into b from public.bookings where id=p_booking_id for update;
+  if not found then raise exception 'Booking not found'; end if;
+
+  select * into i
+  from public.incidents
+  where id=p_incident_id and booking_id=b.id
+  for update;
+  if not found then raise exception 'Incident not found'; end if;
+  if i.status<>'open' then raise exception 'Incident is already resolved'; end if;
+
+  if exists (
+    select 1
+    from public.recovery_cases c
+    where c.incident_id=i.id
+      and c.status not in ('replacement_secured','closed_no_replacement','void')
+  ) then
+    raise exception 'Finish or close the active replacement recovery before resolving this incident';
+  end if;
+
+  update public.incidents
+  set status='resolved',
+      resolved_at=now(),
+      resolution_notes=nullif(trim(coalesce(p_resolution_notes,'')),''),
+      updated_at=now()
+  where id=i.id and status='open';
+  if not found then raise exception 'Incident resolution lost a concurrent update'; end if;
+
+  select count(*)::integer into v_open
+  from public.incidents
+  where booking_id=b.id and status='open';
+
+  if v_open=0 and b.status='incident' then
+    v_restore:=case when i.prior_booking_status in ('secured','pre_show') then i.prior_booking_status else 'pre_show' end;
+    update public.bookings
+    set status=v_restore,updated_at=now()
+    where id=b.id and status='incident';
+    if not found then raise exception 'Incident restore lost a concurrent update'; end if;
+  end if;
+
+  return jsonb_build_object(
+    'ok',true,
+    'incidentStatus','resolved',
+    'bookingStatus',case when v_open=0 and b.status='incident' then v_restore else b.status end
+  );
+end;
+$;
+
+revoke all on function public.ns_resolve_incident_v1(uuid,uuid,text) from public,anon,authenticated;
+grant execute on function public.ns_resolve_incident_v1(uuid,uuid,text) to service_role;
