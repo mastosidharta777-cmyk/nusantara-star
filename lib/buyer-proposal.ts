@@ -26,11 +26,21 @@ type ProposalRow = {
 
 type WhyFitSnapshot = { id?: string[]; en?: string[] };
 type MediaSnapshot = { id: string; provider: string; storage_key: string; title: string | null; description: string | null; asset_type: string };
+type BuyerPriceBreakdown = {
+  talent_fee: number;
+  transport: number;
+  accommodation: number;
+  technical_rider: number;
+  taxes_fees: number;
+  other: number;
+  other_label: string | null;
+};
 
 type ProposalItemRow = {
   id: string;
   talent_id: string;
   buyer_price: number;
+  price_breakdown: Record<string, unknown> | null;
   currency: string;
   availability_status: string;
   included_costs: string | null;
@@ -54,6 +64,25 @@ type BuyerSelectionRow = {
   talent_id: string;
   status: string;
 };
+
+function normalizeBreakdown(value: Record<string, unknown> | null, fallbackTotal: number): BuyerPriceBreakdown {
+  const amount = (key: string) => {
+    const parsed = Number(value?.[key]);
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+  };
+  const structured: BuyerPriceBreakdown = {
+    talent_fee: amount("talent_fee"),
+    transport: amount("transport"),
+    accommodation: amount("accommodation"),
+    technical_rider: amount("technical_rider"),
+    taxes_fees: amount("taxes_fees"),
+    other: amount("other"),
+    other_label: typeof value?.other_label === "string" && value.other_label.trim() ? value.other_label.trim() : null,
+  };
+  const total = structured.talent_fee + structured.transport + structured.accommodation + structured.technical_rider + structured.taxes_fees + structured.other;
+  if (total > 0) return structured;
+  return { talent_fee: fallbackTotal, transport: 0, accommodation: 0, technical_rider: 0, taxes_fees: 0, other: 0, other_label: null };
+}
 
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -103,7 +132,7 @@ export async function loadBuyerProposal(briefId: string) {
 
   const { data: items, error: itemError } = await supabase
     .from("proposal_items")
-    .select("id,talent_id,buyer_price,currency,availability_status,included_costs,excluded_costs,payment_terms,rider_exceptions,offer_valid_until,talent_name_snapshot,talent_category_snapshot,talent_base_city_snapshot,talent_genres_snapshot,talent_bio_snapshot,talent_profile_image_url_snapshot,match_score_snapshot,match_tier_snapshot,why_fit_snapshot,media_snapshot")
+    .select("id,talent_id,buyer_price,price_breakdown,currency,availability_status,included_costs,excluded_costs,payment_terms,rider_exceptions,offer_valid_until,talent_name_snapshot,talent_category_snapshot,talent_base_city_snapshot,talent_genres_snapshot,talent_bio_snapshot,talent_profile_image_url_snapshot,match_score_snapshot,match_tier_snapshot,why_fit_snapshot,media_snapshot")
     .eq("proposal_id", proposalRow.id)
     .order("match_score_snapshot", { ascending: false });
   if (itemError) throw new Error(itemError.message);
@@ -133,6 +162,7 @@ export async function loadBuyerProposal(briefId: string) {
       bio: item.talent_bio_snapshot,
       profile_image_url: item.talent_profile_image_url_snapshot,
       buyer_price: Number(item.buyer_price),
+      price_breakdown: normalizeBreakdown(item.price_breakdown, Number(item.buyer_price)),
       currency: item.currency,
       availability_status: item.availability_status,
       included_costs: item.included_costs,
