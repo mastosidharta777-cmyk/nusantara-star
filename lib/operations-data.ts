@@ -1,5 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
 
+export type OperationsTaskConfirmation = {
+  checklist_item_id: string;
+  party: "buyer" | "talent" | "admin" | "system";
+  response: "done" | "not_applicable";
+  note: string | null;
+  advance_revision_no: number;
+  updated_at: string;
+};
+
 export type OperationsChecklistItem = {
   id: string;
   checkpoint_code: "H-14" | "H-7" | "H-3" | "H-1";
@@ -9,6 +18,9 @@ export type OperationsChecklistItem = {
   status: "pending" | "done" | "not_applicable";
   notes: string | null;
   completed_at: string | null;
+  required_parties: Array<"buyer" | "talent" | "admin" | "system">;
+  advance_revision_no: number | null;
+  confirmations: OperationsTaskConfirmation[];
 };
 
 export type OperationsIncident = {
@@ -41,18 +53,56 @@ function getServerClient() {
 }
 
 export async function loadOperationsData(bookingId: string | null) {
-  if (!bookingId) return { checklist: [] as OperationsChecklistItem[], incidents: [] as OperationsIncident[], settlements: [] as TalentSettlement[] };
+  if (!bookingId) {
+    return {
+      checklist: [] as OperationsChecklistItem[],
+      incidents: [] as OperationsIncident[],
+      settlements: [] as TalentSettlement[],
+    };
+  }
+
   const supabase = getServerClient();
-  const [checklistResult, incidentsResult, settlementsResult] = await Promise.all([
-    supabase.from("pre_show_checklist_items").select("id,checkpoint_code,item_key,label,due_date,status,notes,completed_at").eq("booking_id", bookingId).order("due_date", { ascending: true }).order("item_key", { ascending: true }),
-    supabase.from("incidents").select("id,incident_type,summary,details,status,occurred_at,resolved_at,resolution_notes").eq("booking_id", bookingId).order("occurred_at", { ascending: false }),
-    supabase.from("talent_settlements").select("id,amount,currency,provider,provider_reference,status,paid_at,notes").eq("booking_id", bookingId).order("paid_at", { ascending: true }),
+  const [checklistResult, confirmationResult, incidentsResult, settlementsResult] = await Promise.all([
+    supabase
+      .from("pre_show_checklist_items")
+      .select("id,checkpoint_code,item_key,label,due_date,status,notes,completed_at,required_parties,advance_revision_no")
+      .eq("booking_id", bookingId)
+      .order("due_date", { ascending: true })
+      .order("item_key", { ascending: true }),
+    supabase
+      .from("pre_show_task_confirmations")
+      .select("checklist_item_id,party,response,note,advance_revision_no,updated_at")
+      .eq("booking_id", bookingId)
+      .order("updated_at", { ascending: true }),
+    supabase
+      .from("incidents")
+      .select("id,incident_type,summary,details,status,occurred_at,resolved_at,resolution_notes")
+      .eq("booking_id", bookingId)
+      .order("occurred_at", { ascending: false }),
+    supabase
+      .from("talent_settlements")
+      .select("id,amount,currency,provider,provider_reference,status,paid_at,notes")
+      .eq("booking_id", bookingId)
+      .order("paid_at", { ascending: true }),
   ]);
+
   if (checklistResult.error) throw new Error(checklistResult.error.message);
+  if (confirmationResult.error) throw new Error(confirmationResult.error.message);
   if (incidentsResult.error) throw new Error(incidentsResult.error.message);
   if (settlementsResult.error) throw new Error(settlementsResult.error.message);
+
+  const confirmations = (confirmationResult.data ?? []) as OperationsTaskConfirmation[];
+  const checklist = (checklistResult.data ?? []).map((item) => ({
+    ...item,
+    confirmations: confirmations.filter(
+      (confirmation) =>
+        confirmation.checklist_item_id === item.id
+        && confirmation.advance_revision_no === item.advance_revision_no,
+    ),
+  })) as OperationsChecklistItem[];
+
   return {
-    checklist: (checklistResult.data ?? []) as OperationsChecklistItem[],
+    checklist,
     incidents: (incidentsResult.data ?? []) as OperationsIncident[],
     settlements: (settlementsResult.data ?? []) as TalentSettlement[],
   };
