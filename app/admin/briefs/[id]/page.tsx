@@ -12,11 +12,13 @@ import { AdminOperations } from "@/components/admin-operations";
 import { AdminPaymentMilestones } from "@/components/admin-payment-milestones";
 import { AdminProposalActions } from "@/components/admin-proposal-actions";
 import { AdminRecoveryPanel } from "@/components/admin-recovery-panel";
+import { AdminShowAdvance } from "@/components/admin-show-advance";
 import { loadAdminBriefDetail } from "@/lib/admin-brief-detail";
 import { loadBuyerPriorityState } from "@/lib/buyer-priority";
 import { loadDealReviewData } from "@/lib/deal-review-data";
 import { loadOperationsData } from "@/lib/operations-data";
 import { loadRecoveryCaseForBooking, loadRecoveryCaseForBrief } from "@/lib/recovery-data";
+import { loadShowAdvanceData, showAdvanceIsCurrentAndConfirmed } from "@/lib/show-advance-data";
 import { availabilityLabel, freshnessLabelId } from "@/lib/ui-language";
 
 export const dynamic = "force-dynamic";
@@ -66,11 +68,13 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
     loadBuyerPriorityState(row.id),
   ]);
   const dealLocked = deal?.status === "locked";
-  const operations = await loadOperationsData(booking?.id ?? null);
-  const [bookingRecoveryCase, recoveryBriefCase] = await Promise.all([
+  const [operations, showAdvance, bookingRecoveryCase, recoveryBriefCase] = await Promise.all([
+    loadOperationsData(booking?.id ?? null),
+    loadShowAdvanceData(booking?.id ?? null),
     loadRecoveryCaseForBooking(booking?.id ?? null),
     loadRecoveryCaseForBrief(row.id),
   ]);
+  const advanceConfirmed = showAdvanceIsCurrentAndConfirmed(showAdvance);
   const recoveryCase = recoveryBriefCase ?? bookingRecoveryCase;
   const effectiveMatches = recoveryBriefCase
     ? recoveryBriefCase.matching_generated_at
@@ -154,7 +158,8 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
 
         {selectedTalent && dealLocked ? <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} /> : null}
         {booking && dealLocked ? <AdminPaymentMilestones bookingId={booking.id} milestones={paymentMilestones} /> : null}
-        {booking && dealLocked && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminOperations booking={booking} checklist={operations.checklist} incidents={operations.incidents} settlements={operations.settlements} /> : null}
+        {booking && dealLocked && showAdvance && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminShowAdvance bookingId={booking.id} bookingStatus={booking.status} data={showAdvance} /> : null}
+        {booking && dealLocked && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminOperations booking={booking} checklist={operations.checklist} incidents={operations.incidents} settlements={operations.settlements} advanceConfirmed={advanceConfirmed} /> : null}
         {!recoveryCase && booking && booking.status === "incident" ? <AdminRecoveryPanel bookingId={booking.id} bookingStatus={booking.status} incidents={operations.incidents} recoveryCase={null} currentBriefId={row.id} /> : null}
       </div>
     </main>
