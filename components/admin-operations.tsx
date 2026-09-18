@@ -61,18 +61,22 @@ export function AdminOperations({
   incidents,
   settlements,
   advanceConfirmed,
+  recoveryBlockingIncidentId,
 }: {
   booking: Booking;
   checklist: OperationsChecklistItem[];
   incidents: OperationsIncident[];
   settlements: TalentSettlement[];
   advanceConfirmed: boolean;
+  recoveryBlockingIncidentId: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [incidentType, setIncidentType] = useState("technical_failure");
   const [incidentSummary, setIncidentSummary] = useState("");
+  const [incidentDetails, setIncidentDetails] = useState("");
+  const [resolutionNotes, setResolutionNotes] = useState<Record<string, string>>({});
   const [settlementAmount, setSettlementAmount] = useState("");
   const [settlementProvider, setSettlementProvider] = useState("");
   const [settlementReference, setSettlementReference] = useState("");
@@ -96,7 +100,10 @@ export function AdminOperations({
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.detail ?? body?.error ?? "Aksi operasional gagal");
-      if (action === "report_incident") setIncidentSummary("");
+      if (action === "report_incident") {
+        setIncidentSummary("");
+        setIncidentDetails("");
+      }
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Aksi operasional gagal");
@@ -180,7 +187,7 @@ export function AdminOperations({
         </div>
       ) : null}
 
-      {booking.status === "pre_show" && advanceConfirmed ? (
+      {["pre_show", "incident"].includes(booking.status) && advanceConfirmed ? (
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <div className="border border-black/10 bg-[#f5f3ee] p-4">
             <p className="text-sm font-semibold">Buyer / EO checklist</p>
@@ -271,13 +278,14 @@ export function AdminOperations({
             </select>
             <input value={incidentSummary} onChange={(event) => setIncidentSummary(event.target.value)} placeholder="Ringkasan kejadian" className="border border-black/15 p-2 text-sm" />
             <button
-              onClick={() => act("report_incident", { incidentType, summary: incidentSummary })}
+              onClick={() => act("report_incident", { incidentType, summary: incidentSummary, details: incidentDetails })}
               disabled={busy !== null || !incidentSummary.trim()}
               className="border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40"
             >
               Catat insiden
             </button>
           </div>
+          <textarea value={incidentDetails} onChange={(event) => setIncidentDetails(event.target.value)} placeholder="Detail kejadian (opsional)" className="mt-2 min-h-20 w-full border border-black/15 p-2 text-sm" />
         </div>
       ) : null}
 
@@ -290,14 +298,44 @@ export function AdminOperations({
                 <span className="text-xs uppercase">{incident.status === "open" ? "Terbuka" : "Selesai"}</span>
               </div>
               <p className="mt-1 text-black/65">{incident.summary}</p>
-              {incident.status === "open" ? (
-                <button
-                  onClick={() => act("resolve_incident", { incidentId: incident.id })}
-                  disabled={busy !== null}
-                  className="mt-3 border border-black px-3 py-2 text-xs font-semibold disabled:opacity-40"
-                >
-                  Selesaikan insiden
-                </button>
+              <p className="mt-1 text-xs text-black/45">
+                Dilaporkan oleh {partyLabel(incident.reported_by_party)} · {new Date(incident.occurred_at).toLocaleString("id-ID")}
+              </p>
+              {incident.details ? <p className="mt-2 text-xs leading-5 text-black/55">{incident.details}</p> : null}
+              {incident.evidence.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {incident.evidence.map((evidence) => {
+                    const href = evidence.provider === "external_url" ? evidence.external_url : evidence.signed_url;
+                    return href ? (
+                      <a key={evidence.id} href={href} target="_blank" rel="noreferrer" className="border border-black/15 px-3 py-2 text-xs font-semibold underline">
+                        {evidence.evidence_type === "link" ? "Buka link bukti" : evidence.original_filename ?? "Buka bukti"}
+                      </a>
+                    ) : null;
+                  })}
+                </div>
+              ) : null}
+              {incident.status === "open" && incident.id === recoveryBlockingIncidentId ? (
+                <div className="mt-3 border border-amber-500/30 bg-amber-50 p-3 text-xs leading-5 text-amber-950">
+                  Incident ini menjadi dasar recovery talent pengganti. Selesaikan atau tutup recovery terlebih dahulu sebelum incident dapat di-resolve.
+                </div>
+              ) : incident.status === "open" ? (
+                <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+                  <input
+                    value={resolutionNotes[incident.id] ?? ""}
+                    onChange={(event) => setResolutionNotes((current) => ({ ...current, [incident.id]: event.target.value }))}
+                    placeholder="Catatan keputusan / penyelesaian"
+                    className="border border-black/15 p-2 text-xs"
+                  />
+                  <button
+                    onClick={() => act("resolve_incident", { incidentId: incident.id, resolutionNotes: resolutionNotes[incident.id] ?? "" })}
+                    disabled={busy !== null || !(resolutionNotes[incident.id] ?? "").trim()}
+                    className="border border-black px-3 py-2 text-xs font-semibold disabled:opacity-40"
+                  >
+                    Selesaikan insiden
+                  </button>
+                </div>
+              ) : incident.resolution_notes ? (
+                <p className="mt-3 border border-black/10 bg-[#f5f3ee] p-3 text-xs leading-5"><strong>Keputusan:</strong> {incident.resolution_notes}</p>
               ) : null}
             </div>
           ))}

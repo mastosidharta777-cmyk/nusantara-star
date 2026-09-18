@@ -23,15 +23,30 @@ export type OperationsChecklistItem = {
   confirmations: OperationsTaskConfirmation[];
 };
 
+export type OperationsIncidentEvidence = {
+  id: string;
+  incident_id: string;
+  uploaded_by_party: "buyer" | "talent" | "admin";
+  evidence_type: "photo" | "document" | "link";
+  provider: "supabase_storage" | "external_url";
+  original_filename: string | null;
+  external_url: string | null;
+  signed_url: string | null;
+  created_at: string;
+};
+
 export type OperationsIncident = {
   id: string;
   incident_type: string;
   summary: string;
   details: string | null;
   status: "open" | "resolved";
+  reported_by_party: "buyer" | "talent" | "admin" | "system";
+  report_source: "signed_link" | "admin_portal" | "system";
   occurred_at: string;
   resolved_at: string | null;
   resolution_notes: string | null;
+  evidence: OperationsIncidentEvidence[];
 };
 
 export type TalentSettlement = {
@@ -62,7 +77,7 @@ export async function loadOperationsData(bookingId: string | null) {
   }
 
   const supabase = getServerClient();
-  const [checklistResult, confirmationResult, incidentsResult, settlementsResult] = await Promise.all([
+  const [checklistResult, confirmationResult, incidentsResult, evidenceResult, settlementsResult] = await Promise.all([
     supabase
       .from("pre_show_checklist_items")
       .select("id,checkpoint_code,item_key,label,due_date,status,notes,completed_at,required_parties,advance_revision_no")
@@ -76,9 +91,15 @@ export async function loadOperationsData(bookingId: string | null) {
       .order("updated_at", { ascending: true }),
     supabase
       .from("incidents")
-      .select("id,incident_type,summary,details,status,occurred_at,resolved_at,resolution_notes")
+      .select("id,incident_type,summary,details,status,reported_by_party,report_source,occurred_at,resolved_at,resolution_notes")
       .eq("booking_id", bookingId)
       .order("occurred_at", { ascending: false }),
+    supabase
+      .from("incident_evidence")
+      .select("id,incident_id,uploaded_by_party,evidence_type,provider,storage_key,external_url,original_filename,upload_status,created_at")
+      .eq("booking_id", bookingId)
+      .eq("upload_status", "uploaded")
+      .order("created_at", { ascending: true }),
     supabase
       .from("talent_settlements")
       .select("id,amount,currency,provider,provider_reference,status,paid_at,notes")
@@ -89,6 +110,7 @@ export async function loadOperationsData(bookingId: string | null) {
   if (checklistResult.error) throw new Error(checklistResult.error.message);
   if (confirmationResult.error) throw new Error(confirmationResult.error.message);
   if (incidentsResult.error) throw new Error(incidentsResult.error.message);
+  if (evidenceResult.error) throw new Error(evidenceResult.error.message);
   if (settlementsResult.error) throw new Error(settlementsResult.error.message);
 
   const confirmations = (confirmationResult.data ?? []) as OperationsTaskConfirmation[];
@@ -101,9 +123,33 @@ export async function loadOperationsData(bookingId: string | null) {
     ),
   })) as OperationsChecklistItem[];
 
+  const evidence = await Promise.all((evidenceResult.data ?? []).map(async (row) => {
+    let signedUrl: string | null = null;
+    if (row.provider === "supabase_storage" && row.storage_key) {
+      const { data } = await supabase.storage.from("incident-evidence").createSignedUrl(row.storage_key, 3600);
+      signedUrl = data?.signedUrl ?? null;
+    }
+    return {
+      id: row.id,
+      incident_id: row.incident_id,
+      uploaded_by_party: row.uploaded_by_party,
+      evidence_type: row.evidence_type,
+      provider: row.provider,
+      original_filename: row.original_filename,
+      external_url: row.external_url,
+      signed_url: signedUrl,
+      created_at: row.created_at,
+    };
+  }));
+
+  const incidents = (incidentsResult.data ?? []).map((incident) => ({
+    ...incident,
+    evidence: evidence.filter((row) => row.incident_id === incident.id),
+  })) as OperationsIncident[];
+
   return {
     checklist,
-    incidents: (incidentsResult.data ?? []) as OperationsIncident[],
+    incidents,
     settlements: (settlementsResult.data ?? []) as TalentSettlement[],
   };
 }

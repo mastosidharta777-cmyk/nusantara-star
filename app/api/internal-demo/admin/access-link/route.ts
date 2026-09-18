@@ -142,8 +142,8 @@ export async function POST(request: Request) {
         .eq("id", subjectId)
         .maybeSingle();
       if (bookingError) throw new Error(bookingError.message);
-      if (!booking || booking.status !== "pre_show") {
-        return NextResponse.json({ error: "Pre-show workspace is available only after the checklist starts" }, { status: 409 });
+      if (!booking || !["pre_show", "incident"].includes(booking.status)) {
+        return NextResponse.json({ error: "Operational workspace is available only after the pre-show checklist starts" }, { status: 409 });
       }
 
       const { data: advance, error: advanceError } = await supabase

@@ -76,6 +76,12 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
   ]);
   const advanceConfirmed = showAdvanceIsCurrentAndConfirmed(showAdvance);
   const recoveryCase = recoveryBriefCase ?? bookingRecoveryCase;
+  const recoveryBlockingIncidentId = recoveryCase
+    && booking
+    && recoveryCase.original_booking_id === booking.id
+    && !["replacement_secured", "closed_no_replacement", "void"].includes(recoveryCase.status)
+      ? recoveryCase.incident_id
+      : null;
   const effectiveMatches = recoveryBriefCase
     ? recoveryBriefCase.matching_generated_at
       ? matches.filter((match) => match.talent.id !== recoveryBriefCase.original_talent_id)
@@ -159,7 +165,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
         {selectedTalent && dealLocked ? <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} /> : null}
         {booking && dealLocked ? <AdminPaymentMilestones bookingId={booking.id} milestones={paymentMilestones} /> : null}
         {booking && dealLocked && showAdvance && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminShowAdvance bookingId={booking.id} bookingStatus={booking.status} data={showAdvance} /> : null}
-        {booking && dealLocked && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminOperations booking={booking} checklist={operations.checklist} incidents={operations.incidents} settlements={operations.settlements} advanceConfirmed={advanceConfirmed} /> : null}
+        {booking && dealLocked && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminOperations booking={booking} checklist={operations.checklist} incidents={operations.incidents} settlements={operations.settlements} advanceConfirmed={advanceConfirmed} recoveryBlockingIncidentId={recoveryBlockingIncidentId} /> : null}
         {!recoveryCase && booking && booking.status === "incident" ? <AdminRecoveryPanel bookingId={booking.id} bookingStatus={booking.status} incidents={operations.incidents} recoveryCase={null} currentBriefId={row.id} /> : null}
       </div>
     </main>
