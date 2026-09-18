@@ -12,6 +12,7 @@ const STATEFUL_QA_PATHS = new Set([
   "/api/internal-demo/operations-smoke",
   "/api/internal-demo/public-brief-smoke",
   "/api/internal-demo/secure-booking-smoke",
+  "/api/internal-demo/show-advance-smoke",
   "/api/internal-demo/smart-proposal-smoke",
   "/api/internal-demo/talent-offer-transition-smoke",
 ]);
@@ -191,6 +192,7 @@ export const config = {
     "/api/internal-demo/operations-smoke",
     "/api/internal-demo/public-brief-smoke",
     "/api/internal-demo/secure-booking-smoke",
+    "/api/internal-demo/show-advance-smoke",
     "/api/internal-demo/smart-proposal-smoke",
     "/api/internal-demo/talent-offer-transition-smoke",
   ],
