@@ -80,7 +80,29 @@ export default async function ProposalPage({ params, searchParams }: { params: P
 
                       <div className="mt-5 grid gap-3 border-t border-black/10 pt-4">
                         <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Ketersediaan" : "Availability"}</p><p className="mt-2 text-sm font-semibold">{talent.availability_status === "confirmed" ? isId ? "Terkonfirmasi" : "Confirmed" : talent.availability_status}</p></div>
-                        <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Harga untuk acara ini" : "Event Price"}</p><p className="mt-2 text-xl font-semibold">{money(talent.buyer_price, locale)}</p></div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Rincian penawaran" : "Offer breakdown"}</p>
+                          <div className="mt-2 divide-y divide-black/10 border border-black/10">
+                            {[
+                              [isId ? "Talent fee" : "Talent fee", talent.price_breakdown.talent_fee],
+                              [isId ? "Transport / local transfer" : "Transport / local transfer", talent.price_breakdown.transport],
+                              [isId ? "Akomodasi" : "Accommodation", talent.price_breakdown.accommodation],
+                              [isId ? "Technical / backline / rider" : "Technical / backline / rider", talent.price_breakdown.technical_rider],
+                              [isId ? "Pajak / payment fee" : "Taxes / payment fees", talent.price_breakdown.taxes_fees],
+                              [talent.price_breakdown.other_label || (isId ? "Biaya lain" : "Other"), talent.price_breakdown.other],
+                            ].filter(([, amount]) => Number(amount) > 0).map(([label, amount]) => (
+                              <div key={String(label)} className="flex items-center justify-between gap-4 px-3 py-2 text-sm">
+                                <span className="text-black/55">{String(label)}</span>
+                                <strong>{money(Number(amount), locale)}</strong>
+                              </div>
+                            ))}
+                            <div className="flex items-center justify-between gap-4 bg-[#f5f3ee] px-3 py-3">
+                              <span className="text-sm font-semibold">{isId ? "Total penawaran" : "Total offer"}</span>
+                              <strong className="text-xl">{money(talent.buyer_price, locale)}</strong>
+                            </div>
+                          </div>
+                          <p className="mt-2 text-xs leading-5 text-black/45">{isId ? "Komponen yang bernilai Rp0 tidak ditagihkan dalam proposal ini. Item yang belum termasuk tetap mengikuti catatan di bawah." : "Zero-value components are not charged in this proposal. Any excluded items remain subject to the notes below."}</p>
+                        </div>
                         {talent.included_costs ? <p className="text-sm"><span className="text-black/45">{isId ? "Termasuk:" : "Included:"}</span><br />{talent.included_costs}</p> : null}
                         {talent.excluded_costs ? <p className="text-sm"><span className="text-black/45">{isId ? "Tidak termasuk:" : "Excluded:"}</span><br />{talent.excluded_costs}</p> : null}
                         {talent.payment_terms ? <p className="text-sm"><span className="text-black/45">{isId ? "Ketentuan pembayaran ke klien:" : "Buyer payment terms:"}</span><br />{talent.payment_terms}</p> : null}

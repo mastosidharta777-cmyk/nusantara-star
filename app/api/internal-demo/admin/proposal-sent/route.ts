@@ -48,6 +48,16 @@ type BriefMode = {
   requested_talent_id: string | null;
 };
 
+type BuyerPriceBreakdown = {
+  talent_fee: number;
+  transport: number;
+  accommodation: number;
+  technical_rider: number;
+  taxes_fees: number;
+  other: number;
+  other_label: string | null;
+};
+
 function getServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -58,6 +68,43 @@ function getServerClient() {
 function scorePart(value: Record<string, unknown> | null, key: string) {
   const n = Number(value?.[key]);
   return Number.isFinite(n) ? n : 0;
+}
+
+function nonNegativeInteger(value: unknown, label: string) {
+  const number = value === "" || value === null || value === undefined ? 0 : Number(value);
+  if (!Number.isSafeInteger(number) || number < 0) throw new Error(`${label} must be a non-negative integer`);
+  return number;
+}
+
+function parseBuyerBreakdown(value: unknown, talentName: string, confirmedTalentFee: number): { breakdown: BuyerPriceBreakdown; total: number } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Buyer price breakdown is required for ${talentName}`);
+  const row = value as Record<string, unknown>;
+  const talentFee = nonNegativeInteger(row.talentFee, `Talent fee for ${talentName}`);
+  const transport = nonNegativeInteger(row.transport, `Transport for ${talentName}`);
+  const accommodation = nonNegativeInteger(row.accommodation, `Accommodation for ${talentName}`);
+  const technicalRider = nonNegativeInteger(row.technicalRider, `Technical/rider for ${talentName}`);
+  const taxesFees = nonNegativeInteger(row.taxesFees, `Taxes/payment fees for ${talentName}`);
+  const other = nonNegativeInteger(row.other, `Other cost for ${talentName}`);
+  const otherLabel = typeof row.otherLabel === "string" && row.otherLabel.trim() ? row.otherLabel.trim().slice(0, 120) : null;
+
+  if (talentFee < confirmedTalentFee) throw new Error(`Buyer-facing talent fee for ${talentName} cannot be below the confirmed talent/manager fee`);
+  if (other > 0 && !otherLabel) throw new Error(`Other cost label is required for ${talentName}`);
+
+  const total = [talentFee, transport, accommodation, technicalRider, taxesFees, other].reduce((sum, amount) => sum + amount, 0);
+  if (!Number.isSafeInteger(total) || total <= 0) throw new Error(`Buyer total is invalid for ${talentName}`);
+
+  return {
+    breakdown: {
+      talent_fee: talentFee,
+      transport,
+      accommodation,
+      technical_rider: technicalRider,
+      taxes_fees: taxesFees,
+      other,
+      other_label: other > 0 ? otherLabel : null,
+    },
+    total,
+  };
 }
 
 function buildWhyFit(breakdown: Record<string, unknown> | null): WhyFitSnapshot {
@@ -170,6 +217,9 @@ export async function GET(request: Request) {
         eventFee: Number(offer.event_fee),
         currency: offer.currency ?? "IDR",
         talentPaymentTerms: offer.payment_terms,
+        includedCosts: offer.included_costs,
+        excludedCosts: offer.excluded_costs,
+        riderExceptions: offer.rider_exceptions,
         quoteValidUntil: offer.quote_valid_until,
       })),
     });
@@ -184,6 +234,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null);
     const briefId = typeof body?.briefId === "string" ? body.briefId : "";
     const buyerPrices = body?.buyerPrices && typeof body.buyerPrices === "object" && !Array.isArray(body.buyerPrices) ? body.buyerPrices as Record<string, unknown> : {};
+    const buyerBreakdowns = body?.buyerBreakdowns && typeof body.buyerBreakdowns === "object" && !Array.isArray(body.buyerBreakdowns) ? body.buyerBreakdowns as Record<string, unknown> : {};
     const buyerPaymentTerms = typeof body?.buyerPaymentTerms === "string" ? body.buyerPaymentTerms.trim() : "";
     if (!briefId) return NextResponse.json({ error: "Invalid brief id" }, { status: 400 });
     if (!buyerPaymentTerms || buyerPaymentTerms.length > 1200) return NextResponse.json({ error: "Buyer-facing payment terms are required" }, { status: 400 });
@@ -201,10 +252,30 @@ export async function POST(request: Request) {
     if (current && ["sent", "viewed", "selected"].includes(current.status)) return NextResponse.json({ ok: true, briefId, proposalId: current.id, version: current.version, status: current.status, reused: true });
 
     const priced = ready.map((item) => {
-      const buyerPrice = Number(buyerPrices[item.talent.id]);
-      if (!Number.isSafeInteger(buyerPrice) || buyerPrice <= 0) throw new Error(`Buyer price is required for ${item.talent.name}`);
-      if (buyerPrice < Number(item.offer.event_fee)) throw new Error(`Buyer price for ${item.talent.name} cannot be below the confirmed talent fee in this V1 flow`);
-      return { ...item, buyerPrice };
+      const confirmedTalentFee = Number(item.offer.event_fee);
+      const structured = buyerBreakdowns[item.talent.id];
+      if (structured) {
+        const { breakdown, total } = parseBuyerBreakdown(structured, item.talent.name, confirmedTalentFee);
+        return { ...item, buyerPrice: total, priceBreakdown: breakdown };
+      }
+
+      // Backward-compatible fallback for an already-open admin tab posting the legacy single total.
+      const legacyBuyerPrice = Number(buyerPrices[item.talent.id]);
+      if (!Number.isSafeInteger(legacyBuyerPrice) || legacyBuyerPrice <= 0) throw new Error(`Buyer price breakdown is required for ${item.talent.name}`);
+      if (legacyBuyerPrice < confirmedTalentFee) throw new Error(`Buyer price for ${item.talent.name} cannot be below the confirmed talent fee`);
+      return {
+        ...item,
+        buyerPrice: legacyBuyerPrice,
+        priceBreakdown: {
+          talent_fee: legacyBuyerPrice,
+          transport: 0,
+          accommodation: 0,
+          technical_rider: 0,
+          taxes_fees: 0,
+          other: 0,
+          other_label: null,
+        } satisfies BuyerPriceBreakdown,
+      };
     });
 
     const version = (current?.version ?? 0) + 1;
@@ -215,12 +286,13 @@ export async function POST(request: Request) {
     const { data: proposal, error: proposalError } = await supabase.from("proposals").insert({ brief_id: briefId, version, status: "sent", expires_at: expiresAt, sent_at: now, updated_at: now }).select("id,version").single();
     if (proposalError || !proposal) throw new Error(proposalError?.message ?? "Proposal creation failed");
 
-    const itemRows = priced.map(({ match, offer, talent, buyerPrice, whyFit, media }) => ({
+    const itemRows = priced.map(({ match, offer, talent, buyerPrice, priceBreakdown, whyFit, media }) => ({
       proposal_id: proposal.id,
       brief_id: briefId,
       talent_id: talent.id,
       talent_offer_id: offer.id,
       buyer_price: buyerPrice,
+      price_breakdown: priceBreakdown,
       currency: offer.currency ?? "IDR",
       availability_status: offer.availability_status,
       included_costs: offer.included_costs,
