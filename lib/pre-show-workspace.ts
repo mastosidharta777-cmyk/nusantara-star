@@ -39,6 +39,15 @@ export type IncidentEvidence = {
   created_at: string;
 };
 
+export type PostShowConfirmation = {
+  id: string;
+  party: "buyer" | "talent";
+  outcome: "performed_as_agreed" | "performed_with_issue" | "not_performed";
+  note: string | null;
+  advance_revision_no: number;
+  confirmed_at: string;
+};
+
 export type OperationalIncident = {
   id: string;
   incident_type: string;
@@ -85,6 +94,7 @@ export type PreShowWorkspace = {
   tasks: PreShowTask[];
   partyTasks: PreShowTask[];
   incidents: OperationalIncident[];
+  postShowConfirmation: PostShowConfirmation | null;
   allTasksComplete: boolean;
   checklistPausedByIncident: boolean;
 };
@@ -107,7 +117,7 @@ export async function loadPreShowWorkspace(bookingId: string, party: PreShowPart
   if (bookingError) throw new Error(bookingError.message);
   if (!booking || !["pre_show", "incident"].includes(booking.status)) return null;
 
-  const [briefResult, talentResult, advanceResult, taskResult, confirmationResult, incidentResult, evidenceResult] = await Promise.all([
+  const [briefResult, talentResult, advanceResult, taskResult, confirmationResult, incidentResult, evidenceResult, postShowResult] = await Promise.all([
     supabase.from("briefs").select("event_type").eq("id", booking.brief_id).maybeSingle(),
     supabase.from("talents").select("name").eq("id", booking.talent_id).maybeSingle(),
     supabase
@@ -138,6 +148,12 @@ export async function loadPreShowWorkspace(bookingId: string, party: PreShowPart
       .eq("uploaded_by_party", party)
       .eq("upload_status", "uploaded")
       .order("created_at", { ascending: true }),
+    supabase
+      .from("post_show_confirmations")
+      .select("id,party,outcome,note,advance_revision_no,confirmed_at")
+      .eq("booking_id", booking.id)
+      .eq("party", party)
+      .maybeSingle(),
   ]);
 
   if (briefResult.error) throw new Error(briefResult.error.message);
@@ -147,6 +163,7 @@ export async function loadPreShowWorkspace(bookingId: string, party: PreShowPart
   if (confirmationResult.error) throw new Error(confirmationResult.error.message);
   if (incidentResult.error) throw new Error(incidentResult.error.message);
   if (evidenceResult.error) throw new Error(evidenceResult.error.message);
+  if (postShowResult.error) throw new Error(postShowResult.error.message);
 
   const advance = advanceResult.data;
   if (
@@ -229,6 +246,10 @@ export async function loadPreShowWorkspace(bookingId: string, party: PreShowPart
     tasks,
     partyTasks: tasks.filter((task) => task.required_parties.includes(party)),
     incidents,
+    postShowConfirmation:
+      postShowResult.data && postShowResult.data.advance_revision_no === advance.revision_no
+        ? (postShowResult.data as PostShowConfirmation)
+        : null,
     allTasksComplete: tasks.length > 0 && tasks.every((task) => task.status !== "pending" && task.advance_revision_no === advance.revision_no),
     checklistPausedByIncident: booking.status === "incident",
   };
