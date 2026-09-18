@@ -91,7 +91,16 @@ export async function POST(request: Request) {
 
     if (action === "complete_show") {
       if (!(await showAdvanceConfirmed(supabase, bookingId))) return rpcError("Current Show Advance requires reconfirmation before show completion");
-      const { data, error } = await supabase.rpc("ns_complete_show_v1", { p_booking_id: bookingId });
+      const overrideReason = typeof body?.overrideReason === "string" && body.overrideReason.trim()
+        ? body.overrideReason.trim()
+        : null;
+      if ((overrideReason?.length ?? 0) > 2000) {
+        return NextResponse.json({ error: "Override reason is too long" }, { status: 400 });
+      }
+      const { data, error } = await supabase.rpc("ns_complete_show_v2", {
+        p_booking_id: bookingId,
+        p_override_reason: overrideReason,
+      });
       if (error) return rpcError(error.message);
       return NextResponse.json(data ?? { ok: true, bookingStatus: "completed" });
     }
