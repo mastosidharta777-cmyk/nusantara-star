@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { AdminNewSupplyInvite } from "@/components/admin-new-supply-invite";
 import { loadAdminDashboardData } from "@/lib/admin-data";
+import { loadOperationsInbox } from "@/lib/operations-inbox";
 import { supplyServiceSummary, supplyTypeLabel } from "@/lib/supply-onboarding";
 import { freshnessLabelId } from "@/lib/ui-language";
 
@@ -18,7 +19,7 @@ function freshnessClass(value: string) {
 }
 
 export default async function AdminPage() {
-  const { talents, supplyIntake, briefs, kpis } = await loadAdminDashboardData();
+  const [{ talents, supplyIntake, briefs, kpis }, operations] = await Promise.all([loadAdminDashboardData(), loadOperationsInbox()]);
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
       <div className="mx-auto max-w-[1440px] px-5 py-8 md:px-10 md:py-10">
@@ -28,6 +29,42 @@ export default async function AdminPage() {
         </header>
 
         <section className="grid gap-3 py-7 sm:grid-cols-2 xl:grid-cols-5">{[["Talent aktif",kpis.totalTalents],["Terverifikasi",kpis.verifiedTalents],["Kalender perlu diperbarui",kpis.staleTalents],["Brief baru",kpis.newBriefs],["Brief aktif",kpis.activeBriefs]].map(([label,value])=><article key={label} className="border border-black/10 bg-white p-5"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-black/45">{label}</p><p className="mt-4 text-4xl font-semibold tracking-[-0.04em]">{value}</p></article>)}</section>
+
+        <section className="mb-7 border border-black/10 bg-white">
+          <div className="flex flex-col gap-3 border-b border-black/10 px-5 py-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-sm font-semibold">Operations Inbox</p>
+              <p className="mt-1 text-xs leading-5 text-black/45">Hanya exception yang membutuhkan perhatian. Status dihitung langsung dari data operasional; tidak membuat state baru.</p>
+            </div>
+            <div className="flex gap-2 text-xs font-semibold">
+              <span className="border border-red-200 bg-red-50 px-3 py-2 text-red-700">{operations.urgentCount} urgent</span>
+              <span className="border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">{operations.paymentCount} settlement</span>
+              <span className="border border-black/10 px-3 py-2 text-black/55">{operations.items.length} perlu perhatian</span>
+            </div>
+          </div>
+          {operations.items.length === 0 ? (
+            <div className="px-5 py-8 text-sm text-black/50">Tidak ada exception operasional yang perlu ditangani saat ini.</div>
+          ) : (
+            <div>
+              {operations.items.map((item) => (
+                <article key={item.key} className="grid gap-4 border-b border-black/5 px-5 py-4 last:border-0 md:grid-cols-[110px_1fr_auto] md:items-center">
+                  <div>
+                    <span className={item.priority === "urgent" ? "inline-flex border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-red-700" : "inline-flex border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-amber-800"}>
+                      {item.priority === "urgent" ? "Urgent" : "Action"}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">{item.title}</p>
+                    <p className="mt-1 text-xs leading-5 text-black/50">{item.eventLabel}{item.eventDate ? ` · ${item.eventDate}` : ""}{item.city ? ` · ${item.city}` : ""}</p>
+                    <p className="mt-1 text-sm leading-5 text-black/65">{item.detail}</p>
+                    {item.amount != null ? <p className="mt-1 text-sm font-semibold">{money(item.amount)}</p> : null}
+                  </div>
+                  <Link href={`/admin/briefs/${item.briefId}`} className="w-fit font-semibold underline underline-offset-4">Review</Link>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
 
         <section className="mb-7 border border-black/10 bg-white p-5 md:p-6">
           <div className="mb-5"><p className="text-sm font-semibold">Pendaftaran Supply Baru</p><p className="mt-1 text-xs text-black/45">Admin menentukan jenis supply dan kategori sebelum link dibuat. Talent tetap memakai flow Talent yang sudah ada.</p></div>
