@@ -28,12 +28,20 @@ export type BookingAdvance = {
   hospitality_notes: string | null;
   technical_notes: string | null;
   backline_notes: string | null;
+  talent_operational_notes: string | null;
   access_loading_notes: string | null;
   parking_notes: string | null;
   rider_version_id: string | null;
-  internal_notes: string | null;
+  buyer_submission: Record<string, unknown> | null;
+  talent_submission: Record<string, unknown> | null;
+  buyer_submitted_at: string | null;
+  talent_submitted_at: string | null;
+  admin_reviewed_revision_no: number | null;
+  admin_reviewed_at: string | null;
   buyer_confirmation_reference: string | null;
   talent_confirmation_reference: string | null;
+  buyer_confirmed_at: string | null;
+  talent_confirmed_at: string | null;
   confirmed_revision_no: number | null;
   confirmed_at: string | null;
   updated_at: string;
@@ -93,7 +101,7 @@ export async function loadShowAdvanceData(bookingId: string | null): Promise<Sho
   const [advanceResult, briefResult, talentResult, riderResult, confirmationResult] = await Promise.all([
     supabase
       .from("booking_advances")
-      .select("booking_id,revision_no,status,event_timezone,venue_name,venue_address,load_in_at_local,call_at_local,soundcheck_at_local,show_start_at_local,show_end_at_local,performance_duration_minutes,buyer_pic_name,buyer_pic_phone,onsite_pic_name,onsite_pic_phone,technical_pic_name,technical_pic_phone,talent_pic_name,talent_pic_phone,personnel_count,lineup_notes,transport_notes,accommodation_notes,hospitality_notes,technical_notes,backline_notes,access_loading_notes,parking_notes,rider_version_id,internal_notes,buyer_confirmation_reference,talent_confirmation_reference,confirmed_revision_no,confirmed_at,updated_at")
+      .select("booking_id,revision_no,status,event_timezone,venue_name,venue_address,load_in_at_local,call_at_local,soundcheck_at_local,show_start_at_local,show_end_at_local,performance_duration_minutes,buyer_pic_name,buyer_pic_phone,onsite_pic_name,onsite_pic_phone,technical_pic_name,technical_pic_phone,talent_pic_name,talent_pic_phone,personnel_count,lineup_notes,transport_notes,accommodation_notes,hospitality_notes,technical_notes,backline_notes,talent_operational_notes,access_loading_notes,parking_notes,rider_version_id,buyer_submission,talent_submission,buyer_submitted_at,talent_submitted_at,admin_reviewed_revision_no,admin_reviewed_at,buyer_confirmation_reference,talent_confirmation_reference,buyer_confirmed_at,talent_confirmed_at,confirmed_revision_no,confirmed_at,updated_at")
       .eq("booking_id", bookingId)
       .maybeSingle(),
     supabase
@@ -152,6 +160,8 @@ export function showAdvanceIsCurrentAndConfirmed(data: ShowAdvanceData | null) {
     advance
       && advance.status === "confirmed"
       && advance.confirmed_revision_no === advance.revision_no
-      && advance.confirmed_at,
+      && advance.confirmed_at
+      && advance.buyer_confirmed_at
+      && advance.talent_confirmed_at,
   );
 }
