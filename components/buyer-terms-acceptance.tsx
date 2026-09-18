@@ -27,13 +27,13 @@ export function BuyerTermsAcceptance({ bookingId, accessToken, accepted, disable
     }
   }
 
-  if (done) return <div className="border border-black bg-white p-5 text-sm font-semibold">Ketentuan telah Anda setujui dan tercatat.</div>;
+  if (done) return <div className="border border-black bg-white p-5 text-sm font-semibold">Ketentuan telah Anda setujui. Snapshot yang disetujui sudah tercatat dan tidak dapat diubah diam-diam.</div>;
 
   return (
     <div className="border border-black/10 bg-white p-5 md:p-6">
       <label className="flex items-start gap-3 text-sm leading-6">
         <input type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} disabled={disabled || busy} className="mt-1" />
-        <span>Saya telah membaca ringkasan komersial, jadwal pembayaran, ketentuan pembatalan, serta catatan yang ditampilkan di halaman ini dan menyetujuinya untuk booking ini.</span>
+        <span>Saya telah membaca harga dan rincian biaya, jadwal pembayaran, ketentuan pembatalan, rider/kebutuhan teknis, serta ketentuan khusus yang ditampilkan di halaman ini dan menyetujui snapshot ketentuan tersebut untuk booking ini.</span>
       </label>
       <button type="button" onClick={acceptTerms} disabled={disabled || busy || !checked} className="mt-5 w-full bg-black px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">
         {busy ? "Menyimpan persetujuan…" : "Setujui ketentuan"}

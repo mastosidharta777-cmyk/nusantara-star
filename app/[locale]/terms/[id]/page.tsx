@@ -42,7 +42,8 @@ export default async function BuyerTermsPage({ params, searchParams }: { params:
   const data = await loadBuyerTerms(id);
   if (!data) notFound();
   const isId = locale === "id";
-  const { booking, deal, brief, talent, proposalItem, offer, milestones, accepted, termsReady } = data;
+  const { booking, deal, brief, talent, proposalItem, offer, snapshot, milestones, accepted, termsReady } = data;
+  const offerValidUntil = snapshot?.offer_valid_until ?? offer.quote_valid_until;
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] px-5 py-10 text-[#171713] md:px-10 md:py-16">
@@ -53,18 +54,33 @@ export default async function BuyerTermsPage({ params, searchParams }: { params:
 
         <section className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            [isId ? "Talent" : "Talent", talent.name],
-            [isId ? "Acara" : "Event", brief.event_type ?? "—"],
-            [isId ? "Tanggal" : "Date", booking.event_date ?? brief.event_date ?? "—"],
-            [isId ? "Kota" : "City", booking.city ?? brief.city ?? "—"],
+            [isId ? "Talent" : "Talent", snapshot?.event.talent_name ?? talent.name],
+            [isId ? "Acara" : "Event", snapshot?.event.event_type ?? brief.event_type ?? "—"],
+            [isId ? "Tanggal" : "Date", snapshot?.event.event_date ?? booking.event_date ?? brief.event_date ?? "—"],
+            [isId ? "Kota" : "City", snapshot?.event.city ?? booking.city ?? brief.city ?? "—"],
           ].map(([label, value]) => <div key={label} className="border border-black/10 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{label}</p><p className="mt-2 text-sm font-semibold">{value}</p></div>)}
         </section>
 
         <section className="mt-5 border border-black/10 bg-white p-5 md:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Harga untuk booking ini" : "Price for this booking"}</p>
-          <p className="mt-2 text-3xl font-semibold">{money(Number(deal.buyer_price ?? booking.buyer_price), locale)}</p>
-          {proposalItem?.included_costs ? <p className="mt-4 text-sm leading-6"><span className="text-black/45">{isId ? "Termasuk:" : "Included:"}</span><br />{proposalItem.included_costs}</p> : null}
-          {proposalItem?.excluded_costs ? <p className="mt-3 text-sm leading-6"><span className="text-black/45">{isId ? "Tidak termasuk:" : "Excluded:"}</span><br />{proposalItem.excluded_costs}</p> : null}
+          <p className="mt-2 text-3xl font-semibold">{money(snapshot?.pricing.buyer_price ?? Number(deal.buyer_price ?? booking.buyer_price), locale)}</p>
+          {snapshot ? <div className="mt-4 divide-y divide-black/10 border border-black/10">
+            {(snapshot.pricing.breakdown_mode === "detailed"
+              ? [
+                  [isId ? "Talent fee" : "Talent fee", "talent_fee" in snapshot.pricing.breakdown ? snapshot.pricing.breakdown.talent_fee : 0],
+                  [isId ? "Transport" : "Transport", "transport" in snapshot.pricing.breakdown ? snapshot.pricing.breakdown.transport : 0],
+                  [isId ? "Akomodasi" : "Accommodation", "accommodation" in snapshot.pricing.breakdown ? snapshot.pricing.breakdown.accommodation : 0],
+                  [isId ? "Technical / rider" : "Technical / rider", "technical_rider" in snapshot.pricing.breakdown ? snapshot.pricing.breakdown.technical_rider : 0],
+                  [isId ? "Pajak / payment fee" : "Taxes / payment fees", snapshot.pricing.breakdown.taxes_fees],
+                ]
+              : [
+                  [isId ? "Talent fee" : "Talent fee", snapshot.pricing.breakdown.talent_fee],
+                  [isId ? "Biaya operasional langsung" : "Direct operating costs", "direct_costs" in snapshot.pricing.breakdown ? snapshot.pricing.breakdown.direct_costs : 0],
+                  [isId ? "Pajak / payment fee" : "Taxes / payment fees", snapshot.pricing.breakdown.taxes_fees],
+                ]).filter(([, value]) => Number(value) > 0).map(([label, value]) => <div key={String(label)} className="flex justify-between gap-4 px-3 py-2 text-sm"><span className="text-black/55">{String(label)}</span><strong>{money(Number(value), locale)}</strong></div>)}
+          </div> : null}
+          {(snapshot?.terms.included_costs ?? proposalItem?.included_costs) ? <p className="mt-4 text-sm leading-6"><span className="text-black/45">{isId ? "Termasuk:" : "Included:"}</span><br />{snapshot?.terms.included_costs ?? proposalItem?.included_costs}</p> : null}
+          {(snapshot?.terms.excluded_costs ?? proposalItem?.excluded_costs) ? <p className="mt-3 text-sm leading-6"><span className="text-black/45">{isId ? "Tidak termasuk:" : "Excluded:"}</span><br />{snapshot?.terms.excluded_costs ?? proposalItem?.excluded_costs}</p> : null}
         </section>
 
         <section className="mt-5 border border-black/10 bg-white p-5 md:p-6">
@@ -82,10 +98,10 @@ export default async function BuyerTermsPage({ params, searchParams }: { params:
         <section className="mt-5 border border-black/10 bg-white p-5 md:p-6">
           <h2 className="text-xl font-semibold">{isId ? "Ketentuan utama" : "Key terms"}</h2>
           <div className="mt-4 space-y-4 text-sm leading-6">
-            <p><span className="text-black/45">{isId ? "Pembatalan:" : "Cancellation:"}</span><br />{deal.cancellation_terms || (isId ? "Belum dikunci" : "Not locked")}</p>
-            {deal.rider_notes ? <p><span className="text-black/45">{isId ? "Rider / kebutuhan teknis:" : "Rider / technical requirements:"}</span><br />{deal.rider_notes}</p> : null}
-            {deal.special_conditions ? <p><span className="text-black/45">{isId ? "Ketentuan khusus:" : "Special conditions:"}</span><br />{deal.special_conditions}</p> : null}
-            <p className="text-xs text-black/45">{isId ? "Penawaran talent berlaku sampai" : "Talent offer valid until"}: {offer.quote_valid_until ? new Date(offer.quote_valid_until).toLocaleString(isId ? "id-ID" : "en-US") : "—"}</p>
+            <p><span className="text-black/45">{isId ? "Pembatalan:" : "Cancellation:"}</span><br />{snapshot?.terms.cancellation_terms ?? deal.cancellation_terms ?? (isId ? "Belum dikunci" : "Not locked")}</p>
+            {(snapshot?.terms.rider_notes ?? deal.rider_notes) ? <p><span className="text-black/45">{isId ? "Rider / kebutuhan teknis:" : "Rider / technical requirements:"}</span><br />{snapshot?.terms.rider_notes ?? deal.rider_notes}</p> : null}
+            {(snapshot?.terms.special_conditions ?? deal.special_conditions) ? <p><span className="text-black/45">{isId ? "Ketentuan khusus:" : "Special conditions:"}</span><br />{snapshot?.terms.special_conditions ?? deal.special_conditions}</p> : null}
+            <p className="text-xs text-black/45">{isId ? "Penawaran talent berlaku sampai" : "Talent offer valid until"}: {offerValidUntil ? new Date(offerValidUntil).toLocaleString(isId ? "id-ID" : "en-US") : "—"}</p>
           </div>
         </section>
 
