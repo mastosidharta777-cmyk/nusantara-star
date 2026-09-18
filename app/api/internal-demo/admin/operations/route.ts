@@ -48,12 +48,19 @@ export async function POST(request: Request) {
       if (!(await showAdvanceConfirmed(supabase, bookingId))) return rpcError("Current Show Advance requires reconfirmation before checklist updates");
       const itemId = typeof body?.itemId === "string" ? body.itemId : "";
       const status = typeof body?.status === "string" ? body.status : "";
-      if (!itemId || !["pending", "done", "not_applicable"].includes(status)) return NextResponse.json({ error: "Invalid checklist update" }, { status: 400 });
-      const now = new Date().toISOString();
-      const { data: changed, error } = await supabase.from("pre_show_checklist_items").update({ status, completed_at: status === "done" ? now : null, updated_at: now }).eq("id", itemId).eq("booking_id", bookingId).select("id").maybeSingle();
-      if (error) throw new Error(error.message);
-      if (!changed) return NextResponse.json({ error: "Checklist item not found" }, { status: 404 });
-      return NextResponse.json({ ok: true, itemId, status });
+      const note = typeof body?.note === "string" && body.note.trim() ? body.note.trim() : null;
+      if (!itemId || !["done", "not_applicable"].includes(status)) {
+        return NextResponse.json({ error: "Admin can only confirm an admin-owned checklist task as done or not applicable" }, { status: 400 });
+      }
+      const { data, error } = await supabase.rpc("ns_set_pre_show_task_party_v1", {
+        p_booking_id: bookingId,
+        p_item_id: itemId,
+        p_party: "admin",
+        p_response: status,
+        p_note: note,
+      });
+      if (error) return rpcError(error.message);
+      return NextResponse.json(data ?? { ok: true, itemId, status });
     }
 
     if (action === "report_incident") {

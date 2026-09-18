@@ -5,6 +5,7 @@ import { POST as bookingAction } from "@/app/api/internal-demo/admin/booking/rou
 import { POST as showAdvanceAction } from "@/app/api/internal-demo/admin/show-advance/route";
 import { POST as operationsAction } from "@/app/api/internal-demo/admin/operations/route";
 import { POST as partyAdvanceAction } from "@/app/api/show-advance/party/route";
+import { POST as preShowTaskAction } from "@/app/api/pre-show/task/route";
 import { signAccessToken } from "@/lib/signed-access";
 
 export const runtime = "nodejs";
@@ -386,15 +387,105 @@ export async function GET() {
       throw new Error(`Talent reconfirm failed: ${JSON.stringify(talentConfirm2.json)}`);
     }
 
-    const checklistDone = await post(operationsAction, {
-      bookingId,
-      action: "set_checklist_status",
-      itemId: checklistItem.id,
-      status: "done",
-    });
-    if (!checklistDone.response.ok || checklistDone.json?.status !== "done") {
-      throw new Error(`Checklist update failed: ${JSON.stringify(checklistDone.json)}`);
+    const buyerPreShowToken = signAccessToken("buyer_pre_show", bookingId, new Date(Date.now() + 60 * 60 * 1000));
+    const talentPreShowToken = signAccessToken("talent_pre_show", bookingId, new Date(Date.now() + 60 * 60 * 1000));
+
+    const { data: currentTasks, error: taskLoadError } = await supabase
+      .from("pre_show_checklist_items")
+      .select("id,item_key,status,required_parties,advance_revision_no")
+      .eq("booking_id", bookingId)
+      .order("due_date");
+    if (taskLoadError || !currentTasks) throw new Error(taskLoadError?.message ?? "Pre-show task load failed");
+
+    const pendingAfterRevision = currentTasks.filter((task) => task.status === "pending").length;
+    if (pendingAfterRevision !== 7 || currentTasks.some((task) => Number(task.advance_revision_no) !== 3)) {
+      throw new Error(`Pre-show revision reset failed: ${JSON.stringify(currentTasks)}`);
     }
+
+    const riderTask = currentTasks.find((task) => task.item_key === "rider_final");
+    if (!riderTask) throw new Error("Rider task missing");
+    const wrongParty = await post(preShowTaskAction, {
+      bookingId,
+      itemId: riderTask.id,
+      party: "buyer",
+      response: "done",
+      note: "must be rejected",
+      token: buyerPreShowToken,
+    });
+    if (wrongParty.response.ok || wrongParty.response.status !== 409) {
+      throw new Error(`Wrong-party ownership gate failed: ${JSON.stringify(wrongParty.json)}`);
+    }
+
+    const blockedCompletion = await post(operationsAction, { bookingId, action: "complete_show" });
+    if (blockedCompletion.response.ok || blockedCompletion.response.status !== 409) {
+      throw new Error(`Completion gate should block pending tasks: ${JSON.stringify(blockedCompletion.json)}`);
+    }
+
+    const callSheetTask = currentTasks.find((task) => task.item_key === "call_sheet");
+    if (!callSheetTask) throw new Error("Call-sheet task missing");
+
+    const buyerCallSheet = await post(preShowTaskAction, {
+      bookingId,
+      itemId: callSheetTask.id,
+      party: "buyer",
+      response: "done",
+      note: "Buyer confirms final schedule",
+      token: buyerPreShowToken,
+    });
+    if (!buyerCallSheet.response.ok || buyerCallSheet.json?.status !== "pending") {
+      throw new Error(`Shared task should wait for talent: ${JSON.stringify(buyerCallSheet.json)}`);
+    }
+
+    const talentCallSheet = await post(preShowTaskAction, {
+      bookingId,
+      itemId: callSheetTask.id,
+      party: "talent",
+      response: "done",
+      note: "Talent acknowledges call sheet",
+      token: talentPreShowToken,
+    });
+    if (!talentCallSheet.response.ok || talentCallSheet.json?.status !== "done") {
+      throw new Error(`Shared task dual confirmation failed: ${JSON.stringify(talentCallSheet.json)}`);
+    }
+
+    for (const task of currentTasks) {
+      if (task.item_key === "show_advance" || task.item_key === "call_sheet") continue;
+      const requiredParties = Array.isArray(task.required_parties) ? task.required_parties : [];
+      for (const owner of requiredParties) {
+        if (owner === "system") continue;
+        if (owner === "admin") {
+          const adminTask = await post(operationsAction, {
+            bookingId,
+            action: "set_checklist_status",
+            itemId: task.id,
+            status: "done",
+          });
+          if (!adminTask.response.ok) throw new Error(`Admin pre-show task failed: ${JSON.stringify(adminTask.json)}`);
+          continue;
+        }
+
+        const partyToken = owner === "buyer" ? buyerPreShowToken : talentPreShowToken;
+        const partyTask = await post(preShowTaskAction, {
+          bookingId,
+          itemId: task.id,
+          party: owner,
+          response: "done",
+          note: `Smoke confirmed by ${owner}`,
+          token: partyToken,
+        });
+        if (!partyTask.response.ok) {
+          throw new Error(`Party pre-show task failed: ${JSON.stringify(partyTask.json)}`);
+        }
+      }
+    }
+
+    const { count: pendingTaskCount, error: pendingTaskError } = await supabase
+      .from("pre_show_checklist_items")
+      .select("id", { count: "exact", head: true })
+      .eq("booking_id", bookingId)
+      .eq("status", "pending");
+    if (pendingTaskError) throw new Error(pendingTaskError.message);
+    if (pendingTaskCount !== 0) throw new Error(`Expected all pre-show tasks complete, got ${pendingTaskCount} pending`);
 
     const completed = await post(operationsAction, { bookingId, action: "complete_show" });
     if (!completed.response.ok || completed.json?.bookingStatus !== "completed") {
@@ -421,6 +512,11 @@ export async function GET() {
         checklistBlockedUntilReconfirm: true,
         confirmationRequiresAdminReview: true,
         revision3ConfirmedBySignedParties: true,
+        preShowTasksResetToRevision3: true,
+        wrongPartyTaskBlocked: true,
+        completionBlockedWhilePending: true,
+        sharedTaskRequiresBothParties: true,
+        partyOwnedChecklistCompleted: true,
         showCompleted: true,
         confirmationHistory: confirmationCount,
       },

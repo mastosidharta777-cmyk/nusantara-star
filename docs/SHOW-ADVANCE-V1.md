@@ -1,6 +1,8 @@
 # Show Advance / Booking Confirmation V1
 
-Status: **LOCKED PRODUCT RULE**
+Status: **SUPERSEDED / HISTORICAL**
+
+Current rule: see `COLLABORATIVE-SHOW-ADVANCE-V2.md` and `PRE-SHOW-TASK-OWNERSHIP-V1.md`. V1 below is retained only as implementation history and must not be used as the current operating procedure.
 
 ## Purpose
 
