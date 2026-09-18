@@ -62,7 +62,11 @@ Storage bucket incident-evidence is private. Download links are short-lived sign
 
 ## Privacy
 
-Buyer/Talent operational links can see incident status, source party, report text, and operational evidence for the booking.
+Buyer/Talent operational links can see the status and source party of incidents on the same booking.
+
+A party can see full report text and evidence only for incidents reported through that party's signed link. Reports from another party are shown only as a neutral "under review" notice; their details and evidence are not cross-shared automatically.
+
+Evidence can only be added by the party that created that incident report, with a maximum of 10 evidence items per incident.
 
 Internal admin resolution notes are not exposed through Buyer/Talent operational links.
 
