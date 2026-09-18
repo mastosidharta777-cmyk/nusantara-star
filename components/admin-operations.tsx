@@ -14,6 +14,9 @@ type Booking = {
   talent_payable: number | null;
   pre_show_at?: string | null;
   completed_at?: string | null;
+  completion_source?: "both_parties" | "admin_override" | null;
+  completion_notes?: string | null;
+  completion_advance_revision_no?: number | null;
 };
 
 const incidentOptions = [
@@ -205,7 +208,7 @@ export function AdminOperations({
         </div>
       ) : null}
 
-      {["pre_show", "incident"].includes(booking.status) && advanceConfirmed ? (
+      {["pre_show", "incident", "completed"].includes(booking.status) && advanceConfirmed ? (
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <div className="border border-black/10 bg-[#f5f3ee] p-4">
             <p className="text-sm font-semibold">Buyer / EO workspace</p>
@@ -372,6 +375,20 @@ export function AdminOperations({
             <span className="text-xs font-semibold">Revision {currentAdvanceRevision ?? "—"}</span>
           </div>
 
+          {booking.status === "completed" ? (
+            <div className="mt-3 border border-emerald-700/20 bg-emerald-50 p-4 text-sm text-emerald-950">
+              <p className="font-semibold">
+                Completion tercatat · {booking.completion_source === "both_parties" ? "Buyer + Talent terkonfirmasi" : "Admin override"}
+              </p>
+              <p className="mt-1 text-xs leading-5">
+                {booking.completed_at ? new Date(booking.completed_at).toLocaleString("id-ID") : "Waktu completion tidak tersedia"}
+                {booking.completion_advance_revision_no != null ? ` · Show Advance revision ${booking.completion_advance_revision_no}` : ""}
+              </p>
+              {booking.completion_source === "admin_override" && booking.completion_notes ? (
+                <p className="mt-2 text-xs leading-5"><strong>Dasar override:</strong> {booking.completion_notes}</p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             {[
               ["Buyer / EO", buyerPostShow],
