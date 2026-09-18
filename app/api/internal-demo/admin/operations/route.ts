@@ -68,7 +68,14 @@ export async function POST(request: Request) {
       const summary = typeof body?.summary === "string" ? body.summary.trim() : "";
       const details = typeof body?.details === "string" && body.details.trim() ? body.details.trim() : null;
       if (!incidentTypes.has(incidentType) || !summary) return NextResponse.json({ error: "Incident type and summary are required" }, { status: 400 });
-      const { data, error } = await supabase.rpc("ns_report_incident_v1", { p_booking_id: bookingId, p_incident_type: incidentType, p_summary: summary, p_details: details });
+      const { data, error } = await supabase.rpc("ns_report_incident_v2", {
+        p_booking_id: bookingId,
+        p_incident_type: incidentType,
+        p_summary: summary,
+        p_details: details,
+        p_reported_by_party: "admin",
+        p_report_source: "admin_portal",
+      });
       if (error) return rpcError(error.message);
       return NextResponse.json(data ?? { ok: true, bookingStatus: "incident" });
     }
