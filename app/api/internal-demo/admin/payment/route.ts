@@ -66,21 +66,22 @@ export async function POST(request: Request) {
         },
       });
       if (requestError) return NextResponse.json({ error: requestError.message }, { status: 409 });
-      if (!payment) return NextResponse.json({ error: "Payment request could not be created" }, { status: 409 });
+      const paymentRow = Array.isArray(payment) ? payment[0] : payment;
+      if (!paymentRow || typeof paymentRow !== "object") return NextResponse.json({ error: "Payment request could not be created" }, { status: 409 });
 
       return NextResponse.json({
         ok: true,
         payment: {
-          id: payment.id,
-          status: payment.status,
-          payment_type: payment.payment_type,
-          amount: Number(payment.amount),
-          currency: payment.currency,
-          payment_milestone_id: payment.payment_milestone_id,
-          request_reference: payment.request_reference,
-          request_issued_at: payment.request_issued_at,
-          request_due_date: payment.request_due_date,
-          payment_instructions_snapshot: payment.payment_instructions_snapshot,
+          id: paymentRow.id,
+          status: paymentRow.status,
+          payment_type: paymentRow.payment_type,
+          amount: Number(paymentRow.amount),
+          currency: paymentRow.currency,
+          payment_milestone_id: paymentRow.payment_milestone_id,
+          request_reference: paymentRow.request_reference,
+          request_issued_at: paymentRow.request_issued_at,
+          request_due_date: paymentRow.request_due_date,
+          payment_instructions_snapshot: paymentRow.payment_instructions_snapshot,
         },
         source: "ns_create_buyer_payment_request_v1",
       });
