@@ -73,7 +73,7 @@ function formatFeeRange(candidate: DiscoveryCandidate, locale: Locale) {
   return `${formatter.format(candidate.feeMin)} – ${formatter.format(candidate.feeMax)}`;
 }
 
-export function BriefForm({ locale, copy: t, selectedTalent = null, initialCategory, initialResult = null, sourceBriefId = null, sourceBrief = null }: { locale: Locale; copy: C; selectedTalent?: SelectedTalent; initialCategory?: string; initialResult?: SubmitResponse | null; sourceBriefId?: string | null; sourceBrief?: SourceBrief | null }) {
+export function BriefForm({ locale, copy: t, selectedTalent = null, initialCategory, initialResult = null, sourceBriefId = null, sourceBrief = null, initialDate, initialCity, initialPerformanceFormat }: { locale: Locale; copy: C; selectedTalent?: SelectedTalent; initialCategory?: string; initialResult?: SubmitResponse | null; sourceBriefId?: string | null; sourceBrief?: SourceBrief | null; initialDate?: string; initialCity?: string; initialPerformanceFormat?: string }) {
   const router = useRouter();
   const id = locale === "id";
   const isSelectedInquiry = Boolean(selectedTalent);
@@ -274,8 +274,8 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
                 <legend className="mb-7 font-display text-3xl">02. {t.event}</legend>
                 <div className="grid gap-6 md:grid-cols-2">
                   <Field label={id ? "Jenis acara" : "Event type"} name="eventType" required options={["Corporate event", "Brand activation", "Wedding", "Festival", "Private event", "Other"]}/>
-                  <Field label={id ? "Tanggal acara" : "Event date"} name="date" type="date" required/>
-                  <Field label={id ? "Kota" : "City"} name="city" required/>
+                  <Field label={id ? "Tanggal acara" : "Event date"} name="date" type="date" required defaultValue={isSelectedInquiry ? initialDate : undefined}/>
+                  <Field label={id ? "Kota" : "City"} name="city" required defaultValue={isSelectedInquiry ? initialCity : undefined}/>
                   <Field label="Venue" name="venue"/>
                   <Field label={id ? "Jumlah audiens" : "Audience size"} name="audience" type="number"/>
                 </div>
@@ -286,7 +286,7 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
             <fieldset>
               <legend className="mb-7 font-display text-3xl">03. {id ? "Detail permintaan" : "Request details"}</legend>
               <div className="grid gap-6 md:grid-cols-2">
-                {selectedTalent?.performanceFormats.length ? <Field label={id ? "Format penampilan" : "Performance format"} name="performanceFormat" required options={selectedTalent.performanceFormats}/> : null}
+                {selectedTalent?.performanceFormats.length ? <Field label={id ? "Format penampilan" : "Performance format"} name="performanceFormat" required options={selectedTalent.performanceFormats} defaultValue={initialPerformanceFormat}/> : null}
                 {!sourceBriefId ? <Field label={id ? "Budget yang disiapkan untuk talent" : "Budget allocated for talent"} name="budget" required options={["< Rp10 jt", "Rp10–25 jt", "Rp25–50 jt", "Rp50–100 jt", "Rp100 jt+"]}/> : null}
                 {!sourceBriefId ? <Field label={id ? "Durasi tampil" : "Performance duration"} name="duration" options={["15–30 minutes", "30–60 minutes", "60–90 minutes", "90+ minutes"]}/> : null}
                 <Field label={id ? "Kebutuhan / catatan tambahan" : "Requirements / additional notes"} name="notes" area/>
