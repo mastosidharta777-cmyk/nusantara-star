@@ -35,15 +35,34 @@ function auth(body: any) {
   return { bookingId, incidentId, party, token, ok };
 }
 
-async function validateIncident(supabase: ReturnType<typeof getServerClient>, bookingId: string, incidentId: string) {
+async function validateIncident(
+  supabase: ReturnType<typeof getServerClient>,
+  bookingId: string,
+  incidentId: string,
+  party: "buyer" | "talent",
+) {
   const { data: incident, error } = await supabase
     .from("incidents")
-    .select("id,status")
+    .select("id,status,reported_by_party")
     .eq("id", incidentId)
     .eq("booking_id", bookingId)
     .maybeSingle();
   if (error) throw new Error(error.message);
+  if (!incident) return null;
+  if (incident.reported_by_party !== party) return null;
   return incident;
+}
+
+async function evidenceLimitReached(
+  supabase: ReturnType<typeof getServerClient>,
+  incidentId: string,
+) {
+  const { count, error } = await supabase
+    .from("incident_evidence")
+    .select("id", { count: "exact", head: true })
+    .eq("incident_id", incidentId);
+  if (error) throw new Error(error.message);
+  return (count ?? 0) >= 10;
 }
 
 export async function POST(request: Request) {
@@ -53,9 +72,12 @@ export async function POST(request: Request) {
     if (!ok || !party) return NextResponse.json({ error: "Secure link tidak valid atau sudah kedaluwarsa" }, { status: 401 });
 
     const supabase = getServerClient();
-    const incident = await validateIncident(supabase, bookingId, incidentId);
-    if (!incident) return NextResponse.json({ error: "Laporan kejadian tidak ditemukan" }, { status: 404 });
+    const incident = await validateIncident(supabase, bookingId, incidentId, party);
+    if (!incident) return NextResponse.json({ error: "Laporan kejadian tidak ditemukan atau bukan milik pihak ini" }, { status: 404 });
     if (incident.status !== "open") return NextResponse.json({ error: "Bukti hanya dapat ditambahkan pada laporan yang masih terbuka" }, { status: 409 });
+    if (await evidenceLimitReached(supabase, incidentId)) {
+      return NextResponse.json({ error: "Maksimal 10 bukti per laporan kejadian" }, { status: 409 });
+    }
 
     const externalUrl = clean(body?.externalUrl);
     if (externalUrl) {
