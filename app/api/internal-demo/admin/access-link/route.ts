@@ -18,7 +18,7 @@ function getServerClient() {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
-    const allowedScopes: SignedAccessScope[] = ["buyer_proposal", "buyer_terms", "buyer_payment", "talent_offer", "talent_onboarding"];
+    const allowedScopes: SignedAccessScope[] = ["buyer_proposal", "buyer_terms", "buyer_payment", "buyer_advance", "talent_advance", "talent_offer", "talent_onboarding"];
     const scope = typeof body?.scope === "string" && allowedScopes.includes(body.scope as SignedAccessScope) ? body.scope as SignedAccessScope : null;
     const createNewTalent = scope === "talent_onboarding" && body?.createNewTalent === true;
     let subjectId = typeof body?.subjectId === "string" ? body.subjectId : "";
@@ -119,6 +119,22 @@ export async function POST(request: Request) {
       if (!acceptanceValid) return NextResponse.json({ error: "Buyer terms acceptance is not valid for this payment request" }, { status: 409 });
       expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       path = `/id/payment/${encodeURIComponent(subjectId)}`;
+    } else if (scope === "buyer_advance" || scope === "talent_advance") {
+      const { data: booking, error: bookingError } = await supabase
+        .from("bookings")
+        .select("id,status,event_date")
+        .eq("id", subjectId)
+        .maybeSingle();
+      if (bookingError) throw new Error(bookingError.message);
+      if (!booking || !["secured", "pre_show"].includes(booking.status)) {
+        return NextResponse.json({ error: "Show Advance is available only for an active secured booking" }, { status: 409 });
+      }
+      const eventEnd = new Date(`${booking.event_date}T23:59:59+07:00`);
+      const sevenDays = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      expiresAt = Number.isFinite(eventEnd.getTime()) && eventEnd < sevenDays ? eventEnd : sevenDays;
+      path = scope === "buyer_advance"
+        ? `/id/advance/buyer/${encodeURIComponent(subjectId)}`
+        : `/id/advance/talent/${encodeURIComponent(subjectId)}`;
     } else if (scope === "talent_offer") {
       const { data: row, error } = await supabase.from("availability_requests").select("id").eq("id", subjectId).maybeSingle();
       if (error) throw new Error(error.message);
