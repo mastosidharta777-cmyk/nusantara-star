@@ -18,7 +18,7 @@ function getServerClient() {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
-    const allowedScopes: SignedAccessScope[] = ["buyer_proposal", "buyer_terms", "buyer_payment", "buyer_advance", "talent_advance", "talent_offer", "talent_onboarding"];
+    const allowedScopes: SignedAccessScope[] = ["buyer_proposal", "buyer_terms", "buyer_payment", "buyer_advance", "talent_advance", "buyer_pre_show", "talent_pre_show", "talent_offer", "talent_onboarding"];
     const scope = typeof body?.scope === "string" && allowedScopes.includes(body.scope as SignedAccessScope) ? body.scope as SignedAccessScope : null;
     const createNewTalent = scope === "talent_onboarding" && body?.createNewTalent === true;
     let subjectId = typeof body?.subjectId === "string" ? body.subjectId : "";
@@ -135,6 +135,33 @@ export async function POST(request: Request) {
       path = scope === "buyer_advance"
         ? `/id/advance/buyer/${encodeURIComponent(subjectId)}`
         : `/id/advance/talent/${encodeURIComponent(subjectId)}`;
+    } else if (scope === "buyer_pre_show" || scope === "talent_pre_show") {
+      const { data: booking, error: bookingError } = await supabase
+        .from("bookings")
+        .select("id,status,event_date")
+        .eq("id", subjectId)
+        .maybeSingle();
+      if (bookingError) throw new Error(bookingError.message);
+      if (!booking || booking.status !== "pre_show") {
+        return NextResponse.json({ error: "Pre-show workspace is available only after the checklist starts" }, { status: 409 });
+      }
+
+      const { data: advance, error: advanceError } = await supabase
+        .from("booking_advances")
+        .select("revision_no,status,confirmed_revision_no,confirmed_at")
+        .eq("booking_id", subjectId)
+        .maybeSingle();
+      if (advanceError) throw new Error(advanceError.message);
+      if (!advance || advance.status !== "confirmed" || advance.confirmed_revision_no !== advance.revision_no || !advance.confirmed_at) {
+        return NextResponse.json({ error: "Current Show Advance requires confirmation before pre-show access" }, { status: 409 });
+      }
+
+      const eventEnd = new Date(`${booking.event_date}T23:59:59+07:00`);
+      const sevenDays = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      expiresAt = Number.isFinite(eventEnd.getTime()) && eventEnd < sevenDays ? eventEnd : sevenDays;
+      path = scope === "buyer_pre_show"
+        ? `/id/pre-show/buyer/${encodeURIComponent(subjectId)}`
+        : `/id/pre-show/talent/${encodeURIComponent(subjectId)}`;
     } else if (scope === "talent_offer") {
       const { data: row, error } = await supabase.from("availability_requests").select("id").eq("id", subjectId).maybeSingle();
       if (error) throw new Error(error.message);
