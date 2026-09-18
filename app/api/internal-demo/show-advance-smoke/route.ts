@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import { POST as bookingAction } from "@/app/api/internal-demo/admin/booking/route";
 import { POST as showAdvanceAction } from "@/app/api/internal-demo/admin/show-advance/route";
 import { POST as operationsAction } from "@/app/api/internal-demo/admin/operations/route";
 
@@ -38,9 +39,25 @@ export async function GET() {
   let bookingId = "";
 
   try {
+    const now = new Date().toISOString();
+    const quoteValidUntil = new Date(Date.now() + 7 * 86400000).toISOString();
+
     const { data: talent, error: talentError } = await supabase
       .from("talents")
-      .insert({ name: `Advance Smoke ${stamp}`, category: "singer", status: "curated" })
+      .insert({
+        name: `Advance Smoke ${stamp}`,
+        category: "singer",
+        genres: ["pop"],
+        base_city: "Jakarta",
+        service_cities: ["Jakarta"],
+        performance_formats: ["solo"],
+        event_types: ["corporate"],
+        audience_tags: ["corporate"],
+        budget_min: 1000000,
+        budget_max: 1500000,
+        status: "verified",
+        public_visible: false,
+      })
       .select("id")
       .single();
     if (talentError || !talent) throw new Error(talentError?.message ?? "Talent seed failed");
@@ -50,7 +67,7 @@ export async function GET() {
     const { data: brief, error: briefError } = await supabase
       .from("briefs")
       .insert({
-        event_type: "Show Advance Smoke",
+        event_type: "corporate",
         event_date: eventDate,
         city: "Jakarta",
         venue: "Smoke Hall",
@@ -58,33 +75,128 @@ export async function GET() {
         buyer_name: "Buyer Smoke",
         buyer_whatsapp: "081200000001",
         performance_duration_minutes: 60,
-        status: "booked",
+        status: "buyer_selected",
       })
       .select("id")
       .single();
     if (briefError || !brief) throw new Error(briefError?.message ?? "Brief seed failed");
     briefId = brief.id;
 
-    const { data: booking, error: bookingError } = await supabase
-      .from("bookings")
+    const { data: requestRow, error: requestError } = await supabase
+      .from("availability_requests")
+      .insert({ brief_id: briefId, talent_id: talentId, status: "confirmed", responded_at: now })
+      .select("id")
+      .single();
+    if (requestError || !requestRow) throw new Error(requestError?.message ?? "Availability request seed failed");
+
+    const { data: offer, error: offerError } = await supabase
+      .from("talent_offers")
       .insert({
+        availability_request_id: requestRow.id,
         brief_id: briefId,
         talent_id: talentId,
-        event_date: eventDate,
-        venue: "Smoke Hall",
-        city: "Jakarta",
-        buyer_price: 1200000,
-        talent_payable: 1000000,
-        status: "secured",
-        financial_security_status: "satisfied",
-        financial_security_type: "approved_po_credit",
-        financial_security_reference: "SMOKE-PO",
-        secured_at: new Date().toISOString(),
+        status: "confirmed",
+        availability_status: "confirmed",
+        event_fee: 1000000,
+        currency: "IDR",
+        quote_valid_until: quoteValidUntil,
+        confirmation_source: "manager_portal",
+        confirmed_at: now,
       })
       .select("id")
       .single();
-    if (bookingError || !booking) throw new Error(bookingError?.message ?? "Booking seed failed");
-    bookingId = booking.id;
+    if (offerError || !offer) throw new Error(offerError?.message ?? "Offer seed failed");
+
+    const { data: proposal, error: proposalError } = await supabase
+      .from("proposals")
+      .insert({ brief_id: briefId, version: 1, status: "selected", expires_at: quoteValidUntil, sent_at: now })
+      .select("id")
+      .single();
+    if (proposalError || !proposal) throw new Error(proposalError?.message ?? "Proposal seed failed");
+
+    const { data: item, error: itemError } = await supabase
+      .from("proposal_items")
+      .insert({
+        proposal_id: proposal.id,
+        brief_id: briefId,
+        talent_id: talentId,
+        talent_offer_id: offer.id,
+        buyer_price: 1200000,
+        currency: "IDR",
+        availability_status: "confirmed",
+        offer_valid_until: quoteValidUntil,
+        talent_name_snapshot: `Advance Smoke ${stamp}`,
+        talent_category_snapshot: "singer",
+        talent_base_city_snapshot: "Jakarta",
+        talent_genres_snapshot: ["pop"],
+      })
+      .select("id")
+      .single();
+    if (itemError || !item) throw new Error(itemError?.message ?? "Proposal item seed failed");
+
+    const { error: selectionError } = await supabase
+      .from("buyer_selections")
+      .insert({ brief_id: briefId, talent_id: talentId, status: "selected" });
+    if (selectionError) throw new Error(selectionError.message);
+
+    const buyerSchedule = [
+      { milestone_type: "full_payment", sequence_no: 1, calculation_type: "remaining_balance", percentage: null, amount: null, due_basis: "booking_date", due_offset_days: 0, custom_due_date: null },
+    ];
+    const talentSchedule = [
+      { milestone_type: "full_payment", sequence_no: 1, calculation_type: "remaining_balance", percentage: null, amount: null, due_basis: "event_date", due_offset_days: 0, custom_due_date: null },
+    ];
+
+    const { data: deal, error: dealError } = await supabase
+      .from("deals")
+      .insert({
+        brief_id: briefId,
+        proposal_id: proposal.id,
+        proposal_item_id: item.id,
+        talent_offer_id: offer.id,
+        talent_id: talentId,
+        status: "locked",
+        buyer_price: 1200000,
+        talent_payable: 1000000,
+        direct_costs: 0,
+        taxes_and_payment_fees: 0,
+        contribution: 200000,
+        buyer_payment_schedule: buyerSchedule,
+        talent_payment_schedule: talentSchedule,
+        booking_reference_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+        funding_gap_amount: 0,
+        funding_gap_status: "safe",
+        talent_terms_status: "confirmed",
+        buyer_terms_status: "recommended",
+        cancellation_terms: "Smoke cancellation terms",
+        unresolved_issues: [],
+        exception_status: "none",
+        locked_at: now,
+      })
+      .select("id")
+      .single();
+    if (dealError || !deal) throw new Error(dealError?.message ?? "Deal seed failed");
+
+    const createBooking = await post(bookingAction, { briefId, action: "create_booking" });
+    if (!createBooking.response.ok || createBooking.json?.status !== "pending_security") {
+      throw new Error(`Booking creation failed: ${JSON.stringify(createBooking.json)}`);
+    }
+    bookingId = String(createBooking.json.bookingId);
+
+    const accept = await supabase.rpc("ns_accept_buyer_terms_v1", { p_booking_id: bookingId });
+    if (accept.error) throw new Error(`Buyer terms acceptance failed: ${accept.error.message}`);
+
+    const security = await post(bookingAction, {
+      briefId,
+      action: "set_security",
+      securityType: "approved_po_credit",
+      reference: `SHOW-ADVANCE-SMOKE-PO-${stamp}`,
+    });
+    if (!security.response.ok) throw new Error(`Booking security seed failed: ${JSON.stringify(security.json)}`);
+
+    const secure = await post(bookingAction, { briefId, action: "secure_booking" });
+    if (!secure.response.ok || secure.json?.bookingStatus !== "secured") {
+      throw new Error(`Secure booking seed failed: ${JSON.stringify(secure.json)}`);
+    }
 
     const blockedPreShow = await post(operationsAction, { bookingId, action: "initialize_pre_show" });
     if (blockedPreShow.response.ok || blockedPreShow.response.status !== 409) {
