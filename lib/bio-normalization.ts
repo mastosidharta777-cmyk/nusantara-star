@@ -9,6 +9,7 @@ const BIO_SCHEMA = {
 };
 
 const SYSTEM_PROMPT = "Rapikan bahan bio talent menjadi satu bio profil standar Nusantara Star dalam Bahasa Indonesia. Tulis sebagai paragraf orang ketiga yang profesional, hangat, jelas, dan mudah dipahami buyer, sekitar 80–150 kata. Utamakan identitas talent, kota asal bila tersedia, karakter karya atau penampilan, genre, format, pengalaman, dan pencapaian yang memang disebutkan. Gunakan HANYA fakta eksplisit dari dokumen atau konteks yang diberikan. Jangan mengarang penghargaan, angka audiens, klien, panggung, tahun, prestasi, klaim popularitas, atau kemampuan. Jangan sertakan nomor telepon, email, fee, alamat pribadi, instruksi internal, daftar teknis rider, atau ajakan promosi berlebihan. Hilangkan pengulangan dan rapikan tata bahasa tanpa mengubah makna. Jika bahan terbatas, buat bio lebih singkat; jangan mengisi kekosongan dengan asumsi. Kembalikan hanya objek JSON dengan properti bio.";
+const SUPPLY_SYSTEM_PROMPT = "Rapikan bahan profil Professional atau Production Partner menjadi profil publik standar Nusantara Star dalam Bahasa Indonesia. Tulis tepat tiga paragraf pendek dengan label persis: 'Keahlian utama:', 'Pengalaman dan cara kerja:', dan 'Basis dan cakupan:'. Setiap paragraf maksimal dua kalimat. Gunakan HANYA fakta eksplisit dari bahan profil dan data terstruktur yang diberikan. Jangan mengarang klien, event, tahun pengalaman, kapasitas, sertifikasi, inventory, penghargaan, tim, harga, atau kemampuan. Jika suatu fakta tidak tersedia, nyatakan secara netral hanya dari fakta yang ada; jangan menebak atau menambah klaim. Jangan sertakan nomor telepon, email, fee, alamat pribadi, instruksi internal, atau ajakan promosi. Rapikan tata bahasa tanpa mengubah makna. Kembalikan hanya objek JSON dengan properti bio.";
 const RETRYABLE_STATUSES = new Set([429, 498, 500, 502, 503]);
 
 function supportsStrictSchema(model: string) {
@@ -30,7 +31,7 @@ async function pause(ms: number) {
   await new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function requestBio(apiKey: string, model: string, userContent: string) {
+async function requestBio(apiKey: string, model: string, userContent: string, options?: { systemPrompt?: string; schemaName?: string }) {
   let lastStatus = 0;
   let strictMode = supportsStrictSchema(model);
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -41,11 +42,11 @@ async function requestBio(apiKey: string, model: string, userContent: string) {
         model,
         temperature: 0,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: options?.systemPrompt ?? SYSTEM_PROMPT },
           { role: "user", content: userContent },
         ],
         response_format: strictMode
-          ? { type: "json_schema", json_schema: { name: "nusantara_star_talent_bio", strict: true, schema: BIO_SCHEMA } }
+          ? { type: "json_schema", json_schema: { name: options?.schemaName ?? "nusantara_star_talent_bio", strict: true, schema: BIO_SCHEMA } }
           : { type: "json_object" },
       }),
       cache: "no-store",
@@ -133,4 +134,62 @@ export async function normalizeTalentBio(input: {
   }
   console.error(JSON.stringify({ level: "error", message: "All bio normalization models failed", failures }));
   throw new Error("Layanan AI perapihan bio belum berhasil. File tidak diubah; silakan coba lagi nanti.");
+}
+
+export async function normalizeSupplyBio(input: {
+  sourceText: string;
+  supplyType: "professional" | "production_partner";
+  name?: string | null;
+  baseCity?: string | null;
+  serviceLabels: string[];
+  primaryServiceLabel?: string | null;
+  serviceCities: string[];
+  serviceFormats: string[];
+  capabilityTags: string[];
+  eventTypes: string[];
+  supplyDetails: Record<string, string>;
+}) {
+  const sourceText = input.sourceText.replace(/\u0000/g, " ").trim().slice(0, 12_000);
+  if (!sourceText) throw new Error("Profil singkat belum diisi");
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey && !process.env.OPENAI_API_KEY) throw new Error("AI perapihan profil belum tersedia");
+  const userContent = JSON.stringify({
+    supplyType: input.supplyType,
+    name: input.name?.trim() || null,
+    baseCity: input.baseCity?.trim() || null,
+    primaryService: input.primaryServiceLabel?.trim() || null,
+    services: input.serviceLabels,
+    serviceCities: input.serviceCities,
+    serviceFormats: input.serviceFormats,
+    capabilityTags: input.capabilityTags,
+    eventTypes: input.eventTypes,
+    serviceDetails: input.supplyDetails,
+    profileSource: sourceText,
+  });
+  const models = [...new Set([
+    process.env.GROQ_MODEL ?? "openai/gpt-oss-20b",
+    process.env.GROQ_BIO_FALLBACK_MODEL ?? "openai/gpt-oss-120b",
+  ])];
+  const failures: string[] = [];
+  if (apiKey) {
+    for (const model of models) {
+      try {
+        return await requestBio(apiKey, model, userContent, { systemPrompt: SUPPLY_SYSTEM_PROMPT, schemaName: "nusantara_star_supply_bio" });
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      const parsed = await requestOpenAIStructured({ schemaName: "nusantara_star_supply_bio", schema: BIO_SCHEMA, systemPrompt: SUPPLY_SYSTEM_PROMPT, userContent, maxCompletionTokens: 700 });
+      const bio = typeof parsed?.bio === "string" ? parsed.bio.trim().slice(0, 2_000) : "";
+      if (bio) return bio;
+      failures.push("OpenAI tidak menghasilkan profil yang dapat digunakan");
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  console.error(JSON.stringify({ level: "error", message: "All supply bio normalization models failed", failures }));
+  throw new Error("Layanan AI perapihan profil belum berhasil. Teks asli tidak diubah; silakan coba lagi nanti.");
 }
