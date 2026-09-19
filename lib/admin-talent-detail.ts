@@ -47,6 +47,7 @@ type TalentRow = {
   budget_max: number | null;
   last_calendar_updated_at: string | null;
   status: string;
+  manager_whatsapp: string | null;
 };
 
 function getServerClient() {
@@ -61,7 +62,7 @@ export async function loadAdminTalentDetail(talentId: string) {
   if (!supabase) throw new Error("Supabase server environment is not configured");
 
   const [{ data: talent, error: talentError }, { data: policies, error: policyError }, { data: media, error: mediaError }] = await Promise.all([
-    supabase.from("talents").select("id,name,category,supply_service_ids,primary_supply_service_id,supply_other_service,supply_type,onboarding_status,public_visible,base_city,budget_min,budget_max,last_calendar_updated_at,status").eq("id", talentId).maybeSingle(),
+    supabase.from("talents").select("id,name,category,supply_service_ids,primary_supply_service_id,supply_other_service,supply_type,onboarding_status,public_visible,base_city,budget_min,budget_max,last_calendar_updated_at,status,manager_whatsapp").eq("id", talentId).maybeSingle(),
     supabase.from("talent_payment_policy_templates").select("*").eq("talent_id", talentId).eq("is_active", true).order("sequence_no", { ascending: true }),
     supabase.from("talent_media").select("*").eq("talent_id", talentId).eq("is_active", true).order("sort_order", { ascending: true }),
   ]);

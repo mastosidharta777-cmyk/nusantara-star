@@ -18,7 +18,7 @@ function getServerClient() {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
-    const allowedScopes: SignedAccessScope[] = ["buyer_proposal", "buyer_terms", "buyer_payment", "buyer_advance", "talent_advance", "buyer_pre_show", "talent_pre_show", "talent_offer", "talent_onboarding"];
+    const allowedScopes: SignedAccessScope[] = ["buyer_proposal", "buyer_terms", "buyer_payment", "buyer_advance", "talent_advance", "buyer_pre_show", "talent_pre_show", "talent_offer", "talent_onboarding", "supply_engagement"];
     const scope = typeof body?.scope === "string" && allowedScopes.includes(body.scope as SignedAccessScope) ? body.scope as SignedAccessScope : null;
     const createNewTalent = scope === "talent_onboarding" && body?.createNewTalent === true;
     let subjectId = typeof body?.subjectId === "string" ? body.subjectId : "";
@@ -167,6 +167,20 @@ export async function POST(request: Request) {
       if (error) throw new Error(error.message);
       if (!row) return NextResponse.json({ error: "Availability request not found" }, { status: 404 });
       path = `/talent-confirmation/${encodeURIComponent(subjectId)}`;
+    } else if (scope === "supply_engagement") {
+      const { data: engagement, error } = await supabase
+        .from("supply_engagements")
+        .select("id,status,event_date")
+        .eq("id", subjectId)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!engagement || !["pending_confirmation", "confirmed"].includes(engagement.status)) {
+        return NextResponse.json({ error: "Work Order tidak tersedia untuk konfirmasi" }, { status: 409 });
+      }
+      const fourteenDays = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      const eventEnd = engagement.event_date ? new Date(`${engagement.event_date}T23:59:59+07:00`) : null;
+      expiresAt = eventEnd && Number.isFinite(eventEnd.getTime()) && eventEnd > new Date() && eventEnd < fourteenDays ? eventEnd : fourteenDays;
+      path = `/supply-engagement/${encodeURIComponent(subjectId)}`;
     } else {
       const { data: talent, error } = await supabase.from("talents").select("id,status,supply_type").eq("id", subjectId).maybeSingle();
       if (error) throw new Error(error.message);
