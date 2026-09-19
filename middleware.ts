@@ -82,7 +82,7 @@ function roleCanMutate(role: string, path: string) {
   if (role === "admin") return true;
   if (role === "viewer") return false;
   if (role === "finance") return ["/proposal-sent", "/payment", "/payment-milestones", "/commercial-terms", "/deal-review", "/booking", "/settlement", "/cancellation"].some((suffix) => path.includes(suffix));
-  if (role === "operations") return ["/match-action", "/talent-commercial-profile", "/access-link", "/operations"].some((suffix) => path.includes(suffix));
+  if (role === "operations") return ["/match-action", "/talent-commercial-profile", "/access-link", "/operations", "/supply-engagements"].some((suffix) => path.includes(suffix));
   return false;
 }
 

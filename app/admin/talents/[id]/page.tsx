@@ -8,6 +8,7 @@ import { AdminTalentCommercialProfile } from "@/components/admin-talent-commerci
 import { AdminTalentOnboardingLink } from "@/components/admin-talent-onboarding-link";
 import { AdminTalentOnboardingReview } from "@/components/admin-talent-onboarding-review";
 import { AdminTalentOperationalBasics } from "@/components/admin-talent-operational-basics";
+import { AdminSupplyEngagements } from "@/components/admin-supply-engagements";
 import { loadAdminTalentDetail } from "@/lib/admin-talent-detail";
 import { supplyServiceSummary, supplyTypeLabel } from "@/lib/supply-onboarding";
 
@@ -52,6 +53,15 @@ export default async function AdminTalentDetailPage({ params }: { params: Promis
       <section className="mt-5 border border-black/10 bg-white p-5 text-sm"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Layanan</p><p className="mt-2"><b>Layanan Utama:</b> {services?.primary}</p>{services?.additional.length?<p className="mt-2"><b>Layanan tambahan:</b> {services.additional.join(", ")}</p>:null}</section>
       <AdminSupplyOnboardingLink supplyId={talent.id} supplyType={nonTalentSupplyType} />
       <AdminSupplyOnboardingReview supplyId={talent.id} />
+      <AdminSupplyEngagements
+        supplyId={talent.id}
+        supplyName={talent.name || supplyLabel}
+        supplyType={nonTalentSupplyType}
+        serviceIds={talent.supply_service_ids ?? []}
+        otherService={talent.supply_other_service}
+        whatsapp={talent.manager_whatsapp}
+        canCreate={talent.status === "verified" && talent.onboarding_status === "approved"}
+      />
     </> : null}
   </div></main>;
 }
