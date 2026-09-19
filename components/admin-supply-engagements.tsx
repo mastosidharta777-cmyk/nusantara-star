@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { SecureAccessLinkButton } from "@/components/secure-access-link-button";
 import { supplyServiceLabel, type NonTalentSupplyType } from "@/lib/supply-onboarding";
@@ -67,6 +67,7 @@ export function AdminSupplyEngagements({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const requestKey = useRef("");
 
   async function refresh() {
     const response = await fetch(`/api/internal-demo/admin/supply-engagements?supplyId=${encodeURIComponent(supplyId)}`, { cache: "no-store" });
@@ -88,11 +89,13 @@ export function AdminSupplyEngagements({
     setMessage("");
     try {
       const form = new FormData(formElement);
+      if (!requestKey.current) requestKey.current = crypto.randomUUID();
       const response = await fetch("/api/internal-demo/admin/supply-engagements", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           supplyId,
+          requestKey: requestKey.current,
           projectName: form.get("projectName"),
           serviceId: form.get("serviceId"),
           eventDate: form.get("eventDate"),
@@ -129,6 +132,7 @@ export function AdminSupplyEngagements({
       else await navigator.clipboard.writeText(text);
 
       formElement.reset();
+      requestKey.current = "";
       setMessage(phone ? "Work Order dibuat. WhatsApp siap dikirim." : "Work Order dibuat. Pesan dan link sudah disalin.");
       await refresh();
     } catch (err) {

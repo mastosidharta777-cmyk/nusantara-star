@@ -55,6 +55,9 @@ export async function POST(request: Request) {
     if (!ensureAdmin(request)) return NextResponse.json({ error: "Tidak memiliki akses" }, { status: 401 });
     const body = await request.json().catch(() => null);
     const supplyId = text(body?.supplyId, 100);
+    const requestKey = typeof body?.requestKey === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.requestKey)
+      ? body.requestKey
+      : null;
     const projectName = text(body?.projectName, 200);
     const serviceId = text(body?.serviceId, 100);
     const scopeOfWork = text(body?.scopeOfWork, 6000);
@@ -66,12 +69,33 @@ export async function POST(request: Request) {
       ? Array.from(new Set(body.deliverables.map((item: unknown) => text(item, 500)).filter((item: string | null): item is string => Boolean(item)))).slice(0, 30)
       : [];
 
-    if (!supplyId || !projectName || !serviceId || !scopeOfWork || !paymentTerms || !Number.isSafeInteger(agreedFee) || agreedFee <= 0) {
+    if (!supplyId || !requestKey || !projectName || !serviceId || !scopeOfWork || !paymentTerms || !Number.isSafeInteger(agreedFee) || agreedFee <= 0) {
       return NextResponse.json({ error: "Lengkapi proyek, layanan, scope, fee, dan termin pembayaran" }, { status: 400 });
     }
     if (!deliverables.length) return NextResponse.json({ error: "Minimal satu deliverable wajib dicatat" }, { status: 400 });
 
     const supabase = getServerClient();
+    const { data: existing, error: existingError } = await supabase
+      .from("supply_engagements")
+      .select("*")
+      .eq("request_key", requestKey)
+      .maybeSingle();
+    if (tableMissing(existingError)) return NextResponse.json({ error: "Schema Engagement V1 belum diterapkan" }, { status: 503 });
+    if (existingError) throw new Error(existingError.message);
+    if (existing) {
+      if (existing.supply_id !== supplyId) return NextResponse.json({ error: "Request key sudah dipakai untuk profil supply lain" }, { status: 409 });
+      const sameRequest = existing.project_name === projectName
+        && existing.service_id === serviceId
+        && existing.event_date === eventDate
+        && existing.city === city
+        && existing.scope_of_work === scopeOfWork
+        && JSON.stringify(existing.deliverables ?? []) === JSON.stringify(deliverables)
+        && Number(existing.agreed_fee) === agreedFee
+        && existing.payment_terms === paymentTerms;
+      if (!sameRequest) return NextResponse.json({ error: "Work Order untuk request ini sudah tersimpan dengan isi berbeda. Gunakan data yang sudah tercatat atau buat request baru." }, { status: 409 });
+      return NextResponse.json({ ok: true, idempotent: true, engagement: existing });
+    }
+
     const { data: supply, error: supplyError } = await supabase
       .from("talents")
       .select("id,name,supply_type,supply_service_ids,supply_other_service,status,onboarding_status")
@@ -92,6 +116,7 @@ export async function POST(request: Request) {
       .insert({
         supply_id: supplyId,
         supply_type: supply.supply_type,
+        request_key: requestKey,
         work_order_reference: reference,
         service_id: serviceId,
         supply_name_snapshot: supply.name?.trim() || "Supply Partner",
@@ -110,6 +135,11 @@ export async function POST(request: Request) {
       .select("*")
       .single();
     if (tableMissing(error)) return NextResponse.json({ error: "Schema Engagement V1 belum diterapkan" }, { status: 503 });
+    if (error?.code === "23505") {
+      const { data: raced, error: racedError } = await supabase.from("supply_engagements").select("*").eq("request_key", requestKey).maybeSingle();
+      if (racedError) throw new Error(racedError.message);
+      if (raced?.supply_id === supplyId) return NextResponse.json({ ok: true, idempotent: true, engagement: raced });
+    }
     if (error) throw new Error(error.message);
     return NextResponse.json({ ok: true, engagement: data }, { status: 201 });
   } catch (error) {

@@ -6,6 +6,7 @@ create table if not exists public.supply_engagements (
   id uuid primary key default gen_random_uuid(),
   supply_id uuid not null references public.talents(id) on delete restrict,
   supply_type text not null check (supply_type in ('professional','production_partner')),
+  request_key uuid not null unique,
   work_order_reference text not null unique,
   service_id text not null,
   supply_name_snapshot text not null,
@@ -70,6 +71,46 @@ drop trigger if exists trg_validate_supply_engagement_v1 on public.supply_engage
 create trigger trg_validate_supply_engagement_v1
 before insert or update of supply_id, service_id on public.supply_engagements
 for each row execute function public.ns_validate_supply_engagement_v1();
+
+create or replace function public.ns_protect_supply_engagement_v1()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if row(
+    new.supply_id, new.supply_type, new.request_key, new.work_order_reference,
+    new.service_id, new.supply_name_snapshot, new.service_label_snapshot,
+    new.project_name, new.event_date, new.city, new.scope_of_work,
+    new.deliverables, new.agreed_fee, new.currency, new.payment_terms
+  ) is distinct from row(
+    old.supply_id, old.supply_type, old.request_key, old.work_order_reference,
+    old.service_id, old.supply_name_snapshot, old.service_label_snapshot,
+    old.project_name, old.event_date, old.city, old.scope_of_work,
+    old.deliverables, old.agreed_fee, old.currency, old.payment_terms
+  ) then
+    raise exception 'Work Order snapshot fields are immutable; create a replacement Work Order';
+  end if;
+
+  if new.status is distinct from old.status and not (
+    (old.status = 'pending_confirmation' and new.status in ('confirmed','declined','cancelled')) or
+    (old.status = 'confirmed' and new.status in ('in_progress','disputed','cancelled')) or
+    (old.status = 'in_progress' and new.status in ('awaiting_completion','disputed','cancelled')) or
+    (old.status = 'awaiting_completion' and new.status in ('in_progress','completed','disputed')) or
+    (old.status = 'disputed' and new.status in ('in_progress','awaiting_completion','completed','cancelled'))
+  ) then
+    raise exception 'Invalid Work Order status transition: % -> %', old.status, new.status;
+  end if;
+
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_protect_supply_engagement_v1 on public.supply_engagements;
+create trigger trg_protect_supply_engagement_v1
+before update on public.supply_engagements
+for each row execute function public.ns_protect_supply_engagement_v1();
 
 comment on table public.supply_engagements is
   'Immutable commercial Work Order snapshot for a Professional or Production Partner engagement. Talent bookings remain in bookings.';
