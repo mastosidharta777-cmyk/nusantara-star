@@ -2,6 +2,14 @@ import { createClient } from "@supabase/supabase-js";
 
 export type OperationsInboxPriority = "urgent" | "action";
 
+export type OperationsFollowUp = {
+  party: "buyer" | "talent";
+  label: string;
+  phone: string | null;
+  scope: "buyer_advance" | "talent_advance" | "buyer_pre_show" | "talent_pre_show";
+  messageKind: "advance" | "post_show";
+};
+
 export type OperationsInboxItem = {
   key: string;
   code:
@@ -19,6 +27,7 @@ export type OperationsInboxItem = {
   title: string;
   detail: string;
   amount: number | null;
+  followUps: OperationsFollowUp[];
 };
 
 type BookingRow = {
@@ -35,11 +44,13 @@ type BriefRow = {
   id: string;
   event_type: string | null;
   city: string | null;
+  buyer_whatsapp: string | null;
 };
 
 type TalentRow = {
   id: string;
   name: string | null;
+  manager_whatsapp: string | null;
 };
 
 type AdvanceRow = {
@@ -47,6 +58,8 @@ type AdvanceRow = {
   status: string;
   revision_no: number;
   confirmed_revision_no: number | null;
+  buyer_confirmed_at: string | null;
+  talent_confirmed_at: string | null;
 };
 
 type IncidentRow = {
@@ -119,11 +132,11 @@ export async function loadOperationsInbox() {
     { data: postShowData, error: postShowError },
     { data: settlementsData, error: settlementsError },
   ] = await Promise.all([
-    supabase.from("briefs").select("id,event_type,city").in("id", briefIds),
-    supabase.from("talents").select("id,name").in("id", talentIds),
+    supabase.from("briefs").select("id,event_type,city,buyer_whatsapp").in("id", briefIds),
+    supabase.from("talents").select("id,name,manager_whatsapp").in("id", talentIds),
     supabase
       .from("booking_advances")
-      .select("booking_id,status,revision_no,confirmed_revision_no")
+      .select("booking_id,status,revision_no,confirmed_revision_no,buyer_confirmed_at,talent_confirmed_at")
       .in("booking_id", bookingIds),
     supabase
       .from("incidents")
@@ -180,6 +193,7 @@ export async function loadOperationsInbox() {
             ? openIncidents[0].summary
             : `${openIncidents.length} incident masih terbuka`,
         amount: null,
+        followUps: [],
       });
     }
 
@@ -190,6 +204,25 @@ export async function loadOperationsInbox() {
 
     if (["secured", "pre_show"].includes(booking.status) && !advanceConfirmed) {
       const eventNear = Boolean(booking.event_date && booking.event_date <= today);
+      const followUps: OperationsFollowUp[] = [];
+      if (!advance?.buyer_confirmed_at) {
+        followUps.push({
+          party: "buyer",
+          label: "Follow-up Buyer/EO",
+          phone: brief?.buyer_whatsapp ?? null,
+          scope: "buyer_advance",
+          messageKind: "advance",
+        });
+      }
+      if (!advance?.talent_confirmed_at) {
+        followUps.push({
+          party: "talent",
+          label: "Follow-up Talent/Manager",
+          phone: talent?.manager_whatsapp ?? null,
+          scope: "talent_advance",
+          messageKind: "advance",
+        });
+      }
       items.push({
         ...base,
         key: `${booking.id}:ADVANCE_UNCONFIRMED`,
@@ -200,6 +233,7 @@ export async function loadOperationsInbox() {
           ? "Tanggal acara sudah tiba/lewat. Operasional tidak boleh berjalan dengan revision yang belum dikonfirmasi."
           : "Buyer/EO dan Talent/Manager perlu mengonfirmasi revision Show Advance aktif.",
         amount: null,
+        followUps,
       });
     }
 
@@ -221,6 +255,25 @@ export async function loadOperationsInbox() {
           !buyer ? "Buyer/EO" : null,
           !talentConfirmation ? "Talent/Manager" : null,
         ].filter(Boolean).join(" + ");
+        const followUps: OperationsFollowUp[] = [];
+        if (!buyer) {
+          followUps.push({
+            party: "buyer",
+            label: "Follow-up Buyer/EO",
+            phone: brief?.buyer_whatsapp ?? null,
+            scope: "buyer_pre_show",
+            messageKind: "post_show",
+          });
+        }
+        if (!talentConfirmation) {
+          followUps.push({
+            party: "talent",
+            label: "Follow-up Talent/Manager",
+            phone: talent?.manager_whatsapp ?? null,
+            scope: "talent_pre_show",
+            messageKind: "post_show",
+          });
+        }
         items.push({
           ...base,
           key: `${booking.id}:POST_SHOW_CONFIRMATION_MISSING`,
@@ -229,6 +282,7 @@ export async function loadOperationsInbox() {
           title: `${talentName} · konfirmasi post-show belum lengkap`,
           detail: `${missing} belum mengirim hasil pertunjukan.`,
           amount: null,
+          followUps,
         });
       }
     }
@@ -255,6 +309,7 @@ export async function loadOperationsInbox() {
             ? "Show selesai ≥7 hari dan masih ada talent payable yang belum tercatat lunas."
             : "Show sudah completed; masih ada talent payable yang belum tercatat lunas.",
           amount: remaining,
+          followUps: [],
         });
       }
     }
