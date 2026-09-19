@@ -57,16 +57,18 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Tautan pendaftaran tidak valid atau sudah kedaluwarsa" }, { status: 401 });
     }
     const s = getServerClient();
-    const [{ data: supply, error: supplyError }, { data: submission, error: submissionError }] = await Promise.all([
+    const [{ data: supply, error: supplyError }, { data: submission, error: submissionError }, { data: assets, error: assetsError }] = await Promise.all([
       s.from("talents").select("id,supply_type,name,category,supply_service_ids,primary_supply_service_id,supply_other_service,base_city,service_cities,performance_formats,capability_tags,event_types,supply_details,bio,manager_name,manager_email,manager_whatsapp,portfolio_url,booking_limitations,onboarding_status,status").eq("id", supplyId).maybeSingle(),
       s.from("talent_profile_submissions").select("*").eq("talent_id", supplyId).maybeSingle(),
+      s.from("talent_assets").select("id,asset_type,provider,storage_key,original_filename,mime_type,size_bytes,upload_status,review_status,buyer_visible,created_at").eq("talent_id", supplyId).order("created_at", { ascending: false }),
     ]);
     if (supplyError) throw new Error(supplyError.message);
     if (submissionError) throw new Error(submissionError.message);
+    if (assetsError) throw new Error(assetsError.message);
     if (!supply || !isNonTalent(supply.supply_type) || supply.status === "inactive") {
       return NextResponse.json({ error: "Profil supply tidak ditemukan" }, { status: 404 });
     }
-    return NextResponse.json({ ok: true, supply, submission });
+    return NextResponse.json({ ok: true, supply, submission, assets: assets ?? [] });
   } catch (error) {
     return NextResponse.json({ error: "Gagal memuat pendaftaran", detail: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
@@ -109,7 +111,9 @@ export async function PUT(request: Request) {
       genres: [],
       music_styles: [],
       vibe_tags: [],
-      bio: text(body?.bio),
+      bio_source: text(body?.bioSource) ?? text(body?.bio),
+      bio: text(body?.bio) ?? text(body?.bioSource),
+      bio_normalized_at: body?.bioNormalized === true ? new Date().toISOString() : null,
       booking_limitations: bookingLimitations,
       manager_name: text(body?.managerName),
       manager_email: text(body?.managerEmail),
@@ -146,8 +150,12 @@ export async function POST(request: Request) {
     const s = getServerClient();
     const supply = await loadSupply(s, supplyId);
     if (!supply || !isNonTalent(supply.supply_type) || supply.status === "inactive") return NextResponse.json({ error: "Profil supply tidak ditemukan" }, { status: 404 });
-    const { data: submission, error } = await s.from("talent_profile_submissions").select("name,category,supply_service_ids,primary_supply_service_id,supply_other_service,base_city,performance_formats,capability_tags,supply_details,bio,manager_name,manager_email,manager_whatsapp,portfolio_url,status").eq("talent_id", supplyId).maybeSingle();
+    const [{ data: submission, error }, { data: assets, error: assetsError }] = await Promise.all([
+      s.from("talent_profile_submissions").select("name,category,supply_service_ids,primary_supply_service_id,supply_other_service,base_city,performance_formats,capability_tags,supply_details,bio,manager_name,manager_email,manager_whatsapp,portfolio_url,status").eq("talent_id", supplyId).maybeSingle(),
+      s.from("talent_assets").select("asset_type,upload_status").eq("talent_id", supplyId).eq("upload_status", "uploaded"),
+    ]);
     if (error) throw new Error(error.message);
+    if (assetsError) throw new Error(assetsError.message);
     if (!submission) return NextResponse.json({ error: "Simpan profil terlebih dahulu" }, { status: 409 });
     if (submission.status === "submitted") return NextResponse.json({ ok: true, alreadySubmitted: true });
     if (submission.status === "approved") return NextResponse.json({ error: "Profil sudah disetujui dan tidak dapat dikirim ulang dari portal onboarding" }, { status: 409 });
@@ -159,6 +167,7 @@ export async function POST(request: Request) {
     if (!text(submission.manager_name)) missing.push("PIC utama");
     if (!text(submission.manager_email) && !text(submission.manager_whatsapp)) missing.push("Kontak PIC (WhatsApp atau email)");
     if (!text(submission.portfolio_url)) missing.push("Link portofolio utama");
+    if (!(assets ?? []).some((asset) => asset.asset_type === "profile_photo")) missing.push("Foto profil / logo");
     const serviceIds = sanitizeSupplyServiceIds(supply.supply_type, submission.supply_service_ids);
     const primaryServiceId = typeof submission.primary_supply_service_id === "string" ? submission.primary_supply_service_id : "";
     if (!serviceIds.length) missing.push("Minimal satu layanan");
