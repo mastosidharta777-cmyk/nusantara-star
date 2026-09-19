@@ -16,6 +16,9 @@ Mengubah profil Professional dan Production Partner yang sudah diverifikasi menj
 
 - Talent tetap memakai `bookings`; tidak digabung ke tabel ini.
 - Satu Work Order hanya boleh memakai layanan yang terdaftar pada profil supply.
+- Request key membuat retry jaringan / klik ulang idempotent dan tidak menghasilkan Work Order ganda.
+- Snapshot komersial tidak dapat ditimpa; koreksi material harus menjadi Work Order pengganti.
+- Transisi status dibatasi di database agar automasi tidak dapat melompati approval gate.
 - AI tidak boleh mengubah scope, deliverables, fee, termin, atau status persetujuan.
 - Belum ada auto-send WhatsApp/provider messaging. Admin memicu pengiriman agar tidak terjadi spam atau komitmen eksternal tanpa kontrol.
 - Completion, incident/additional cost, invoice, settlement, dan Operations Inbox lintas supply adalah fase berikutnya.
