@@ -2,6 +2,7 @@ export type YouTubeVideo = {
   videoId: string;
   canonicalUrl: string;
   embedUrl: string;
+  presentation: "landscape" | "portrait";
 };
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
@@ -35,6 +36,7 @@ export function parseYouTubeVideoUrl(value: unknown): YouTubeVideo | null {
       videoId,
       canonicalUrl: `https://www.youtube.com/watch?v=${videoId}`,
       embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&playsinline=1`,
+      presentation: url.pathname.split("/").filter(Boolean)[0] === "shorts" ? "portrait" : "landscape",
     };
   } catch {
     return null;
@@ -43,8 +45,11 @@ export function parseYouTubeVideoUrl(value: unknown): YouTubeVideo | null {
 
 export function youtubeVideoIdFromStorageKey(storageKey: unknown) {
   if (typeof storageKey !== "string") return null;
-  const videoId = storageKey.split("/").filter(Boolean).at(-1) ?? "";
-  return VIDEO_ID.test(videoId) ? videoId : null;
+  return storageKey.split("/").filter(Boolean).find((part) => VIDEO_ID.test(part)) ?? null;
+}
+
+export function youtubePresentationFromStorageKey(storageKey: unknown) {
+  return typeof storageKey === "string" && storageKey.split("/").filter(Boolean).at(-1) === "portrait" ? "portrait" : "landscape";
 }
 
 export function youtubeEmbedUrlFromStorageKey(storageKey: unknown) {
