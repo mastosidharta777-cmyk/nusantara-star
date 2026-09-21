@@ -240,6 +240,8 @@ export function TalentOnboardingProgressive({ talentId, token }: { talentId: str
   const [categoryOther, setCategoryOther] = useState(false);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [youtubeVideoUrl, setYoutubeVideoUrl] = useState("");
+  const [soundcloudUrl, setSoundcloudUrl] = useState("");
+  const [instagramUrl, setInstagramUrl] = useState("");
   const initialStepSet = useRef(false);
 
   const locked = status === "submitted" || status === "approved";
@@ -251,7 +253,7 @@ export function TalentOnboardingProgressive({ talentId, token }: { talentId: str
   const completeSongCount = cleanSongs(profile.sampleRepertoire).filter((row) => row.title && row.artist).length;
 
   const hasPhoto = assets.some((asset) => asset.upload_status === "uploaded" && asset.asset_type === "profile_photo");
-  const hasVideo = assets.some((asset) => asset.upload_status === "uploaded" && ["live_performance", "showreel", "event_clip"].includes(asset.asset_type));
+  const hasVideo = assets.some((asset) => asset.upload_status === "uploaded" && ["live_performance", "showreel", "event_clip"].includes(asset.asset_type) && !["soundcloud", "instagram"].includes(asset.provider));
   const basicComplete = Boolean(profile.name.trim() && profile.category.trim());
   const contactComplete = Boolean(profile.managerName.trim() && (profile.managerWhatsapp.trim() || profile.managerEmail.trim()));
   const songTypeComplete = !songAct || Boolean(profile.actType && (profile.actType !== "original_artist" || profile.willingToPerformCovers));
@@ -311,6 +313,8 @@ export function TalentOnboardingProgressive({ talentId, token }: { talentId: str
     setRevisionNote(typeof data.submission?.rejection_note === "string" ? data.submission.rejection_note : "");
     setAssets(nextAssets);
     setYoutubeVideoUrl(nextAssets.find((asset) => asset.provider === "youtube_unlisted")?.original_filename ?? "");
+    setSoundcloudUrl(nextAssets.find((asset) => asset.provider === "soundcloud")?.original_filename ?? "");
+    setInstagramUrl(nextAssets.find((asset) => asset.provider === "instagram")?.original_filename ?? "");
     setProfile(nextProfile);
 
     if (!initialStepSet.current) {
@@ -497,6 +501,24 @@ export function TalentOnboardingProgressive({ talentId, token }: { talentId: str
       setMessage(`Link YouTube tersimpan.${notice}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Link YouTube belum dapat disimpan");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveExternalMedia(provider: "soundcloud" | "instagram", url: string) {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await persistDraft(profile);
+      const response = await fetch("/api/talent-onboarding/external-media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ talentId, token, provider, url }) });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error ?? "Link media belum dapat disimpan");
+      const notice = await refreshAssetsAfterSave();
+      setMessage(`${provider === "soundcloud" ? "Link SoundCloud" : "Link Instagram"} tersimpan.${notice}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Link media belum dapat disimpan");
     } finally {
       setBusy(false);
     }
@@ -827,6 +849,11 @@ export function TalentOnboardingProgressive({ talentId, token }: { talentId: str
                 </div>
               </div>
               {youtubePreview ? <div className="mt-4 aspect-video w-full max-w-xl overflow-hidden bg-black"><iframe src={youtubePreview.embedUrl} title="Pratinjau video YouTube" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen className="h-full w-full" /></div> : null}
+              <div className="mt-5 grid gap-4 border-t border-black/10 pt-5 md:grid-cols-2">
+                <div><label className="block text-xs font-semibold">Link audio SoundCloud <span className="font-normal text-black/45">(opsional)</span><input type="url" inputMode="url" disabled={busy || locked} value={soundcloudUrl} onChange={(event) => setSoundcloudUrl(event.target.value)} placeholder="https://soundcloud.com/..." className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" /></label><button type="button" disabled={busy || locked || !soundcloudUrl.trim()} onClick={() => saveExternalMedia("soundcloud", soundcloudUrl)} className="mt-3 border border-black/20 px-3 py-2 text-xs font-semibold disabled:opacity-40">Simpan SoundCloud</button></div>
+                <div><label className="block text-xs font-semibold">Link post / Reel Instagram <span className="font-normal text-black/45">(opsional)</span><input type="url" inputMode="url" disabled={busy || locked} value={instagramUrl} onChange={(event) => setInstagramUrl(event.target.value)} placeholder="https://www.instagram.com/reel/..." className="mt-2 w-full border border-black/15 px-3 py-3 font-normal" /></label><button type="button" disabled={busy || locked || !instagramUrl.trim()} onClick={() => saveExternalMedia("instagram", instagramUrl)} className="mt-3 border border-black/20 px-3 py-2 text-xs font-semibold disabled:opacity-40">Simpan Instagram</button></div>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-black/45">YouTube dan SoundCloud diputar di halaman profil setelah disetujui. Instagram ditampilkan sebagai tautan aman ke post/Reel asli.</p>
               {hasVideo ? <p className="mt-3 text-xs font-semibold text-green-700">✓ Video penampilan sudah tersimpan.</p> : null}
             </div>
 
