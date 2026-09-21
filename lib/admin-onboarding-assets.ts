@@ -2,10 +2,13 @@ import "server-only";
 
 import { createR2PresignedUrl } from "@/lib/r2-presign";
 import { youtubeEmbedUrlFromStorageKey } from "@/lib/youtube";
+import { parseInstagramMediaUrl, parseSoundCloudUrl } from "@/lib/profile-media";
 
 export async function buildAdminAssetPreviewUrl(supabase: any, asset: any) {
   if (!asset?.storage_key || asset.upload_status !== "uploaded") return null;
   if (asset.provider === "youtube_unlisted") return youtubeEmbedUrlFromStorageKey(asset.storage_key);
+  if (asset.provider === "soundcloud") return parseSoundCloudUrl(asset.original_filename)?.embedUrl ?? null;
+  if (asset.provider === "instagram") return parseInstagramMediaUrl(asset.original_filename)?.canonicalUrl ?? null;
   if (asset.provider === "cloudflare_r2") {
     try {
       return createR2PresignedUrl("GET", asset.storage_key, 600);
