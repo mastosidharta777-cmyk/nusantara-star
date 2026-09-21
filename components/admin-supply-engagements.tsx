@@ -16,6 +16,12 @@ type Engagement = {
   currency: string;
   status: string;
   supplier_response_note: string | null;
+  delivery_due_at: string | null;
+  supplier_delivery_url: string | null;
+  supplier_delivery_note: string | null;
+  supplier_delivery_submitted_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
 };
 
 function money(value: number) {
@@ -43,6 +49,40 @@ function statusLabel(status: string) {
     cancelled: "Dibatalkan",
   };
   return labels[status] ?? status;
+}
+
+function dateTime(value: string | null) {
+  return value ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" }).format(new Date(value)) + " WIB" : null;
+}
+
+function DeliveryActions({ item, onSaved }: { item: Engagement; onSaved: () => Promise<void> }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function action(action: "start" | "request_revision" | "accept") {
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/internal-demo/admin/supply-engagement-delivery", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ engagementId: item.id, action, note }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.detail ?? body?.error ?? "Aksi Work Order gagal");
+      setNote("");
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Aksi Work Order gagal");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (item.status === "confirmed") return <div className="mt-3 border-t border-black/10 pt-3"><button disabled={busy} onClick={() => action("start")} className="border border-black/20 px-3 py-2 text-xs font-semibold disabled:opacity-40">Tandai pekerjaan dimulai</button>{error ? <p className="mt-2 text-xs font-semibold text-red-700">{error}</p> : null}</div>;
+  if (item.status !== "awaiting_completion") return null;
+  return <div className="mt-3 border-t border-black/10 pt-3"><p className="text-xs font-semibold text-black/55">Output dikirim {dateTime(item.supplier_delivery_submitted_at) ?? ""}</p>{item.supplier_delivery_url ? <a href={item.supplier_delivery_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold underline">Buka link output</a> : null}{item.supplier_delivery_note ? <p className="mt-2 text-xs leading-5 text-black/60">Catatan supplier: {item.supplier_delivery_note}</p> : null}<label className="mt-3 block text-xs font-semibold text-black/55">Instruksi revisi <span className="font-normal">(wajib bila meminta revisi)</span><textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} className="mt-2 w-full border border-black/15 p-2 text-sm font-normal text-black" /></label><div className="mt-3 flex flex-wrap gap-2"><button disabled={busy || !note.trim()} onClick={() => action("request_revision")} className="border border-black/20 px-3 py-2 text-xs font-semibold disabled:opacity-40">Minta revisi</button><button disabled={busy} onClick={() => action("accept")} className="border border-black bg-black px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">Terima output</button></div>{error ? <p className="mt-2 text-xs font-semibold text-red-700">{error}</p> : null}</div>;
 }
 
 export function AdminSupplyEngagements({
@@ -99,6 +139,7 @@ export function AdminSupplyEngagements({
           projectName: form.get("projectName"),
           serviceId: form.get("serviceId"),
           eventDate: form.get("eventDate"),
+          deliveryDueAt: form.get("deliveryDueAt"),
           city: form.get("city"),
           scopeOfWork: form.get("scopeOfWork"),
           deliverables: String(form.get("deliverables") ?? "").split("\n"),
@@ -160,6 +201,7 @@ export function AdminSupplyEngagements({
           <label className="text-xs font-semibold text-black/55">Proyek / acara<input required name="projectName" className="mt-2 w-full border border-black/15 p-3 text-sm font-normal text-black" /></label>
           <label className="text-xs font-semibold text-black/55">Layanan<select required name="serviceId" className="mt-2 w-full border border-black/15 bg-white p-3 text-sm font-normal text-black"><option value="">Pilih layanan</option>{serviceIds.map((id) => <option key={id} value={id}>{supplyServiceLabel(supplyType, id, otherService)}</option>)}</select></label>
           <label className="text-xs font-semibold text-black/55">Tanggal pekerjaan<input type="date" name="eventDate" className="mt-2 w-full border border-black/15 p-3 text-sm font-normal text-black" /></label>
+          <label className="text-xs font-semibold text-black/55">Batas delivery / kesiapan <span className="font-normal">(WIB; wajib untuk studio)</span><input type="datetime-local" name="deliveryDueAt" className="mt-2 w-full border border-black/15 p-3 text-sm font-normal text-black" /></label>
           <label className="text-xs font-semibold text-black/55">Kota / lokasi<input name="city" className="mt-2 w-full border border-black/15 p-3 text-sm font-normal text-black" /></label>
           <label className="text-xs font-semibold text-black/55 md:col-span-2">Scope pekerjaan<textarea required name="scopeOfWork" rows={4} className="mt-2 w-full border border-black/15 p-3 text-sm font-normal text-black" /></label>
           <label className="text-xs font-semibold text-black/55 md:col-span-2">Deliverables <span className="font-normal">(satu per baris)</span><textarea required name="deliverables" rows={4} className="mt-2 w-full border border-black/15 p-3 text-sm font-normal text-black" /></label>
@@ -172,7 +214,7 @@ export function AdminSupplyEngagements({
       {message ? <p className="mt-4 text-sm font-semibold text-green-800">{message}</p> : null}
       {error ? <p className="mt-4 text-sm font-semibold text-red-700">{error}</p> : null}
 
-      {engagements.length ? <div className="mt-6 space-y-3">{engagements.map((item) => <article key={item.id} className="border border-black/10 p-4"><div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.1em] text-black/45">{item.work_order_reference}</p><p className="mt-1 font-semibold">{item.project_name}</p><p className="mt-1 text-sm text-black/55">{item.service_label_snapshot}{item.event_date ? ` · ${item.event_date}` : ""}{item.city ? ` · ${item.city}` : ""}</p></div><div className="sm:text-right"><span className="inline-flex border border-black/10 px-2 py-1 text-xs font-semibold">{statusLabel(item.status)}</span><p className="mt-2 text-sm font-semibold">{money(item.agreed_fee)}</p></div></div>{item.supplier_response_note ? <p className="mt-3 border-t border-black/10 pt-3 text-sm text-black/60">Catatan: {item.supplier_response_note}</p> : null}{item.status === "pending_confirmation" ? <div className="mt-3 border-t border-black/10 pt-3"><SecureAccessLinkButton scope="supply_engagement" subjectId={item.id} label="Salin Link Konfirmasi" delivery="copy" /></div> : null}</article>)}</div> : null}
+      {engagements.length ? <div className="mt-6 space-y-3">{engagements.map((item) => <article key={item.id} className="border border-black/10 p-4"><div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.1em] text-black/45">{item.work_order_reference}</p><p className="mt-1 font-semibold">{item.project_name}</p><p className="mt-1 text-sm text-black/55">{item.service_label_snapshot}{item.event_date ? ` · ${item.event_date}` : ""}{item.city ? ` · ${item.city}` : ""}</p>{item.delivery_due_at ? <p className="mt-1 text-xs font-semibold text-black/55">Batas delivery / kesiapan: {dateTime(item.delivery_due_at)}</p> : null}</div><div className="sm:text-right"><span className="inline-flex border border-black/10 px-2 py-1 text-xs font-semibold">{statusLabel(item.status)}</span><p className="mt-2 text-sm font-semibold">{money(item.agreed_fee)}</p></div></div>{item.supplier_response_note ? <p className="mt-3 border-t border-black/10 pt-3 text-sm text-black/60">Catatan: {item.supplier_response_note}</p> : null}{["pending_confirmation", "confirmed", "in_progress", "awaiting_completion"].includes(item.status) ? <div className="mt-3 border-t border-black/10 pt-3"><SecureAccessLinkButton scope="supply_engagement" subjectId={item.id} label={item.status === "pending_confirmation" ? "Salin Link Konfirmasi" : "Salin Link Work Order"} delivery="copy" /></div> : null}<DeliveryActions item={item} onSaved={refresh} /></article>)}</div> : null}
     </section>
   );
 }
