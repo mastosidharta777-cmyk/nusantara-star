@@ -7,3 +7,7 @@ export type LaunchMode = "coming_soon" | "live";
 export function getLaunchMode(): LaunchMode {
   return process.env.NUSANTARA_STAR_LAUNCH_MODE === "live" ? "live" : "coming_soon";
 }
+
+export function isPublicLaunchLive() {
+  return getLaunchMode() === "live";
+}

@@ -8,8 +8,10 @@ import { AdminTalentCommercialProfile } from "@/components/admin-talent-commerci
 import { AdminTalentOnboardingLink } from "@/components/admin-talent-onboarding-link";
 import { AdminTalentOnboardingReview } from "@/components/admin-talent-onboarding-review";
 import { AdminTalentOperationalBasics } from "@/components/admin-talent-operational-basics";
+import { AdminTalentPublicationControl } from "@/components/admin-talent-publication-control";
 import { AdminSupplyEngagements } from "@/components/admin-supply-engagements";
 import { loadAdminTalentDetail } from "@/lib/admin-talent-detail";
+import { getLaunchMode } from "@/lib/launch-control";
 import { supplyServiceSummary, supplyTypeLabel } from "@/lib/supply-onboarding";
 
 function money(value: number | null) {
@@ -25,6 +27,7 @@ export default async function AdminTalentDetailPage({ params }: { params: Promis
   const isTalent = talent.supply_type === "talent";
   const nonTalentSupplyType = talent.supply_type === "professional" || talent.supply_type === "production_partner" ? talent.supply_type : null;
   const supplyLabel = supplyTypeLabel(talent.supply_type);
+  const launchMode = getLaunchMode();
   const services = nonTalentSupplyType ? supplyServiceSummary(nonTalentSupplyType, talent.supply_service_ids, talent.primary_supply_service_id, talent.supply_other_service) : null;
 
   return <main className="min-h-screen bg-[#f5f3ee] text-[#171713]"><div className="mx-auto max-w-[1080px] px-5 py-8 md:px-10 md:py-10">
@@ -37,6 +40,12 @@ export default async function AdminTalentDetailPage({ params }: { params: Promis
       <AdminTalentOperationalBasics talentId={talent.id} initialBaseCity={talent.base_city} initialBudgetMin={talent.budget_min} initialBudgetMax={talent.budget_max} lastCalendarUpdatedAt={talent.last_calendar_updated_at} />
       <AdminTalentOnboardingLink talentId={talent.id} />
       <div className="mt-5"><AdminMusicOnboardingReview talentId={talent.id} /><AdminTalentOnboardingReview talentId={talent.id} /></div>
+      <AdminTalentPublicationControl
+        talentId={talent.id}
+        initialPublicVisible={talent.public_visible}
+        canPrepare={talent.status === "verified" && talent.onboarding_status === "approved"}
+        launchMode={launchMode}
+      />
 
       <details className="border border-black/10 bg-white p-5">
         <summary className="cursor-pointer text-sm font-semibold">Pengaturan komersial <span className="font-normal text-black/45">(opsional, internal)</span></summary>

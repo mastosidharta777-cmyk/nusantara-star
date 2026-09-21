@@ -6,6 +6,7 @@ import { parseBriefWithAI } from "@/lib/talent-engine/ai-brief";
 import { rankTalents } from "@/lib/talent-engine/matching";
 import { loadEngineTalents } from "@/lib/talent-engine/supabase-talents";
 import type { StructuredBrief } from "@/lib/talent-engine/types";
+import { isPublicLaunchLive } from "@/lib/launch-control";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -121,6 +122,9 @@ function applyStructuredFormTruth(
 }
 
 export async function POST(request: Request) {
+  if (!isPublicLaunchLive()) {
+    return NextResponse.json({ error: "Penerimaan brief belum dibuka. Silakan hubungi Nusantara Star melalui halaman utama." }, { status: 503 });
+  }
   try {
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object") return NextResponse.json({ error: "Data brief tidak valid" }, { status: 400 });

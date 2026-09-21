@@ -1,14 +1,16 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { isLocale } from "@/lib/i18n";
 import { loadPublicTalent, publicCategoryId } from "@/lib/public-talents";
+import { isPublicLaunchLive } from "@/lib/launch-control";
 
 export const dynamic = "force-dynamic";
 
 export default async function TalentDetailPage({ params, searchParams }: { params: Promise<{ locale: string; id: string }>; searchParams: Promise<{ briefRef?: string; category?: string; genre?: string; date?: string; city?: string; format?: string }> }) {
   const { locale, id } = await params;
   if (!isLocale(locale)) notFound();
+  if (!isPublicLaunchLive()) redirect(`/${locale}`);
   const query = await searchParams;
   const briefRef = /^[0-9a-f-]{36}$/i.test(query.briefRef ?? "") ? query.briefRef : null;
   const talent = await loadPublicTalent(id);

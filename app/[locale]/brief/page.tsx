@@ -1,14 +1,18 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { copy, isLocale } from "@/lib/i18n";
 import { BriefForm } from "@/components/brief-form";
 import { loadPublicTalent } from "@/lib/public-talents";
 import { loadPublicBriefResult } from "@/lib/public-brief-result";
+import { isPublicLaunchLive } from "@/lib/launch-control";
+
+export const dynamic = "force-dynamic";
 
 const categoryDefaults: Record<string,string> = { singer:"Singer", band:"Band", mc:"MC / Host", dj:"DJ", traditional:"Traditional arts", speaker:"Speaker" };
 
 export default async function BriefPage({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: Promise<{ talent?: string; category?: string; ref?: string; date?: string; city?: string; format?: string }> }) {
   const { locale } = await params;
   if (!isLocale(locale)) notFound();
+  if (!isPublicLaunchLive()) redirect(`/${locale}`);
 
   const query = await searchParams;
   const referencedBrief = query.ref ? await loadPublicBriefResult(query.ref) : null;
