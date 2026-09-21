@@ -170,16 +170,18 @@ export async function POST(request: Request) {
     } else if (scope === "supply_engagement") {
       const { data: engagement, error } = await supabase
         .from("supply_engagements")
-        .select("id,status,event_date")
+        .select("id,status,event_date,delivery_due_at")
         .eq("id", subjectId)
         .maybeSingle();
       if (error) throw new Error(error.message);
-      if (!engagement || !["pending_confirmation", "confirmed"].includes(engagement.status)) {
-        return NextResponse.json({ error: "Work Order tidak tersedia untuk konfirmasi" }, { status: 409 });
+      if (!engagement || !["pending_confirmation", "confirmed", "in_progress", "awaiting_completion"].includes(engagement.status)) {
+        return NextResponse.json({ error: "Work Order tidak tersedia untuk akses pihak supply" }, { status: 409 });
       }
       const fourteenDays = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      const deliveryDue = engagement.delivery_due_at ? new Date(engagement.delivery_due_at) : null;
       const eventEnd = engagement.event_date ? new Date(`${engagement.event_date}T23:59:59+07:00`) : null;
-      expiresAt = eventEnd && Number.isFinite(eventEnd.getTime()) && eventEnd > new Date() && eventEnd < fourteenDays ? eventEnd : fourteenDays;
+      const operationalEnd = deliveryDue && Number.isFinite(deliveryDue.getTime()) ? deliveryDue : eventEnd;
+      expiresAt = operationalEnd && Number.isFinite(operationalEnd.getTime()) && operationalEnd > new Date() && operationalEnd < fourteenDays ? operationalEnd : fourteenDays;
       path = `/supply-engagement/${encodeURIComponent(subjectId)}`;
     } else {
       const { data: talent, error } = await supabase.from("talents").select("id,status,supply_type").eq("id", subjectId).maybeSingle();
