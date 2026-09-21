@@ -6,6 +6,8 @@ import { categories } from "@/lib/data";
 import { copy, isLocale } from "@/lib/i18n";
 import { loadPublicTalents, publicCategoryId } from "@/lib/public-talents";
 import { Reveal } from "@/components/reveal";
+import { ComingSoon } from "@/components/coming-soon";
+import { getLaunchMode } from "@/lib/launch-control";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +16,7 @@ const icons = [Mic2, Music2, Radio, Sparkles, Waves, Users];
 export default async function Home({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   if (!isLocale(locale)) notFound();
+  if (getLaunchMode() === "coming_soon") return <ComingSoon locale={locale} />;
   const t = copy[locale];
   const loadedTalents = await loadPublicTalents();
   const publicTalents = loadedTalents.filter((talent) => !talent.id.startsWith("demo-"));
