@@ -26,6 +26,15 @@ function isNonTalent(value: unknown): value is NonTalentSupplyType {
   return value === "professional" || value === "production_partner";
 }
 
+const STUDIO_DELIVERY_SERVICE_IDS = new Set(["songwriter_topliner", "recording_engineer", "mixing_engineer", "mastering_engineer"]);
+
+function deliveryDueAt(value: unknown) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}:00+07:00`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.getTime() <= Date.now()) return null;
+  return parsed.toISOString();
+}
+
 function tableMissing(error: { code?: string; message?: string } | null) {
   return error?.code === "42P01"
     || error?.code === "PGRST205"
@@ -39,7 +48,7 @@ export async function GET(request: Request) {
     if (!supplyId) return NextResponse.json({ error: "Profil supply wajib dipilih" }, { status: 400 });
     const { data, error } = await getServerClient()
       .from("supply_engagements")
-      .select("id,work_order_reference,service_label_snapshot,project_name,event_date,city,scope_of_work,deliverables,agreed_fee,currency,payment_terms,status,confirmation_requested_at,supplier_confirmed_at,supplier_declined_at,supplier_response_note,created_at")
+      .select("id,work_order_reference,service_label_snapshot,project_name,event_date,city,scope_of_work,deliverables,agreed_fee,currency,payment_terms,status,confirmation_requested_at,supplier_confirmed_at,supplier_declined_at,supplier_response_note,delivery_due_at,supplier_delivery_url,supplier_delivery_note,supplier_delivery_submitted_at,started_at,completed_at,created_at")
       .eq("supply_id", supplyId)
       .order("created_at", { ascending: false });
     if (tableMissing(error)) return NextResponse.json({ ok: true, ready: false, engagements: [] });
@@ -64,6 +73,7 @@ export async function POST(request: Request) {
     const paymentTerms = text(body?.paymentTerms, 2000);
     const city = text(body?.city, 200);
     const eventDate = /^\d{4}-\d{2}-\d{2}$/.test(body?.eventDate ?? "") ? body.eventDate : null;
+    const deliveryDueAtValue = deliveryDueAt(body?.deliveryDueAt);
     const agreedFee = Number(body?.agreedFee);
     const deliverables = Array.isArray(body?.deliverables)
       ? Array.from(new Set(body.deliverables.map((item: unknown) => text(item, 500)).filter((item: string | null): item is string => Boolean(item)))).slice(0, 30)
@@ -73,6 +83,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Lengkapi proyek, layanan, scope, fee, dan termin pembayaran" }, { status: 400 });
     }
     if (!deliverables.length) return NextResponse.json({ error: "Minimal satu deliverable wajib dicatat" }, { status: 400 });
+    if (STUDIO_DELIVERY_SERVICE_IDS.has(serviceId) && !deliveryDueAtValue) {
+      return NextResponse.json({ error: "Batas delivery / kesiapan (WIB) wajib dan harus di masa depan untuk layanan studio" }, { status: 400 });
+    }
 
     const supabase = getServerClient();
     const { data: existing, error: existingError } = await supabase
@@ -87,6 +100,7 @@ export async function POST(request: Request) {
       const sameRequest = existing.project_name === projectName
         && existing.service_id === serviceId
         && existing.event_date === eventDate
+        && existing.delivery_due_at === deliveryDueAtValue
         && existing.city === city
         && existing.scope_of_work === scopeOfWork
         && JSON.stringify(existing.deliverables ?? []) === JSON.stringify(deliverables)
@@ -123,6 +137,7 @@ export async function POST(request: Request) {
         service_label_snapshot: supplyServiceLabel(supply.supply_type, serviceId, supply.supply_other_service),
         project_name: projectName,
         event_date: eventDate,
+        delivery_due_at: deliveryDueAtValue,
         city,
         scope_of_work: scopeOfWork,
         deliverables,
