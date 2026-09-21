@@ -89,6 +89,15 @@ function roleCanMutate(role: string, path: string) {
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
+  const publicLaunchPath = /^\/(id|en)\/(talent|brief)(?:\/|$)/.test(path);
+  if (publicLaunchPath) {
+    if (process.env.NUSANTARA_STAR_LAUNCH_MODE !== "live") {
+      const locale = path.split("/")[1] || "id";
+      return NextResponse.redirect(new URL(`/${locale}`, request.url));
+    }
+    return NextResponse.next();
+  }
+
   if (STATEFUL_QA_PATHS.has(path)) {
     if (process.env.VERCEL_ENV === "production") {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -195,5 +204,7 @@ export const config = {
     "/api/internal-demo/show-advance-smoke",
     "/api/internal-demo/smart-proposal-smoke",
     "/api/internal-demo/talent-offer-transition-smoke",
+    "/:locale(id|en)/talent/:path*",
+    "/:locale(id|en)/brief/:path*",
   ],
 };
