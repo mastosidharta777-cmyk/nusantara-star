@@ -23,7 +23,7 @@ function freshnessClass(value: string) {
 }
 
 export default async function AdminPage() {
-  const [{ talents, supplyIntake, briefs, kpis }, operations, supplyInterest] = await Promise.all([loadAdminDashboardData(), loadOperationsInbox(), loadSupplyInterestInbox()]);
+  const [{ talents, supplyIntake, briefs, kpis, launchReadiness }, operations, supplyInterest] = await Promise.all([loadAdminDashboardData(), loadOperationsInbox(), loadSupplyInterestInbox()]);
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
       <div className="mx-auto max-w-[1440px] px-5 py-8 md:px-10 md:py-10">
@@ -33,6 +33,17 @@ export default async function AdminPage() {
         </header>
 
         <section className="grid gap-3 py-7 sm:grid-cols-2 xl:grid-cols-5">{[["Talent aktif",kpis.totalTalents],["Terverifikasi",kpis.verifiedTalents],["Kalender perlu diperbarui",kpis.staleTalents],["Brief baru",kpis.newBriefs],["Brief aktif",kpis.activeBriefs]].map(([label,value])=><article key={label} className="border border-black/10 bg-white p-5"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-black/45">{label}</p><p className="mt-4 text-4xl font-semibold tracking-[-0.04em]">{value}</p></article>)}</section>
+
+        <section className="mb-7 border border-black/10 bg-white">
+          <div className="flex flex-col gap-3 border-b border-black/10 px-5 py-4 md:flex-row md:items-end md:justify-between">
+            <div><p className="text-sm font-semibold">Launch Readiness</p><p className="mt-1 text-xs leading-5 text-black/45">Audit otomatis terhadap syarat publikasi yang sama dengan kontrol profil. Panel ini tidak mengaktifkan Talent atau mode live.</p></div>
+            <span className={launchReadiness.mode === "live" ? "w-fit border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase text-emerald-700" : "w-fit border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold uppercase text-amber-800"}>{launchReadiness.mode === "live" ? "Live" : "Coming Soon"}</span>
+          </div>
+          <div className="grid gap-px bg-black/10 sm:grid-cols-3">
+            {[["Disiapkan untuk publik",launchReadiness.preparedCount],["Siap teknis, masih internal",launchReadiness.readyInternalCount],["Masih terblokir",launchReadiness.blockedCount]].map(([label,value])=><article key={label} className="bg-white p-5"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/45">{label}</p><p className="mt-3 text-3xl font-semibold">{value}</p></article>)}
+          </div>
+          <div>{launchReadiness.talents.map((talent)=><article key={talent.id} className="flex flex-col gap-3 border-t border-black/5 px-5 py-4 md:flex-row md:items-center md:justify-between"><div><p className="text-sm font-semibold">{talent.name} <span className="font-normal text-black/45">· {talent.category}</span></p><p className="mt-1 text-xs leading-5 text-black/55">{talent.publicVisible ? (launchReadiness.mode === "live" ? "Tampil di katalog publik." : "Sudah disiapkan; tetap tertutup sampai mode live diaktifkan.") : talent.technicallyReady ? "Memenuhi syarat teknis, tetapi tetap internal sampai admin memilih menyiapkannya." : `Belum siap: ${talent.blockers.join(", ")}.`}</p></div><Link href={`/admin/talents/${talent.id}`} className="w-fit text-sm font-semibold underline underline-offset-4">Periksa profil</Link></article>)}</div>
+        </section>
 
         <section className="mb-7 border border-black/10 bg-white">
           <div className="flex flex-col gap-3 border-b border-black/10 px-5 py-4 md:flex-row md:items-end md:justify-between">
