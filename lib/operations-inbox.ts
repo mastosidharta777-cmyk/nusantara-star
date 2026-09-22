@@ -13,13 +13,14 @@ export type OperationsFollowUp = {
 export type OperationsInboxItem = {
   key: string;
   code:
+    | "NEW_BRIEF_UNREVIEWED"
     | "OPEN_INCIDENT"
     | "ADVANCE_UNCONFIRMED"
     | "POST_SHOW_CONFIRMATION_MISSING"
     | "SETTLEMENT_DUE";
   priority: OperationsInboxPriority;
   briefId: string;
-  bookingId: string;
+  bookingId: string | null;
   talentName: string;
   eventLabel: string;
   eventDate: string | null;
@@ -38,6 +39,15 @@ type BookingRow = {
   event_date: string | null;
   talent_payable: number | null;
   completed_at: string | null;
+};
+
+type NewBriefRow = {
+  id: string;
+  event_type: string | null;
+  event_date: string | null;
+  city: string | null;
+  request_mode: "discovery" | "direct_talent";
+  created_at: string;
 };
 
 type BriefRow = {
@@ -104,20 +114,102 @@ function daysSince(timestamp: string | null) {
   return Math.max(0, Math.floor(diff / 86_400_000));
 }
 
+function hoursSince(timestamp: string) {
+  const diff = Date.now() - new Date(timestamp).getTime();
+  return Math.max(0, Math.floor(diff / 3_600_000));
+}
+
+function daysBetween(from: string, to: string) {
+  const parse = (value: string) => {
+    const [year, month, day] = value.split("-").map(Number);
+    return Date.UTC(year, month - 1, day);
+  };
+  return Math.round((parse(to) - parse(from)) / 86_400_000);
+}
+
+function briefAgeLabel(hours: number) {
+  if (hours < 24) return `${hours} jam`;
+  const days = Math.floor(hours / 24);
+  return `${days} hari`;
+}
+
+function sortOperationsItems(items: OperationsInboxItem[]) {
+  items.sort((a, b) => {
+    if (a.priority !== b.priority) return a.priority === "urgent" ? -1 : 1;
+    return (a.eventDate ?? "9999-12-31").localeCompare(b.eventDate ?? "9999-12-31");
+  });
+}
+
 export async function loadOperationsInbox() {
   const supabase = getServerClient();
 
-  const { data: bookingsData, error: bookingsError } = await supabase
-    .from("bookings")
-    .select("id,brief_id,talent_id,status,event_date,talent_payable,completed_at")
-    .in("status", ["secured", "pre_show", "incident", "completed"])
-    .order("event_date", { ascending: true });
+  const [
+    { data: bookingsData, error: bookingsError },
+    { data: newBriefsData, error: newBriefsError },
+  ] = await Promise.all([
+    supabase
+      .from("bookings")
+      .select("id,brief_id,talent_id,status,event_date,talent_payable,completed_at")
+      .in("status", ["secured", "pre_show", "incident", "completed"])
+      .order("event_date", { ascending: true }),
+    supabase
+      .from("briefs")
+      .select("id,event_type,event_date,city,request_mode,created_at")
+      .eq("status", "new")
+      .order("created_at", { ascending: true }),
+  ]);
 
   if (bookingsError) throw new Error(bookingsError.message);
+  if (newBriefsError) throw new Error(newBriefsError.message);
 
   const bookings = (bookingsData ?? []) as BookingRow[];
+  const newBriefs = (newBriefsData ?? []) as NewBriefRow[];
+  const today = jakartaDateString();
+  const items: OperationsInboxItem[] = [];
+
+  for (const brief of newBriefs) {
+    const ageHours = hoursSince(brief.created_at);
+    const daysToEvent = brief.event_date ? daysBetween(today, brief.event_date) : null;
+    const eventNear = daysToEvent != null && daysToEvent <= 7;
+
+    // Four hours is an exception threshold, not a public response-time promise.
+    if (ageHours < 4 && !eventNear) continue;
+
+    const urgent = ageHours >= 24 || eventNear;
+    const requestLabel = brief.request_mode === "direct_talent" ? "Direct inquiry" : "Brief pencarian talent";
+    const eventTiming = daysToEvent == null
+      ? null
+      : daysToEvent < 0
+        ? "Tanggal acara sudah lewat"
+        : daysToEvent === 0
+          ? "Acara berlangsung hari ini"
+          : `Acara tinggal ${daysToEvent} hari`;
+    items.push({
+      key: `${brief.id}:NEW_BRIEF_UNREVIEWED`,
+      code: "NEW_BRIEF_UNREVIEWED",
+      priority: urgent ? "urgent" : "action",
+      briefId: brief.id,
+      bookingId: null,
+      talentName: "Belum ditentukan",
+      eventLabel: brief.event_type?.trim() || requestLabel,
+      eventDate: brief.event_date,
+      city: brief.city,
+      title: `${requestLabel} belum ditinjau`,
+      detail: eventNear
+        ? `Masih berstatus Baru setelah ${briefAgeLabel(ageHours)}. ${eventTiming}.`
+        : `Masih berstatus Baru setelah ${briefAgeLabel(ageHours)}. Buka brief untuk mulai review dan pencocokan.`,
+      amount: null,
+      followUps: [],
+    });
+  }
+
   if (bookings.length === 0) {
-    return { items: [] as OperationsInboxItem[], urgentCount: 0, paymentCount: 0 };
+    sortOperationsItems(items);
+    return {
+      items,
+      urgentCount: items.filter((item) => item.priority === "urgent").length,
+      paymentCount: 0,
+    };
   }
 
   const bookingIds = bookings.map((row) => row.id);
@@ -162,9 +254,6 @@ export async function loadOperationsInbox() {
   const incidents = (incidentsData ?? []) as IncidentRow[];
   const postShow = (postShowData ?? []) as PostShowRow[];
   const settlements = (settlementsData ?? []) as SettlementRow[];
-  const today = jakartaDateString();
-  const items: OperationsInboxItem[] = [];
-
   for (const booking of bookings) {
     const brief = briefs.get(booking.brief_id);
     const talent = talents.get(booking.talent_id);
@@ -315,10 +404,7 @@ export async function loadOperationsInbox() {
     }
   }
 
-  items.sort((a, b) => {
-    if (a.priority !== b.priority) return a.priority === "urgent" ? -1 : 1;
-    return (a.eventDate ?? "9999-12-31").localeCompare(b.eventDate ?? "9999-12-31");
-  });
+  sortOperationsItems(items);
 
   return {
     items,
