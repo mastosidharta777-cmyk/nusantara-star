@@ -1,8 +1,10 @@
 import Link from "next/link";
 
 import { AdminNewSupplyInvite } from "@/components/admin-new-supply-invite";
+import { AdminSupplyInterestInbox } from "@/components/admin-supply-interest-inbox";
 import { OperationsFollowUpButton } from "@/components/operations-follow-up-button";
 import { loadAdminDashboardData } from "@/lib/admin-data";
+import { loadSupplyInterestInbox } from "@/lib/admin-supply-interest";
 import { loadOperationsInbox } from "@/lib/operations-inbox";
 import { supplyServiceSummary, supplyTypeLabel } from "@/lib/supply-onboarding";
 import { freshnessLabelId } from "@/lib/ui-language";
@@ -20,7 +22,7 @@ function freshnessClass(value: string) {
 }
 
 export default async function AdminPage() {
-  const [{ talents, supplyIntake, briefs, kpis }, operations] = await Promise.all([loadAdminDashboardData(), loadOperationsInbox()]);
+  const [{ talents, supplyIntake, briefs, kpis }, operations, supplyInterest] = await Promise.all([loadAdminDashboardData(), loadOperationsInbox(), loadSupplyInterestInbox()]);
   return (
     <main className="min-h-screen bg-[#f5f3ee] text-[#171713]">
       <div className="mx-auto max-w-[1440px] px-5 py-8 md:px-10 md:py-10">
@@ -78,6 +80,8 @@ export default async function AdminPage() {
             </div>
           )}
         </section>
+
+        <AdminSupplyInterestInbox ready={supplyInterest.ready} items={supplyInterest.items} />
 
         <section className="mb-7 border border-black/10 bg-white p-5 md:p-6">
           <div className="mb-5"><p className="text-sm font-semibold">Pendaftaran Supply Baru</p><p className="mt-1 text-xs text-black/45">Admin menentukan jenis supply dan kategori sebelum link dibuat. Talent tetap memakai flow Talent yang sudah ada.</p></div>
