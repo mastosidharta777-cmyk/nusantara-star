@@ -6,14 +6,15 @@ export type OperationsFollowUp = {
   party: "buyer" | "talent";
   label: string;
   phone: string | null;
-  scope: "buyer_advance" | "talent_advance" | "buyer_pre_show" | "talent_pre_show";
-  messageKind: "advance" | "post_show";
+  scope: "buyer_advance" | "talent_advance" | "buyer_pre_show" | "talent_pre_show" | "talent_offer";
+  messageKind: "advance" | "post_show" | "availability";
 };
 
 export type OperationsInboxItem = {
   key: string;
   code:
     | "NEW_BRIEF_UNREVIEWED"
+    | "AVAILABILITY_RESPONSE_OVERDUE"
     | "OPEN_INCIDENT"
     | "ADVANCE_UNCONFIRMED"
     | "POST_SHOW_CONFIRMATION_MISSING"
@@ -21,6 +22,7 @@ export type OperationsInboxItem = {
   priority: OperationsInboxPriority;
   briefId: string;
   bookingId: string | null;
+  followUpSubjectId?: string | null;
   talentName: string;
   eventLabel: string;
   eventDate: string | null;
@@ -48,6 +50,26 @@ type NewBriefRow = {
   city: string | null;
   request_mode: "discovery" | "direct_talent";
   created_at: string;
+};
+
+type PendingAvailabilityRow = {
+  id: string;
+  brief_id: string;
+  talent_id: string;
+  requested_at: string;
+};
+
+type PendingAvailabilityBrief = {
+  id: string;
+  event_type: string | null;
+  event_date: string | null;
+  city: string | null;
+};
+
+type PendingAvailabilityTalent = {
+  id: string;
+  name: string | null;
+  manager_whatsapp: string | null;
 };
 
 type BriefRow = {
@@ -146,6 +168,7 @@ export async function loadOperationsInbox() {
   const [
     { data: bookingsData, error: bookingsError },
     { data: newBriefsData, error: newBriefsError },
+    { data: pendingAvailabilityData, error: pendingAvailabilityError },
   ] = await Promise.all([
     supabase
       .from("bookings")
@@ -157,13 +180,20 @@ export async function loadOperationsInbox() {
       .select("id,event_type,event_date,city,request_mode,created_at")
       .eq("status", "new")
       .order("created_at", { ascending: true }),
+    supabase
+      .from("availability_requests")
+      .select("id,brief_id,talent_id,requested_at")
+      .eq("status", "pending")
+      .order("requested_at", { ascending: true }),
   ]);
 
   if (bookingsError) throw new Error(bookingsError.message);
   if (newBriefsError) throw new Error(newBriefsError.message);
+  if (pendingAvailabilityError) throw new Error(pendingAvailabilityError.message);
 
   const bookings = (bookingsData ?? []) as BookingRow[];
   const newBriefs = (newBriefsData ?? []) as NewBriefRow[];
+  const pendingAvailability = (pendingAvailabilityData ?? []) as PendingAvailabilityRow[];
   const today = jakartaDateString();
   const items: OperationsInboxItem[] = [];
 
@@ -201,6 +231,58 @@ export async function loadOperationsInbox() {
       amount: null,
       followUps: [],
     });
+  }
+
+  if (pendingAvailability.length > 0) {
+    const pendingBriefIds = [...new Set(pendingAvailability.map((row) => row.brief_id))];
+    const pendingTalentIds = [...new Set(pendingAvailability.map((row) => row.talent_id))];
+    const [
+      { data: pendingBriefsData, error: pendingBriefsError },
+      { data: pendingTalentsData, error: pendingTalentsError },
+    ] = await Promise.all([
+      supabase.from("briefs").select("id,event_type,event_date,city").in("id", pendingBriefIds),
+      supabase.from("talents").select("id,name,manager_whatsapp").in("id", pendingTalentIds),
+    ]);
+    if (pendingBriefsError) throw new Error(pendingBriefsError.message);
+    if (pendingTalentsError) throw new Error(pendingTalentsError.message);
+
+    const pendingBriefs = new Map(((pendingBriefsData ?? []) as PendingAvailabilityBrief[]).map((row) => [row.id, row]));
+    const pendingTalents = new Map(((pendingTalentsData ?? []) as PendingAvailabilityTalent[]).map((row) => [row.id, row]));
+
+    for (const request of pendingAvailability) {
+      const ageHours = hoursSince(request.requested_at);
+      const brief = pendingBriefs.get(request.brief_id);
+      const talent = pendingTalents.get(request.talent_id);
+      const daysToEvent = brief?.event_date ? daysBetween(today, brief.event_date) : null;
+      const eventNear = daysToEvent != null && daysToEvent <= 7;
+
+      // Keep recent requests out of the exception queue; 12 hours is an internal follow-up threshold.
+      if (ageHours < 12 && !eventNear) continue;
+
+      const talentName = talent?.name?.trim() || "Talent/Manager";
+      items.push({
+        key: `${request.id}:AVAILABILITY_RESPONSE_OVERDUE`,
+        code: "AVAILABILITY_RESPONSE_OVERDUE",
+        priority: ageHours >= 24 || eventNear ? "urgent" : "action",
+        briefId: request.brief_id,
+        bookingId: null,
+        followUpSubjectId: request.id,
+        talentName,
+        eventLabel: brief?.event_type?.trim() || "Acara",
+        eventDate: brief?.event_date ?? null,
+        city: brief?.city ?? null,
+        title: `${talentName} · konfirmasi ketersediaan belum dijawab`,
+        detail: `Permintaan dikirim ${briefAgeLabel(ageHours)} lalu. Siapkan ulang secure link dan follow-up Talent/Manager.`,
+        amount: null,
+        followUps: [{
+          party: "talent",
+          label: "Follow-up Talent/Manager",
+          phone: talent?.manager_whatsapp ?? null,
+          scope: "talent_offer",
+          messageKind: "availability",
+        }],
+      });
+    }
   }
 
   if (bookings.length === 0) {

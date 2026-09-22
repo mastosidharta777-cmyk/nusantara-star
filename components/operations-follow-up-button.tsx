@@ -27,6 +27,15 @@ function followUpMessage({
   url: string;
 }) {
   const event = [eventLabel, eventDate].filter(Boolean).join(" · ");
+  if (followUp.messageKind === "availability") {
+    return [
+      "Halo, ini follow-up dari Nusantara Star.",
+      `Mohon konfirmasi ketersediaan dan penawaran ${talentName} untuk ${event}.`,
+      "Silakan jawab melalui secure link berikut:",
+      url,
+      "Jawaban tersedia belum berarti booking final; proses tetap menunggu proposal dan kesepakatan buyer.",
+    ].join("\n\n");
+  }
   if (followUp.messageKind === "advance") {
     return [
       "Halo, ini pengingat operasional dari Nusantara Star.",
@@ -46,13 +55,13 @@ function followUpMessage({
 }
 
 export function OperationsFollowUpButton({
-  bookingId,
+  subjectId,
   followUp,
   talentName,
   eventLabel,
   eventDate,
 }: {
-  bookingId: string;
+  subjectId: string;
   followUp: OperationsFollowUp;
   talentName: string;
   eventLabel: string;
@@ -68,7 +77,7 @@ export function OperationsFollowUpButton({
       const response = await fetch("/api/internal-demo/admin/access-link", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ scope: followUp.scope, subjectId: bookingId }),
+        body: JSON.stringify({ scope: followUp.scope, subjectId }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok || !body?.url) throw new Error(body?.detail ?? body?.error ?? "Gagal membuat secure link");
