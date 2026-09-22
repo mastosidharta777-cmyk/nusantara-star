@@ -27,6 +27,15 @@ function followUpMessage({
   url: string;
 }) {
   const event = [eventLabel, eventDate].filter(Boolean).join(" · ");
+  if (followUp.messageKind === "onboarding") {
+    return [
+      "Halo, ini follow-up dari Nusantara Star.",
+      `Profil onboarding ${talentName} sudah disiapkan setelah proses kurasi awal.`,
+      "Silakan lengkapi data melalui secure link berikut:",
+      url,
+      "Link berlaku 7 hari. Profil tetap internal sampai selesai ditinjau dan disetujui admin.",
+    ].join("\n\n");
+  }
   if (followUp.messageKind === "availability") {
     return [
       "Halo, ini follow-up dari Nusantara Star.",
