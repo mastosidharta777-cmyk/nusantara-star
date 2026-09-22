@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
+import { getLaunchMode } from "@/lib/launch-control";
 import type { SupplyType } from "@/lib/supply-onboarding";
 
 type SupplyRow = {
@@ -40,6 +41,23 @@ type BriefRow = {
   requested_talent_id: string | null;
   status: string;
   created_at: string;
+};
+
+type PublicationAssetRow = {
+  talent_id: string;
+  asset_type: string;
+  upload_status: string;
+  review_status: string;
+  buyer_visible: boolean;
+};
+
+export type AdminLaunchReadinessTalent = {
+  id: string;
+  name: string;
+  category: string;
+  publicVisible: boolean;
+  technicallyReady: boolean;
+  blockers: string[];
 };
 
 export type AdminTalent = SupplyRow & {
@@ -85,7 +103,12 @@ function getFreshness(lastUpdated: string | null) {
 export async function loadAdminDashboardData() {
   const supabase = getServerClient();
 
-  const [{ data: supplyRows, error: supplyError }, { data: submissions, error: submissionError }, { data: briefs, error: briefError }] = await Promise.all([
+  const [
+    { data: supplyRows, error: supplyError },
+    { data: submissions, error: submissionError },
+    { data: briefs, error: briefError },
+    { data: publicationAssets, error: publicationAssetsError },
+  ] = await Promise.all([
     supabase
       .from("talents")
       .select("id,name,category,supply_service_ids,primary_supply_service_id,supply_other_service,supply_type,onboarding_status,base_city,budget_min,budget_max,status,public_visible,last_calendar_updated_at")
@@ -98,10 +121,14 @@ export async function loadAdminDashboardData() {
       .select("id,event_type,event_date,city,talent_category,budget_min,budget_max,request_mode,requested_talent_id,status,created_at")
       .order("created_at", { ascending: false })
       .limit(20),
+    supabase
+      .from("talent_assets")
+      .select("talent_id,asset_type,upload_status,review_status,buyer_visible")
+      .in("asset_type", ["profile_photo", "live_performance", "showreel", "event_clip"]),
   ]);
 
-  if (supplyError || submissionError || briefError) {
-    throw new Error(supplyError?.message ?? submissionError?.message ?? briefError?.message ?? "Failed to load admin data");
+  if (supplyError || submissionError || briefError || publicationAssetsError) {
+    throw new Error(supplyError?.message ?? submissionError?.message ?? briefError?.message ?? publicationAssetsError?.message ?? "Failed to load admin data");
   }
 
   const rows = (supplyRows ?? []) as SupplyRow[];
@@ -131,11 +158,44 @@ export async function loadAdminDashboardData() {
     ...brief,
     requested_talent_name: brief.requested_talent_id ? talentNameMap.get(brief.requested_talent_id) ?? null : null,
   }));
+  const approvedBuyerAssets = ((publicationAssets ?? []) as PublicationAssetRow[]).filter(
+    (asset) => asset.upload_status === "uploaded" && asset.review_status === "approved" && asset.buyer_visible,
+  );
+  const assetsByTalent = new Map<string, PublicationAssetRow[]>();
+  for (const asset of approvedBuyerAssets) {
+    assetsByTalent.set(asset.talent_id, [...(assetsByTalent.get(asset.talent_id) ?? []), asset]);
+  }
+  const launchTalents: AdminLaunchReadinessTalent[] = adminTalents.map((talent) => {
+    const assets = assetsByTalent.get(talent.id) ?? [];
+    const hasPhoto = assets.some((asset) => asset.asset_type === "profile_photo");
+    const hasPerformanceMedia = assets.some((asset) => ["live_performance", "showreel", "event_clip"].includes(asset.asset_type));
+    const blockers = [
+      talent.status !== "verified" ? "belum terverifikasi" : null,
+      talent.onboarding_status !== "approved" ? "onboarding belum disetujui" : null,
+      !hasPhoto ? "foto publik belum disetujui" : null,
+      !hasPerformanceMedia ? "media penampilan belum disetujui" : null,
+    ].filter((reason): reason is string => Boolean(reason));
+    return {
+      id: talent.id,
+      name: talent.name || "Pendaftaran Talent",
+      category: talent.category || "Kategori belum diisi",
+      publicVisible: talent.public_visible,
+      technicallyReady: blockers.length === 0,
+      blockers,
+    };
+  });
 
   return {
     talents: adminTalents,
     supplyIntake,
     briefs: briefRows,
+    launchReadiness: {
+      mode: getLaunchMode(),
+      preparedCount: launchTalents.filter((talent) => talent.publicVisible).length,
+      readyInternalCount: launchTalents.filter((talent) => talent.technicallyReady && !talent.publicVisible).length,
+      blockedCount: launchTalents.filter((talent) => !talent.technicallyReady).length,
+      talents: launchTalents,
+    },
     kpis: {
       totalTalents: adminTalents.length,
       verifiedTalents: adminTalents.filter((talent) => talent.status === "verified").length,
