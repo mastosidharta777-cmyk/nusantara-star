@@ -85,13 +85,14 @@ export function AdminSupplyInterestInbox({ ready, items, emailDeliveryConfigured
       </div>
       {items.length === 0 ? <div className="px-5 py-8 text-sm text-black/50">Belum ada minat Talent, Professional, atau Production Partner dari landing.</div> : <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-black/10 bg-black/[0.025] text-xs uppercase tracking-[0.12em] text-black/45"><tr>{["Email", "Jenis", "Masuk", "Status", "Aksi"].map((label) => <th key={label} className="px-5 py-3 font-semibold">{label}</th>)}</tr></thead>
+          <thead className="border-b border-black/10 bg-black/[0.025] text-xs uppercase tracking-[0.12em] text-black/45"><tr>{["Nama", "Kontak & portofolio", "Jenis", "Masuk", "Status", "Aksi"].map((label) => <th key={label} className="px-5 py-3 font-semibold">{label}</th>)}</tr></thead>
           <tbody>{items.map((item) => {
             const status = localStatus[item.id] ?? item.status;
             const selectedCategory = categories[item.id] ?? SUPPLY_CATEGORIES.talent[0];
             const busy = busyId === item.id;
             return <tr key={item.id} className="border-b border-black/5 align-top last:border-0">
-              <td className="px-5 py-4 font-medium">{item.email}</td>
+              <td className="px-5 py-4 font-medium">{item.applicant_name || "Belum dicantumkan"}</td>
+              <td className="px-5 py-4"><a href={`mailto:${item.email}`} className="block font-medium underline underline-offset-4">{item.email}</a>{item.portfolio_url ? <a href={item.portfolio_url} target="_blank" rel="noreferrer" className="mt-2 block max-w-[260px] break-all text-xs text-black/55 underline underline-offset-4">Buka portofolio</a> : <span className="mt-2 block text-xs text-black/40">Portofolio belum dicantumkan</span>}</td>
               <td className="px-5 py-4 text-black/65">{supplyTypeLabel(item.supply_type)}</td>
               <td className="whitespace-nowrap px-5 py-4 text-black/65">{formatDate(item.created_at)}</td>
               <td className="px-5 py-4"><span className="border border-black/10 px-2 py-1 text-xs font-semibold uppercase tracking-[0.08em]">{status === "new" ? "Baru" : status === "invited" ? "Diundang" : "Diarsipkan"}</span></td>
