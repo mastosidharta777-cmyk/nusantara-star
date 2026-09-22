@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { signAccessToken } from "@/lib/signed-access";
+import { sendSupplyInviteEmail } from "@/lib/supply-invite-email";
 import { categoryAllowedForSupply, isSupplyType } from "@/lib/supply-onboarding";
 
 export const runtime = "nodejs";
@@ -18,10 +19,23 @@ function ensureAdmin(request: Request) {
 }
 
 function inviteUrl(request: Request, talentId: string) {
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  // Rounding to the minute makes a retry carry the identical link and provider idempotency key.
+  const issuedAt = Math.floor(Date.now() / 60_000) * 60_000;
+  const expiresAt = new Date(issuedAt + 7 * 24 * 60 * 60 * 1000);
   const token = signAccessToken("talent_onboarding", talentId, expiresAt);
   const origin = new URL(request.url).origin;
-  return `${origin}/talent-onboarding/${encodeURIComponent(talentId)}?token=${encodeURIComponent(token)}`;
+  return {
+    url: `${origin}/talent-onboarding/${encodeURIComponent(talentId)}?token=${encodeURIComponent(token)}`,
+    idempotencyKey: `supply-onboarding-invite:${talentId}:${expiresAt.getTime()}`,
+  };
+}
+
+async function inviteResponse(request: Request, input: { email: string; supplyType: string; talentId: string; sendEmail: boolean }) {
+  const invite = inviteUrl(request, input.talentId);
+  const delivery = input.sendEmail
+    ? await sendSupplyInviteEmail({ email: input.email, url: invite.url, idempotencyKey: invite.idempotencyKey })
+    : { status: "not_configured" as const };
+  return NextResponse.json({ ok: true, email: input.email, supplyType: input.supplyType, url: invite.url, delivery });
 }
 
 export async function POST(request: Request) {
@@ -30,6 +44,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null);
     const interestId = typeof body?.interestId === "string" ? body.interestId : "";
     const action = body?.action;
+    const sendEmail = body?.sendEmail === true;
     if (!interestId || !["create_invite", "copy_invite", "archive"].includes(action)) {
       return NextResponse.json({ error: "Aksi inbox tidak valid" }, { status: 400 });
     }
@@ -48,7 +63,7 @@ export async function POST(request: Request) {
       if (!data || data.status !== "invited" || !data.onboarding_talent_id || !isSupplyType(data.supply_type)) {
         return NextResponse.json({ error: "Undangan aktif tidak ditemukan" }, { status: 409 });
       }
-      return NextResponse.json({ ok: true, email: data.email, supplyType: data.supply_type, url: inviteUrl(request, data.onboarding_talent_id) });
+      return inviteResponse(request, { email: data.email, supplyType: data.supply_type, talentId: data.onboarding_talent_id, sendEmail });
     }
 
     const category = typeof body?.category === "string" ? body.category.trim() : null;
@@ -64,7 +79,7 @@ export async function POST(request: Request) {
     if (result.supply_type === "talent" && !categoryAllowedForSupply(result.supply_type, category)) {
       return NextResponse.json({ error: "Pilih kategori Talent yang valid" }, { status: 400 });
     }
-    return NextResponse.json({ ok: true, email: result.email, supplyType: result.supply_type, url: inviteUrl(request, result.talent_id) });
+    return inviteResponse(request, { email: result.email, supplyType: result.supply_type, talentId: result.talent_id, sendEmail });
   } catch (error) {
     return NextResponse.json({ error: "Aksi inbox belum dapat diproses", detail: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
