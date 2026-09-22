@@ -3,11 +3,11 @@ import { createClient } from "@supabase/supabase-js";
 export type OperationsInboxPriority = "urgent" | "action";
 
 export type OperationsFollowUp = {
-  party: "buyer" | "talent";
+  party: "buyer" | "talent" | "supply";
   label: string;
   phone: string | null;
-  scope: "buyer_advance" | "talent_advance" | "buyer_pre_show" | "talent_pre_show" | "talent_offer";
-  messageKind: "advance" | "post_show" | "availability";
+  scope: "buyer_advance" | "talent_advance" | "buyer_pre_show" | "talent_pre_show" | "talent_offer" | "talent_onboarding";
+  messageKind: "advance" | "post_show" | "availability" | "onboarding";
 };
 
 export type OperationsInboxItem = {
@@ -15,12 +15,13 @@ export type OperationsInboxItem = {
   code:
     | "NEW_BRIEF_UNREVIEWED"
     | "AVAILABILITY_RESPONSE_OVERDUE"
+    | "ONBOARDING_NOT_STARTED"
     | "OPEN_INCIDENT"
     | "ADVANCE_UNCONFIRMED"
     | "POST_SHOW_CONFIRMATION_MISSING"
     | "SETTLEMENT_DUE";
   priority: OperationsInboxPriority;
-  briefId: string;
+  briefId: string | null;
   bookingId: string | null;
   followUpSubjectId?: string | null;
   talentName: string;
@@ -31,6 +32,7 @@ export type OperationsInboxItem = {
   detail: string;
   amount: number | null;
   followUps: OperationsFollowUp[];
+  reviewHref?: string;
 };
 
 type BookingRow = {
@@ -70,6 +72,14 @@ type PendingAvailabilityTalent = {
   id: string;
   name: string | null;
   manager_whatsapp: string | null;
+};
+
+type PendingOnboardingRow = {
+  id: string;
+  name: string | null;
+  supply_type: "talent" | "professional" | "production_partner";
+  manager_whatsapp: string | null;
+  created_at: string;
 };
 
 type BriefRow = {
@@ -169,6 +179,7 @@ export async function loadOperationsInbox() {
     { data: bookingsData, error: bookingsError },
     { data: newBriefsData, error: newBriefsError },
     { data: pendingAvailabilityData, error: pendingAvailabilityError },
+    { data: pendingOnboardingData, error: pendingOnboardingError },
   ] = await Promise.all([
     supabase
       .from("bookings")
@@ -185,15 +196,22 @@ export async function loadOperationsInbox() {
       .select("id,brief_id,talent_id,requested_at")
       .eq("status", "pending")
       .order("requested_at", { ascending: true }),
+    supabase
+      .from("talents")
+      .select("id,name,supply_type,manager_whatsapp,created_at")
+      .eq("onboarding_status", "not_started")
+      .order("created_at", { ascending: true }),
   ]);
 
   if (bookingsError) throw new Error(bookingsError.message);
   if (newBriefsError) throw new Error(newBriefsError.message);
   if (pendingAvailabilityError) throw new Error(pendingAvailabilityError.message);
+  if (pendingOnboardingError) throw new Error(pendingOnboardingError.message);
 
   const bookings = (bookingsData ?? []) as BookingRow[];
   const newBriefs = (newBriefsData ?? []) as NewBriefRow[];
   const pendingAvailability = (pendingAvailabilityData ?? []) as PendingAvailabilityRow[];
+  const pendingOnboarding = (pendingOnboardingData ?? []) as PendingOnboardingRow[];
   const today = jakartaDateString();
   const items: OperationsInboxItem[] = [];
 
@@ -230,6 +248,44 @@ export async function loadOperationsInbox() {
         : `Masih berstatus Baru setelah ${briefAgeLabel(ageHours)}. Buka brief untuk mulai review dan pencocokan.`,
       amount: null,
       followUps: [],
+    });
+  }
+
+  for (const supply of pendingOnboarding) {
+    const ageHours = hoursSince(supply.created_at);
+
+    // A newly created profile may still be waiting for the invite to reach its PIC.
+    // Keep the first 48 hours out of the exception queue, then escalate after a week.
+    if (ageHours < 48) continue;
+
+    const supplyLabel = supply.supply_type === "talent"
+      ? "Talent"
+      : supply.supply_type === "professional"
+        ? "Professional"
+        : "Production Partner";
+    const supplyName = supply.name?.trim() || `Pendaftaran ${supplyLabel}`;
+    items.push({
+      key: `${supply.id}:ONBOARDING_NOT_STARTED`,
+      code: "ONBOARDING_NOT_STARTED",
+      priority: ageHours >= 168 ? "urgent" : "action",
+      briefId: null,
+      bookingId: null,
+      followUpSubjectId: supply.id,
+      talentName: supplyName,
+      eventLabel: `${supplyLabel} onboarding`,
+      eventDate: null,
+      city: null,
+      title: `${supplyName} · onboarding belum dimulai`,
+      detail: `Profil internal dibuat ${briefAgeLabel(ageHours)} lalu, tetapi belum ada draft. Buat ulang secure link dan kirim hanya kepada PIC yang sudah dikurasi.`,
+      amount: null,
+      followUps: [{
+        party: "supply",
+        label: "Siapkan link onboarding",
+        phone: supply.manager_whatsapp,
+        scope: "talent_onboarding",
+        messageKind: "onboarding",
+      }],
+      reviewHref: `/admin/talents/${supply.id}`,
     });
   }
 

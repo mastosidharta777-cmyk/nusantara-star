@@ -78,7 +78,7 @@ export default async function AdminPage() {
                         />
                       );
                     })}
-                    <Link href={`/admin/briefs/${item.briefId}`} className="w-fit font-semibold underline underline-offset-4">Review</Link>
+                    <Link href={item.reviewHref ?? (item.briefId ? `/admin/briefs/${item.briefId}` : "/admin")} className="w-fit font-semibold underline underline-offset-4">Review</Link>
                   </div>
                 </article>
               ))}
