@@ -65,12 +65,12 @@ export default async function AdminPage() {
                   </div>
                   <div className="flex flex-col items-start gap-2 md:items-end">
                     {item.followUps.map((followUp) => {
-                      const bookingId = item.bookingId;
-                      if (!bookingId) return null;
+                      const subjectId = item.followUpSubjectId ?? item.bookingId;
+                      if (!subjectId) return null;
                       return (
                         <OperationsFollowUpButton
                           key={`${item.key}:${followUp.party}`}
-                          bookingId={bookingId}
+                          subjectId={subjectId}
                           followUp={followUp}
                           talentName={item.talentName}
                           eventLabel={item.eventLabel}
