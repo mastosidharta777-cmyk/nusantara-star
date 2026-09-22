@@ -8,9 +8,10 @@ import { SUPPLY_CATEGORIES, supplyTypeLabel } from "@/lib/supply-onboarding";
 type Props = {
   ready: boolean;
   items: AdminSupplyInterest[];
+  emailDeliveryConfigured: boolean;
 };
 
-type InviteResult = { text: string; interestId: string } | null;
+type InviteResult = { text: string; interestId: string; deliveryMessage: string } | null;
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -23,7 +24,7 @@ function inviteText(email: string, url: string) {
   return `Halo ${email}, terima kasih atas minat bergabung dengan Nusantara Star. Silakan lengkapi profil melalui link aman ini: ${url}\n\nLink berlaku 7 hari. Setelah profil masuk, tim akan meninjau sebelum ada publikasi atau penawaran pekerjaan.`;
 }
 
-export function AdminSupplyInterestInbox({ ready, items }: Props) {
+export function AdminSupplyInterestInbox({ ready, items, emailDeliveryConfigured }: Props) {
   const [categories, setCategories] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +43,7 @@ export function AdminSupplyInterestInbox({ ready, items }: Props) {
           interestId: item.id,
           action,
           category: item.supply_type === "talent" ? (categories[item.id] ?? SUPPLY_CATEGORIES.talent[0]) : undefined,
+          sendEmail: emailDeliveryConfigured && action !== "archive",
         }),
       });
       const data = await response.json().catch(() => null);
@@ -53,7 +55,12 @@ export function AdminSupplyInterestInbox({ ready, items }: Props) {
       }
 
       const text = inviteText(item.email, data.url);
-      setResult({ interestId: item.id, text });
+      const deliveryMessage = data?.delivery?.status === "sent"
+        ? "Email undangan terkirim dan teksnya sudah disalin."
+        : data?.delivery?.status === "failed"
+          ? "Email belum terkirim; link aman sudah disalin agar tetap dapat dikirim manual."
+          : "Link aman sudah disalin. Email otomatis belum dikonfigurasi.";
+      setResult({ interestId: item.id, text, deliveryMessage });
       setLocalStatus((current) => ({ ...current, [item.id]: "invited" }));
       await navigator.clipboard?.writeText(text).catch(() => undefined);
     } catch (actionError) {
@@ -72,7 +79,7 @@ export function AdminSupplyInterestInbox({ ready, items }: Props) {
       <div className="flex flex-col gap-2 border-b border-black/10 px-5 py-4 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-sm font-semibold">Inbox Minat Supply</p>
-          <p className="mt-1 text-xs leading-5 text-black/45">Pendaftaran dari landing. Cek kecocokan dahulu, lalu buat satu undangan onboarding; profil tetap internal sampai ditinjau dan disiapkan untuk publik.</p>
+          <p className="mt-1 text-xs leading-5 text-black/45">Pendaftaran dari landing. Cek kecocokan dahulu, lalu buat satu undangan onboarding; profil tetap internal sampai ditinjau dan disiapkan untuk publik. {emailDeliveryConfigured ? "Email undangan otomatis aktif." : "Email otomatis belum tersambung; link tetap dapat disalin."}</p>
         </div>
         <span className="text-xs font-semibold text-black/45">{items.filter((item) => (localStatus[item.id] ?? item.status) === "new").length} baru</span>
       </div>
@@ -93,9 +100,9 @@ export function AdminSupplyInterestInbox({ ready, items }: Props) {
                   {item.supply_type === "talent" ? <select value={selectedCategory} onChange={(event) => setCategories((current) => ({ ...current, [item.id]: event.target.value }))} className="border border-black/15 bg-white px-3 py-2 text-xs font-medium">
                     {SUPPLY_CATEGORIES.talent.map((category) => <option key={category} value={category}>{category}</option>)}
                   </select> : <p className="text-xs leading-5 text-black/50">Layanan utama dipilih registrant saat onboarding.</p>}
-                  <div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => runAction(item, "create_invite")} className="border border-black bg-black px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">{busy ? "Memproses…" : "Buat undangan & salin"}</button><button type="button" disabled={busy} onClick={() => runAction(item, "archive")} className="border border-black/15 px-3 py-2 text-xs font-semibold disabled:opacity-40">Arsipkan</button></div>
-                </div> : status === "invited" ? <button type="button" disabled={busy} onClick={() => runAction(item, "copy_invite")} className="border border-black px-3 py-2 text-xs font-semibold disabled:opacity-40">{busy ? "Membuat…" : "Buat ulang & salin link"}</button> : <span className="text-xs text-black/45">Tidak ada aksi.</span>}
-                {result?.interestId === item.id ? <textarea readOnly value={result.text} className="mt-3 min-h-28 w-full border border-emerald-200 bg-emerald-50 p-2 text-xs leading-5 text-black/70" aria-label="Teks undangan yang sudah disalin" /> : null}
+                  <div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => runAction(item, "create_invite")} className="border border-black bg-black px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">{busy ? "Memproses…" : emailDeliveryConfigured ? "Kirim undangan & salin" : "Buat undangan & salin"}</button><button type="button" disabled={busy} onClick={() => runAction(item, "archive")} className="border border-black/15 px-3 py-2 text-xs font-semibold disabled:opacity-40">Arsipkan</button></div>
+                </div> : status === "invited" ? <button type="button" disabled={busy} onClick={() => runAction(item, "copy_invite")} className="border border-black px-3 py-2 text-xs font-semibold disabled:opacity-40">{busy ? "Membuat…" : emailDeliveryConfigured ? "Kirim ulang & salin" : "Buat ulang & salin link"}</button> : <span className="text-xs text-black/45">Tidak ada aksi.</span>}
+                {result?.interestId === item.id ? <><p className="mt-3 text-xs font-semibold text-emerald-700">{result.deliveryMessage}</p><textarea readOnly value={result.text} className="mt-2 min-h-28 w-full border border-emerald-200 bg-emerald-50 p-2 text-xs leading-5 text-black/70" aria-label="Teks undangan yang sudah disalin" /></> : null}
               </td>
             </tr>;
           })}</tbody>
