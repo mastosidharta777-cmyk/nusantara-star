@@ -38,7 +38,7 @@ export default async function AdminPage() {
           <div className="flex flex-col gap-3 border-b border-black/10 px-5 py-4 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm font-semibold">Operations Inbox</p>
-              <p className="mt-1 text-xs leading-5 text-black/45">Hanya exception yang membutuhkan perhatian. Status dihitung langsung dari data operasional; tidak membuat state baru.</p>
+              <p className="mt-1 text-xs leading-5 text-black/45">Exception pre-booking hingga settlement yang membutuhkan perhatian. Status dihitung langsung dari data operasional; tidak membuat state baru.</p>
             </div>
             <div className="flex gap-2 text-xs font-semibold">
               <span className="border border-red-200 bg-red-50 px-3 py-2 text-red-700">{operations.urgentCount} urgent</span>
@@ -64,16 +64,20 @@ export default async function AdminPage() {
                     {item.amount != null ? <p className="mt-1 text-sm font-semibold">{money(item.amount)}</p> : null}
                   </div>
                   <div className="flex flex-col items-start gap-2 md:items-end">
-                    {item.followUps.map((followUp) => (
-                      <OperationsFollowUpButton
-                        key={`${item.key}:${followUp.party}`}
-                        bookingId={item.bookingId}
-                        followUp={followUp}
-                        talentName={item.talentName}
-                        eventLabel={item.eventLabel}
-                        eventDate={item.eventDate}
-                      />
-                    ))}
+                    {item.followUps.map((followUp) => {
+                      const bookingId = item.bookingId;
+                      if (!bookingId) return null;
+                      return (
+                        <OperationsFollowUpButton
+                          key={`${item.key}:${followUp.party}`}
+                          bookingId={bookingId}
+                          followUp={followUp}
+                          talentName={item.talentName}
+                          eventLabel={item.eventLabel}
+                          eventDate={item.eventDate}
+                        />
+                      );
+                    })}
                     <Link href={`/admin/briefs/${item.briefId}`} className="w-fit font-semibold underline underline-offset-4">Review</Link>
                   </div>
                 </article>
