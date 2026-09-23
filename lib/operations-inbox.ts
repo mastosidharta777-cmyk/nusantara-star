@@ -14,6 +14,7 @@ export type OperationsInboxItem = {
   key: string;
   code:
     | "NEW_BRIEF_UNREVIEWED"
+    | "SUPPLY_INTEREST_UNREVIEWED"
     | "AVAILABILITY_RESPONSE_OVERDUE"
     | "ONBOARDING_NOT_STARTED"
     | "OPEN_INCIDENT"
@@ -79,6 +80,13 @@ type PendingOnboardingRow = {
   name: string | null;
   supply_type: "talent" | "professional" | "production_partner";
   manager_whatsapp: string | null;
+  created_at: string;
+};
+
+type NewSupplyInterestRow = {
+  id: string;
+  applicant_name: string | null;
+  supply_type: "talent" | "professional" | "production_partner";
   created_at: string;
 };
 
@@ -180,6 +188,7 @@ export async function loadOperationsInbox() {
     { data: newBriefsData, error: newBriefsError },
     { data: pendingAvailabilityData, error: pendingAvailabilityError },
     { data: pendingOnboardingData, error: pendingOnboardingError },
+    { data: newSupplyInterestData, error: newSupplyInterestError },
   ] = await Promise.all([
     supabase
       .from("bookings")
@@ -201,19 +210,57 @@ export async function loadOperationsInbox() {
       .select("id,name,supply_type,manager_whatsapp,created_at")
       .eq("onboarding_status", "not_started")
       .order("created_at", { ascending: true }),
+    supabase
+      .from("supply_interest_submissions")
+      .select("id,applicant_name,supply_type,created_at")
+      .eq("status", "new")
+      .order("created_at", { ascending: true }),
   ]);
 
   if (bookingsError) throw new Error(bookingsError.message);
   if (newBriefsError) throw new Error(newBriefsError.message);
   if (pendingAvailabilityError) throw new Error(pendingAvailabilityError.message);
   if (pendingOnboardingError) throw new Error(pendingOnboardingError.message);
+  if (newSupplyInterestError) throw new Error(newSupplyInterestError.message);
 
   const bookings = (bookingsData ?? []) as BookingRow[];
   const newBriefs = (newBriefsData ?? []) as NewBriefRow[];
   const pendingAvailability = (pendingAvailabilityData ?? []) as PendingAvailabilityRow[];
   const pendingOnboarding = (pendingOnboardingData ?? []) as PendingOnboardingRow[];
+  const newSupplyInterest = (newSupplyInterestData ?? []) as NewSupplyInterestRow[];
   const today = jakartaDateString();
   const items: OperationsInboxItem[] = [];
+
+  for (const interest of newSupplyInterest) {
+    const ageHours = hoursSince(interest.created_at);
+
+    // Curation is intentionally asynchronous, but a qualified applicant should not
+    // disappear into an unreviewed list. Seven days is an internal escalation, not a promise.
+    if (ageHours < 24) continue;
+
+    const supplyLabel = interest.supply_type === "talent"
+      ? "Talent"
+      : interest.supply_type === "professional"
+        ? "Professional"
+        : "Production Partner";
+    const applicantName = interest.applicant_name?.trim() || `Pendaftar ${supplyLabel}`;
+    items.push({
+      key: `${interest.id}:SUPPLY_INTEREST_UNREVIEWED`,
+      code: "SUPPLY_INTEREST_UNREVIEWED",
+      priority: ageHours >= 168 ? "urgent" : "action",
+      briefId: null,
+      bookingId: null,
+      talentName: applicantName,
+      eventLabel: `${supplyLabel} · kurasi roster`,
+      eventDate: null,
+      city: null,
+      title: `${applicantName} · minat supply belum ditinjau`,
+      detail: `Pendaftaran beserta portofolio masuk ${briefAgeLabel(ageHours)} lalu. Tinjau kelayakan sebelum mengirim undangan onboarding.`,
+      amount: null,
+      followUps: [],
+      reviewHref: "/admin#supply-interest-inbox",
+    });
+  }
 
   for (const brief of newBriefs) {
     const ageHours = hoursSince(brief.created_at);

@@ -97,7 +97,7 @@ export default async function AdminPage() {
           )}
         </section>
 
-        <AdminSupplyInterestInbox ready={supplyInterest.ready} items={supplyInterest.items} emailDeliveryConfigured={supplyInviteEmailConfigured()} />
+        <section id="supply-interest-inbox" className="scroll-mt-6"><AdminSupplyInterestInbox ready={supplyInterest.ready} items={supplyInterest.items} emailDeliveryConfigured={supplyInviteEmailConfigured()} /></section>
 
         <section className="mb-7 border border-black/10 bg-white p-5 md:p-6">
           <div className="mb-5"><p className="text-sm font-semibold">Pendaftaran Supply Baru</p><p className="mt-1 text-xs text-black/45">Admin menentukan jenis supply dan kategori sebelum link dibuat. Talent tetap memakai flow Talent yang sudah ada.</p></div>
