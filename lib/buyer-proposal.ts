@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createR2PresignedUrl } from "@/lib/r2-presign";
 import { youtubeEmbedUrlFromStorageKey } from "@/lib/youtube";
+import { formatEstimatedShowTime } from "@/lib/estimated-show-time";
 
 type BriefRow = {
   id: string;
@@ -48,6 +49,9 @@ type ProposalItemRow = {
   payment_terms: string | null;
   rider_exceptions: string | null;
   offer_valid_until: string | null;
+  show_start_local: string | null;
+  show_end_local: string | null;
+  show_timezone: string | null;
   talent_name_snapshot: string;
   talent_category_snapshot: string;
   talent_base_city_snapshot: string | null;
@@ -132,7 +136,7 @@ export async function loadBuyerProposal(briefId: string) {
 
   const { data: items, error: itemError } = await supabase
     .from("proposal_items")
-    .select("id,talent_id,buyer_price,price_breakdown,currency,availability_status,included_costs,excluded_costs,payment_terms,rider_exceptions,offer_valid_until,talent_name_snapshot,talent_category_snapshot,talent_base_city_snapshot,talent_genres_snapshot,talent_bio_snapshot,talent_profile_image_url_snapshot,match_score_snapshot,match_tier_snapshot,why_fit_snapshot,media_snapshot")
+    .select("id,talent_id,buyer_price,price_breakdown,currency,availability_status,included_costs,excluded_costs,payment_terms,rider_exceptions,offer_valid_until,show_start_local,show_end_local,show_timezone,talent_name_snapshot,talent_category_snapshot,talent_base_city_snapshot,talent_genres_snapshot,talent_bio_snapshot,talent_profile_image_url_snapshot,match_score_snapshot,match_tier_snapshot,why_fit_snapshot,media_snapshot")
     .eq("proposal_id", proposalRow.id)
     .order("match_score_snapshot", { ascending: false });
   if (itemError) throw new Error(itemError.message);
@@ -170,6 +174,7 @@ export async function loadBuyerProposal(briefId: string) {
       payment_terms: item.payment_terms,
       rider_exceptions: item.rider_exceptions,
       offer_valid_until: item.offer_valid_until,
+      confirmed_show_time: formatEstimatedShowTime({ startLocal: item.show_start_local, endLocal: item.show_end_local, timeZone: item.show_timezone }),
       score: item.match_score_snapshot,
       tier: item.match_tier_snapshot,
       why_fit: { id: Array.isArray(whyFit.id) ? whyFit.id : [], en: Array.isArray(whyFit.en) ? whyFit.en : [] },

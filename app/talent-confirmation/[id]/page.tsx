@@ -72,6 +72,7 @@ export default async function TalentConfirmationPage({ params, searchParams }: {
               <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
                 <p><span className="text-black/45">Ketersediaan:</span><br />{humanAvailability(offer.availability_status)}</p>
                 <p><span className="text-black/45">Fee untuk acara ini:</span><br />{money(offer.event_fee)}</p>
+                <p><span className="text-black/45">Jam tampil disepakati:</span><br />{formatEstimatedShowTime({ startLocal: offer.show_start_local, endLocal: offer.show_end_local, timeZone: offer.show_timezone }) ?? "Belum dikonfirmasi"}</p>
                 <p><span className="text-black/45">Ketentuan pembayaran:</span><br />{offer.payment_terms ?? "—"}</p>
                 <p><span className="text-black/45">Penawaran berlaku sampai:</span><br />{offer.quote_valid_until ? new Date(offer.quote_valid_until).toLocaleString("id-ID") : "—"}</p>
               </div>

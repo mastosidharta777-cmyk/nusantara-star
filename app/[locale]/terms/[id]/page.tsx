@@ -4,6 +4,7 @@ import { BuyerTermsAcceptance } from "@/components/buyer-terms-acceptance";
 import { isLocale } from "@/lib/i18n";
 import { loadBuyerTerms, type BuyerPaymentMilestone } from "@/lib/buyer-terms";
 import { verifyAccessToken } from "@/lib/signed-access";
+import { formatEstimatedShowTime } from "@/lib/estimated-show-time";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,7 @@ export default async function BuyerTermsPage({ params, searchParams }: { params:
   const isId = locale === "id";
   const { booking, deal, brief, talent, proposalItem, offer, snapshot, milestones, accepted, termsReady } = data;
   const offerValidUntil = snapshot?.offer_valid_until ?? offer.quote_valid_until;
+  const confirmedShowTime = snapshot ? formatEstimatedShowTime({ startLocal: snapshot.event.show_start_local ?? null, endLocal: snapshot.event.show_end_local ?? null, timeZone: snapshot.event.show_timezone ?? null }) : null;
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] px-5 py-10 text-[#171713] md:px-10 md:py-16">
@@ -60,6 +62,7 @@ export default async function BuyerTermsPage({ params, searchParams }: { params:
             [isId ? "Kota" : "City", snapshot?.event.city ?? booking.city ?? brief.city ?? "—"],
           ].map(([label, value]) => <div key={label} className="border border-black/10 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{label}</p><p className="mt-2 text-sm font-semibold">{value}</p></div>)}
         </section>
+        {confirmedShowTime ? <section className="mt-3 border border-black/10 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Jam tampil disepakati" : "Agreed performance time"}</p><p className="mt-2 text-sm font-semibold">{confirmedShowTime}</p></section> : null}
 
         <section className="mt-5 border border-black/10 bg-white p-5 md:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Harga untuk booking ini" : "Price for this booking"}</p>
