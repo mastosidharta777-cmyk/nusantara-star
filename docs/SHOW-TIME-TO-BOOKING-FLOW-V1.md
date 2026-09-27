@@ -5,7 +5,7 @@ Status: staged after the buyer estimate change. This document describes the actu
 | Stage | Source | Meaning / next gate |
 | --- | --- | --- |
 | Buyer brief | `briefs.estimated_show_*` | Optional proposed performance hours. No talent commitment. |
-| Manager response | `talent_offers.show_*` via `ns_record_availability_response_v2` | Required for new confirmed offers. Named Indonesian time zone and local start/end; an earlier end means the next calendar day. The same transaction records the fee, offer validity and response. |
+| Manager response | `talent_offers.show_*` via `ns_record_availability_response_v2` | Required for new confirmed offers. Named Indonesian time zone and local start/end; an earlier end means the next calendar day. The buyer's estimated zone is prefilled but the manager can correct it. The same transaction records the fee, offer validity and response. |
 | Admin proposal | `proposal_items.show_*` | Copy from a still valid confirmed offer. This is a frozen buyer-facing performance window; an old offer without hours cannot produce a new proposal. |
 | Buyer selection and deal | Selected `proposal_item_id` and `talent_offer_id` | Deal stays linked to the exact proposal and live offer. Reconfirm and issue a new proposal if the performance window changes. |
 | Booking preparation | `bookings.buyer_terms_snapshot.event.show_*` | Verify the frozen proposal and current offer match, then show hours to buyer before signed acceptance. Accepted snapshots remain immutable. |

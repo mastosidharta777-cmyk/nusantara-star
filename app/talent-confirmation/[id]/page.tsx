@@ -79,7 +79,7 @@ export default async function TalentConfirmationPage({ params, searchParams }: {
             </div>
           ) : null}
 
-          <AvailabilityResponseActions requestId={request.id} currentStatus={request.status} existingOffer={offer} accessToken={token} />
+          <AvailabilityResponseActions requestId={request.id} currentStatus={request.status} existingOffer={offer} suggestedTimezone={brief.estimated_show_timezone} accessToken={token} />
         </section>
         {!hosted ? <Link href={`/admin/briefs/${brief.id}`} className="mt-6 inline-block text-sm font-semibold text-black/55 hover:text-black">← Kembali ke Detail Permintaan</Link> : null}
       </div>

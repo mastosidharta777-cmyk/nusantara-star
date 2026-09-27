@@ -43,7 +43,7 @@ language plpgsql security definer set search_path = public
 as $$
 declare
   v_result jsonb;
-  v_brief public.briefs%rowtype;
+  v_event_date date;
 begin
   if p_status = 'confirmed' then
     if p_show_start_local is null or p_show_end_local is null
@@ -54,13 +54,9 @@ begin
        or p_show_timezone is null then
       raise exception 'Confirmed offer requires a valid show start, end and event time zone';
     end if;
-    select b.* into v_brief from public.availability_requests r
+    select b.event_date into v_event_date from public.availability_requests r
       join public.briefs b on b.id = r.brief_id where r.id = p_request_id;
-    if not found or v_brief.event_date is null then raise exception 'Event date is required'; end if;
-    if v_brief.estimated_show_timezone is not null
-       and v_brief.estimated_show_timezone <> p_show_timezone then
-      raise exception 'Show time zone differs from buyer brief; reconcile the event time zone first';
-    end if;
+    if not found or v_event_date is null then raise exception 'Event date is required'; end if;
   end if;
 
   -- The V1 function performs the availability and commercial writes in this

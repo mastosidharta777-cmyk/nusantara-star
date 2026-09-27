@@ -16,7 +16,7 @@ type ExistingOffer = {
   show_end_local: string | null;
   show_timezone: string | null;
 } | null;
-type Props = { requestId: string; currentStatus: string; existingOffer: ExistingOffer; accessToken?: string | null };
+type Props = { requestId: string; currentStatus: string; existingOffer: ExistingOffer; suggestedTimezone?: string | null; accessToken?: string | null };
 
 function toLocalDateTime(value: string | null | undefined) {
   if (!value) return "";
@@ -33,7 +33,7 @@ function initialStatus(currentStatus: string, existingOffer: ExistingOffer): Res
   return "";
 }
 
-export function AvailabilityResponseActions({ requestId, currentStatus, existingOffer, accessToken }: Props) {
+export function AvailabilityResponseActions({ requestId, currentStatus, existingOffer, suggestedTimezone, accessToken }: Props) {
   const router = useRouter();
   const [status, setStatus] = useState<ResponseStatus | "">(initialStatus(currentStatus, existingOffer));
   const [eventFee, setEventFee] = useState(existingOffer?.event_fee ? String(existingOffer.event_fee) : "");
@@ -44,7 +44,7 @@ export function AvailabilityResponseActions({ requestId, currentStatus, existing
   const [quoteValidUntil, setQuoteValidUntil] = useState(toLocalDateTime(existingOffer?.quote_valid_until));
   const [showStart, setShowStart] = useState(existingOffer?.show_start_local?.slice(0, 5) ?? "");
   const [showEnd, setShowEnd] = useState(existingOffer?.show_end_local?.slice(0, 5) ?? "");
-  const [showTimezone, setShowTimezone] = useState(existingOffer?.show_timezone ?? "");
+  const [showTimezone, setShowTimezone] = useState(existingOffer?.show_timezone ?? suggestedTimezone ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
