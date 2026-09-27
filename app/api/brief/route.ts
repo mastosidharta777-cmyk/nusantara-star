@@ -7,6 +7,7 @@ import { rankTalents } from "@/lib/talent-engine/matching";
 import { loadEngineTalents } from "@/lib/talent-engine/supabase-talents";
 import type { StructuredBrief } from "@/lib/talent-engine/types";
 import { isPublicLaunchLive } from "@/lib/launch-control";
+import { formatEstimatedShowTime, parseEstimatedShowTime } from "@/lib/estimated-show-time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -133,6 +134,12 @@ export async function POST(request: Request) {
     const input = body as Record<string, unknown>;
     const name = textValue(input.name, 120), company = textValue(input.company, 160), whatsapp = textValue(input.whatsapp, 50), email = textValue(input.email, 180).toLowerCase();
     const eventType = textValue(input.eventType, 120), date = textValue(input.date, 20), city = textValue(input.city, 120), venue = textValue(input.venue, 180), audience = textValue(input.audience, 30);
+    let estimatedShowTime;
+    try {
+      estimatedShowTime = parseEstimatedShowTime(textValue(input.showStart, 20), textValue(input.showEnd, 20), textValue(input.showTimeZone, 50));
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Perkiraan jam tampil tidak valid" }, { status: 400 });
+    }
     const category = textValue(input.category, 120), genre = textValue(input.genre, 180), budget = textValue(input.budget, 80), duration = textValue(input.duration, 80), notes = textValue(input.notes, 1500);
     let performanceFormat = textValue(input.performanceFormat, 160);
     const requestedTalentId = textValue(input.requestedTalentId, 100);
@@ -168,7 +175,7 @@ export async function POST(request: Request) {
             : source.brief.fieldEvidence?.specialRequirements,
         },
       };
-      const persisted = await persistBrief(directBrief, source.contact, { requestMode: "direct_talent", requestedTalentId: requestedTalent.id });
+      const persisted = await persistBrief(directBrief, source.contact, { requestMode: "direct_talent", requestedTalentId: requestedTalent.id, estimatedShowTime: source.estimatedShowTime });
       return NextResponse.json({
         ok: true,
         received: true,
@@ -207,6 +214,7 @@ export async function POST(request: Request) {
 
     const requestMode = requestedTalent ? "direct_talent" as const : "discovery" as const;
 
+    const estimatedShowLabel = formatEstimatedShowTime(estimatedShowTime);
     const sourceText = [
       `${eventType} pada ${date} di ${city}${venue ? `, venue ${venue}` : ""}.`,
       audience ? `Jumlah audiens ${audience} orang.` : "",
@@ -214,6 +222,7 @@ export async function POST(request: Request) {
       performanceFormat ? `Format penampilan yang diminta ${performanceFormat}.` : "",
       `Budget ${budget}.`,
       duration ? `Durasi tampil ${duration}.` : "",
+      estimatedShowLabel ? `Perkiraan jam tampil ${estimatedShowLabel}.` : "",
       requestedTalent ? `Buyer secara eksplisit memilih talent ${requestedTalent.name} dari profil Nusantara Star.` : "",
       notes ? `Catatan: ${notes}.` : "",
     ].filter(Boolean).join(" ");
@@ -238,7 +247,7 @@ export async function POST(request: Request) {
     const persisted = await persistBrief(
       brief,
       { name, company: company || null, whatsapp, email },
-      { requestMode, requestedTalentId: requestedTalent?.id ?? null },
+      { requestMode, requestedTalentId: requestedTalent?.id ?? null, estimatedShowTime },
     );
     if (!requestedTalent) await persistMatchSnapshot(persisted.id, matches);
 

@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 import type { StructuredBrief } from "@/lib/talent-engine/types";
+import type { EstimatedShowTime } from "@/lib/estimated-show-time";
 
 export type BuyerBriefContact = {
   name: string;
@@ -12,6 +13,7 @@ export type BuyerBriefContact = {
 export type BriefRequestContext = {
   requestMode?: "discovery" | "direct_talent";
   requestedTalentId?: string | null;
+  estimatedShowTime?: EstimatedShowTime;
 };
 
 function getServerClient() {
@@ -44,6 +46,9 @@ export async function persistBrief(brief: StructuredBrief, contact?: BuyerBriefC
     .insert({
       event_type: brief.eventType,
       event_date: brief.eventDate,
+      estimated_show_start_local: context?.estimatedShowTime?.startLocal ?? null,
+      estimated_show_end_local: context?.estimatedShowTime?.endLocal ?? null,
+      estimated_show_timezone: context?.estimatedShowTime?.timeZone ?? null,
       city: brief.city,
       venue: brief.venue,
       audience_size: brief.audienceSize,

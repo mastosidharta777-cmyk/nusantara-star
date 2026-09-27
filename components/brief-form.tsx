@@ -36,6 +36,7 @@ type SourceBrief = {
   genreStyle: string[];
   budget: string;
   duration: string;
+  estimatedShowTime: string | null;
 };
 
 type FieldProps = {
@@ -56,7 +57,7 @@ const Field = ({ label, name, type = "text", required = false, options, area = f
     ) : options ? (
       <select required={required} name={name} defaultValue={defaultValue ?? ""} className="h-13 w-full border border-black/25 bg-paper px-4 py-3 outline-none focus:border-ember">
         <option value="" disabled>—</option>
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+        {options.map((option) => <option key={option} value={option}>{name === "showTimeZone" ? ({ "Asia/Jakarta": "WIB (Jakarta)", "Asia/Makassar": "WITA (Bali / Makassar)", "Asia/Jayapura": "WIT (Papua)" } as Record<string, string>)[option] : option}</option>)}
       </select>
     ) : (
       <input required={required} defaultValue={defaultValue} type={type} name={name} className="h-13 w-full border border-black/25 bg-transparent px-4 py-3 outline-none focus:border-ember"/>
@@ -102,6 +103,9 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
       performanceFormat: isSelectedInquiry ? value("performanceFormat") : "",
       budget: value("budget"),
       duration: value("duration"),
+      showStart: value("showStart"),
+      showEnd: value("showEnd"),
+      showTimeZone: value("showTimeZone"),
       notes: value("notes"),
       website: value("website"),
       requestedTalentId: selectedTalent?.id ?? "",
@@ -253,6 +257,7 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
                   <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">{id ? "Tanggal" : "Date"}</span><strong>{sourceBrief.eventDate}</strong></div>
                   <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">{id ? "Kota" : "City"}</span><strong>{sourceBrief.city}</strong></div>
                   <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">Venue</span><strong>{sourceBrief.venue}</strong></div>
+                  <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">{id ? "Perkiraan jam tampil" : "Estimated show time"}</span><strong>{sourceBrief.estimatedShowTime ?? (id ? "Belum diketahui" : "Not yet known")}</strong></div>
                   <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">{id ? "Jumlah audiens" : "Audience size"}</span><strong>{sourceBrief.audienceSize ?? "Belum ditentukan"}</strong></div>
                   <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">Budget</span><strong>{sourceBrief.budget}</strong></div>
                   <div><span className="block text-[10px] font-bold uppercase tracking-[.14em] text-black/40">{id ? "Durasi" : "Duration"}</span><strong>{sourceBrief.duration}</strong></div>
@@ -278,6 +283,12 @@ export function BriefForm({ locale, copy: t, selectedTalent = null, initialCateg
                   <Field label={id ? "Kota" : "City"} name="city" required defaultValue={isSelectedInquiry ? initialCity : undefined}/>
                   <Field label="Venue" name="venue"/>
                   <Field label={id ? "Jumlah audiens" : "Audience size"} name="audience" type="number"/>
+                </div>
+                <p className="mt-6 text-sm text-black/55">{id ? "Perkiraan jam tampil (opsional). Isi keduanya bila sudah diketahui. Jam selesai lebih awal berarti selesai setelah tengah malam. Ini belum mengonfirmasi jadwal talent." : "Estimated show time (optional). Fill in both if known. An earlier end time means the show ends after midnight. This does not confirm the talent schedule."}</p>
+                <div className="mt-4 grid gap-6 md:grid-cols-3">
+                  <Field label={id ? "Mulai tampil" : "Show starts"} name="showStart" type="time"/>
+                  <Field label={id ? "Selesai tampil" : "Show ends"} name="showEnd" type="time"/>
+                  <Field label={id ? "Zona waktu" : "Time zone"} name="showTimeZone" options={["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"]}/>
                 </div>
               </fieldset>
             </>

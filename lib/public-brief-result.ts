@@ -3,11 +3,15 @@ import { createClient } from "@supabase/supabase-js";
 import { rankTalents } from "@/lib/talent-engine/matching";
 import { loadEngineTalents } from "@/lib/talent-engine/supabase-talents";
 import type { StructuredBrief } from "@/lib/talent-engine/types";
+import { formatEstimatedShowTime } from "@/lib/estimated-show-time";
 
 type BriefRow = {
   id: string;
   event_type: string | null;
   event_date: string | null;
+  estimated_show_start_local: string | null;
+  estimated_show_end_local: string | null;
+  estimated_show_timezone: string | null;
   city: string | null;
   venue: string | null;
   audience_size: number | null;
@@ -48,6 +52,7 @@ export type PublicBriefResult = {
     genreStyle: string[];
     budget: string;
     duration: string;
+    estimatedShowTime: string | null;
   };
 };
 
@@ -98,7 +103,7 @@ export async function loadPublicBriefResult(briefId: string): Promise<PublicBrie
   const supabase = getServerClient();
   const { data, error } = await supabase
     .from("briefs")
-    .select("id,event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,source_text")
+    .select("id,event_type,event_date,estimated_show_start_local,estimated_show_end_local,estimated_show_timezone,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,source_text")
     .eq("id", briefId)
     .eq("request_mode", "discovery")
     .maybeSingle();
@@ -134,6 +139,7 @@ export async function loadPublicBriefResult(briefId: string): Promise<PublicBrie
       genreStyle: data.genre_style ?? [],
       budget: budgetLabel(data as BriefRow),
       duration: durationLabel(data.performance_duration_minutes),
+      estimatedShowTime: formatEstimatedShowTime({ startLocal: data.estimated_show_start_local, endLocal: data.estimated_show_end_local, timeZone: data.estimated_show_timezone }),
     },
   };
 }
