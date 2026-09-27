@@ -243,7 +243,12 @@ export async function POST(request: Request) {
     }
 
     const { data: result, error: rpcError } = await supabase.rpc("ns_secure_booking_v1", { p_booking_id: existing.id });
-    if (rpcError) return NextResponse.json({ error: "Booking could not be secured" }, { status: 409 });
+    if (rpcError) {
+      if (rpcError.code === "23505" && rpcError.message.includes("bookings_one_active_talent_per_date_v1")) {
+        return NextResponse.json({ error: "Artis ini sudah memiliki booking aktif pada tanggal acara. Periksa booking terkait sebelum melanjutkan." }, { status: 409 });
+      }
+      return NextResponse.json({ error: "Booking could not be secured" }, { status: 409 });
+    }
     const row = Array.isArray(result) ? result[0] : result;
     return NextResponse.json({
       ok: true,
