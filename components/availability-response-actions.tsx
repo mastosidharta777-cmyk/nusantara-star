@@ -12,8 +12,11 @@ type ExistingOffer = {
   payment_terms: string | null;
   rider_exceptions: string | null;
   quote_valid_until: string | null;
+  show_start_local: string | null;
+  show_end_local: string | null;
+  show_timezone: string | null;
 } | null;
-type Props = { requestId: string; currentStatus: string; existingOffer: ExistingOffer; accessToken?: string | null };
+type Props = { requestId: string; currentStatus: string; existingOffer: ExistingOffer; suggestedTimezone?: string | null; accessToken?: string | null };
 
 function toLocalDateTime(value: string | null | undefined) {
   if (!value) return "";
@@ -30,7 +33,7 @@ function initialStatus(currentStatus: string, existingOffer: ExistingOffer): Res
   return "";
 }
 
-export function AvailabilityResponseActions({ requestId, currentStatus, existingOffer, accessToken }: Props) {
+export function AvailabilityResponseActions({ requestId, currentStatus, existingOffer, suggestedTimezone, accessToken }: Props) {
   const router = useRouter();
   const [status, setStatus] = useState<ResponseStatus | "">(initialStatus(currentStatus, existingOffer));
   const [eventFee, setEventFee] = useState(existingOffer?.event_fee ? String(existingOffer.event_fee) : "");
@@ -39,6 +42,9 @@ export function AvailabilityResponseActions({ requestId, currentStatus, existing
   const [excludedCosts, setExcludedCosts] = useState(existingOffer?.excluded_costs ?? "");
   const [riderExceptions, setRiderExceptions] = useState(existingOffer?.rider_exceptions ?? "");
   const [quoteValidUntil, setQuoteValidUntil] = useState(toLocalDateTime(existingOffer?.quote_valid_until));
+  const [showStart, setShowStart] = useState(existingOffer?.show_start_local?.slice(0, 5) ?? "");
+  const [showEnd, setShowEnd] = useState(existingOffer?.show_end_local?.slice(0, 5) ?? "");
+  const [showTimezone, setShowTimezone] = useState(existingOffer?.show_timezone ?? suggestedTimezone ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,6 +62,10 @@ export function AvailabilityResponseActions({ requestId, currentStatus, existing
       setError("Batas waktu penawaran wajib diisi jika talent tersedia.");
       return;
     }
+    if (status === "confirmed" && (!showStart || !showEnd || showStart === showEnd || !showTimezone)) {
+      setError("Isi jam mulai, jam selesai, dan zona waktu tampil yang sudah disetujui.");
+      return;
+    }
 
     setBusy(true);
     try {
@@ -71,6 +81,9 @@ export function AvailabilityResponseActions({ requestId, currentStatus, existing
           excludedCosts: status === "confirmed" && excludedCosts ? excludedCosts : null,
           riderExceptions: status === "confirmed" && riderExceptions ? riderExceptions : null,
           quoteValidUntil: status === "confirmed" && quoteValidUntil ? new Date(quoteValidUntil).toISOString() : null,
+          showStartLocal: status === "confirmed" ? showStart : null,
+          showEndLocal: status === "confirmed" ? showEnd : null,
+          showTimezone: status === "confirmed" ? showTimezone : null,
           accessToken,
         }),
       });
@@ -103,6 +116,12 @@ export function AvailabilityResponseActions({ requestId, currentStatus, existing
       {status === "confirmed" ? (
         <div className="mt-5 grid gap-4 border-t border-black/10 pt-5">
           <p className="text-sm font-semibold">Penawaran untuk acara ini</p>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-black/45">Mulai tampil *</span><input type="time" value={showStart} onChange={(e) => setShowStart(e.target.value)} className="w-full border border-black/20 px-3 py-2" /></label>
+            <label className="text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-black/45">Selesai tampil *</span><input type="time" value={showEnd} onChange={(e) => setShowEnd(e.target.value)} className="w-full border border-black/20 px-3 py-2" /></label>
+            <label className="text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-black/45">Zona waktu acara *</span><select value={showTimezone} onChange={(e) => setShowTimezone(e.target.value)} className="w-full border border-black/20 bg-white px-3 py-2"><option value="">Pilih zona</option><option value="Asia/Jakarta">WIB</option><option value="Asia/Makassar">WITA</option><option value="Asia/Jayapura">WIT</option></select></label>
+          </div>
+          <p className="text-xs text-black/50">Jam ini adalah komitmen tampil, bukan waktu kedatangan, soundcheck, atau jaminan tidak ada acara lain di hari yang sama. Jika selesai lebih awal dari mulai, sistem menafsirkan selesai pada hari berikutnya.</p>
           <label className="text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-black/45">Fee untuk Acara Ini (Rp) *</span><input type="number" min="1" value={eventFee} onChange={(e) => setEventFee(e.target.value)} className="w-full border border-black/20 px-3 py-2" /></label>
           <label className="text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-black/45">Ketentuan Pembayaran</span><textarea value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} className="min-h-20 w-full border border-black/20 px-3 py-2" /></label>
           <div className="grid gap-4 sm:grid-cols-2">

@@ -58,14 +58,20 @@ export async function POST(request: Request) {
       if (!deal.cancellation_terms?.trim()) return NextResponse.json({ error: "Cancellation terms are required before buyer terms start" }, { status: 409 });
 
       const [{ data: offer, error: offerError }, { data: proposalItem, error: itemError }, { data: talent, error: talentError }] = await Promise.all([
-        supabase.from("talent_offers").select("brief_id,talent_id,status,availability_status,quote_valid_until").eq("id", deal.talent_offer_id).single(),
-        supabase.from("proposal_items").select("id,talent_id,buyer_price,currency,price_breakdown,included_costs,excluded_costs").eq("id", deal.proposal_item_id).single(),
+        supabase.from("talent_offers").select("brief_id,talent_id,status,availability_status,quote_valid_until,show_start_local,show_end_local,show_timezone").eq("id", deal.talent_offer_id).single(),
+        supabase.from("proposal_items").select("id,talent_id,buyer_price,currency,price_breakdown,included_costs,excluded_costs,show_start_local,show_end_local,show_timezone").eq("id", deal.proposal_item_id).single(),
         supabase.from("talents").select("id,name").eq("id", deal.talent_id).single(),
       ]);
       if (offerError || !offer || offer.brief_id !== briefId || offer.talent_id !== deal.talent_id || offer.status !== "confirmed" || offer.availability_status !== "confirmed" || !offer.quote_valid_until || new Date(offer.quote_valid_until).getTime() <= Date.now()) {
         return NextResponse.json({ error: "Talent offer requires reconfirmation before booking security starts" }, { status: 409 });
       }
       if (itemError || !proposalItem || proposalItem.talent_id !== deal.talent_id) return NextResponse.json({ error: "Selected proposal snapshot is missing or inconsistent" }, { status: 409 });
+      if (!proposalItem.show_start_local || !proposalItem.show_end_local || !proposalItem.show_timezone
+        || proposalItem.show_start_local !== offer.show_start_local
+        || proposalItem.show_end_local !== offer.show_end_local
+        || proposalItem.show_timezone !== offer.show_timezone) {
+        return NextResponse.json({ error: "Confirmed show time changed or is missing; reconfirm offer and issue a revised proposal" }, { status: 409 });
+      }
       if (talentError || !talent) return NextResponse.json({ error: "Selected talent could not be loaded" }, { status: 409 });
 
       const buyerSchedule = Array.isArray(deal.buyer_payment_schedule) ? deal.buyer_payment_schedule : [];
@@ -99,6 +105,9 @@ export async function POST(request: Request) {
           price_breakdown: proposalItem.price_breakdown,
           included_costs: proposalItem.included_costs,
           excluded_costs: proposalItem.excluded_costs,
+          show_start_local: proposalItem.show_start_local,
+          show_end_local: proposalItem.show_end_local,
+          show_timezone: proposalItem.show_timezone,
         },
         offerValidUntil: offer.quote_valid_until,
       });

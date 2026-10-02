@@ -80,6 +80,7 @@ export default async function ProposalPage({ params, searchParams }: { params: P
 
                       <div className="mt-5 grid gap-3 border-t border-black/10 pt-4">
                         <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Ketersediaan" : "Availability"}</p><p className="mt-2 text-sm font-semibold">{talent.availability_status === "confirmed" ? isId ? "Terkonfirmasi" : "Confirmed" : talent.availability_status}</p></div>
+                        {talent.confirmed_show_time ? <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Jam tampil dikonfirmasi" : "Confirmed performance time"}</p><p className="mt-2 text-sm font-semibold">{talent.confirmed_show_time}</p></div> : null}
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{isId ? "Rincian penawaran" : "Offer breakdown"}</p>
                           <div className="mt-2 divide-y divide-black/10 border border-black/10">

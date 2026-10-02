@@ -24,6 +24,9 @@ export type BuyerTermsSnapshot = {
     talent_name: string;
     event_type: string | null;
     event_date: string;
+    show_start_local?: string | null;
+    show_end_local?: string | null;
+    show_timezone?: string | null;
     city: string | null;
     venue: string | null;
   };
@@ -91,6 +94,9 @@ export function buildBuyerTermsSnapshot(input: {
     price_breakdown: unknown;
     included_costs: string | null;
     excluded_costs: string | null;
+    show_start_local?: string | null;
+    show_end_local?: string | null;
+    show_timezone?: string | null;
   };
   offerValidUntil: string;
 }): BuyerTermsSnapshot {
@@ -126,6 +132,9 @@ export function buildBuyerTermsSnapshot(input: {
       talent_name: input.talent.name,
       event_type: input.brief.event_type,
       event_date: input.brief.event_date,
+      show_start_local: input.proposalItem.show_start_local ?? null,
+      show_end_local: input.proposalItem.show_end_local ?? null,
+      show_timezone: input.proposalItem.show_timezone ?? null,
       city: input.brief.city,
       venue: input.brief.venue,
     },

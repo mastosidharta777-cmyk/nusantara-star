@@ -25,6 +25,9 @@ type OfferSnapshot = {
   payment_terms: string | null;
   rider_exceptions: string | null;
   quote_valid_until: string | null;
+  show_start_local: string | null;
+  show_end_local: string | null;
+  show_timezone: string | null;
 };
 type TalentSnapshot = {
   id: string;
@@ -154,7 +157,7 @@ async function attachMedia(supabase: SupabaseClient, candidates: Omit<ReadyCandi
 async function loadReadyCandidates(supabase: SupabaseClient, briefId: string, mode: BriefMode): Promise<ReadyCandidate[]> {
   const [{ data: approvedMatches, error: matchError }, { data: offers, error: offerError }, { data: talents, error: talentError }] = await Promise.all([
     supabase.from("match_results").select("talent_id,score,tier,score_breakdown").eq("brief_id", briefId).eq("admin_approved", true).eq("admin_rejected", false).order("score", { ascending: false }),
-    supabase.from("talent_offers").select("id,talent_id,status,availability_status,event_fee,currency,included_costs,excluded_costs,payment_terms,rider_exceptions,quote_valid_until").eq("brief_id", briefId).eq("status", "confirmed").eq("availability_status", "confirmed"),
+    supabase.from("talent_offers").select("id,talent_id,status,availability_status,event_fee,currency,included_costs,excluded_costs,payment_terms,rider_exceptions,quote_valid_until,show_start_local,show_end_local,show_timezone").eq("brief_id", briefId).eq("status", "confirmed").eq("availability_status", "confirmed"),
     supabase.from("talents").select("id,name,category,base_city,genres,bio,profile_image_url"),
   ]);
   if (matchError) throw new Error(matchError.message);
@@ -164,7 +167,7 @@ async function loadReadyCandidates(supabase: SupabaseClient, briefId: string, mo
   const nowMs = Date.now();
   const offerMap = new Map(
     (offers ?? [])
-      .filter((offer) => Boolean(offer.quote_valid_until) && new Date(String(offer.quote_valid_until)).getTime() > nowMs)
+      .filter((offer) => Boolean(offer.quote_valid_until) && new Date(String(offer.quote_valid_until)).getTime() > nowMs && Boolean(offer.show_start_local && offer.show_end_local && offer.show_timezone))
       .map((offer) => [offer.talent_id, offer]),
   );
   const talentMap = new Map((talents ?? []).map((talent) => [talent.id, talent]));
@@ -300,6 +303,9 @@ export async function POST(request: Request) {
       payment_terms: buyerPaymentTerms,
       rider_exceptions: offer.rider_exceptions,
       offer_valid_until: offer.quote_valid_until,
+      show_start_local: offer.show_start_local,
+      show_end_local: offer.show_end_local,
+      show_timezone: offer.show_timezone,
       talent_name_snapshot: talent.name,
       talent_category_snapshot: talent.category,
       talent_base_city_snapshot: talent.base_city,

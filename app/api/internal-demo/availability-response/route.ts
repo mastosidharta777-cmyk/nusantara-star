@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { verifyAccessToken } from "@/lib/signed-access";
+import { parseEstimatedShowTime } from "@/lib/estimated-show-time";
 
 export const runtime = "nodejs";
 type ResponseStatus = "confirmed" | "tentative" | "unavailable" | "no_response";
@@ -41,9 +42,22 @@ export async function POST(request: Request) {
     if (status === "confirmed" && !quoteValidUntil) {
       return NextResponse.json({ error: "Confirmed offer requires a future quote validity" }, { status: 409 });
     }
+    let showTime: ReturnType<typeof parseEstimatedShowTime> = { startLocal: null, endLocal: null, timeZone: null };
+    if (status === "confirmed") {
+      try {
+        showTime = parseEstimatedShowTime(
+          typeof body?.showStartLocal === "string" ? body.showStartLocal : "",
+          typeof body?.showEndLocal === "string" ? body.showEndLocal : "",
+          typeof body?.showTimezone === "string" ? body.showTimezone : "",
+        );
+        if (!showTime.startLocal) throw new Error("Missing confirmed show time");
+      } catch {
+        return NextResponse.json({ error: "Confirmed offer requires show start, end, and event time zone" }, { status: 400 });
+      }
+    }
 
     const supabase = getServerClient();
-    const { data, error } = await supabase.rpc("ns_record_availability_response_v1", {
+    const { data, error } = await supabase.rpc("ns_record_availability_response_v2", {
       p_request_id: requestId,
       p_status: status,
       p_event_fee: eventFee,
@@ -52,6 +66,9 @@ export async function POST(request: Request) {
       p_payment_terms: nullableText(body?.paymentTerms),
       p_rider_exceptions: nullableText(body?.riderExceptions),
       p_quote_valid_until: quoteValidUntil,
+      p_show_start_local: showTime.startLocal,
+      p_show_end_local: showTime.endLocal,
+      p_show_timezone: showTime.timeZone,
     });
     if (error) {
       const message = error.message || "Availability response failed";
