@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
+import { formatEstimatedShowTime } from "@/lib/estimated-show-time";
 import { notFound } from "next/navigation";
 
 import { AdminBookingActions } from "@/components/admin-booking-actions";
@@ -110,6 +111,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
             <article key={label} className="border border-black/10 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">{label}</p><p className="mt-3 text-sm font-semibold">{value}</p></article>
           ))}
         </section>
+        <p className="mb-7 text-sm text-black/60">Perkiraan jam tampil dari buyer: {formatEstimatedShowTime({ startLocal: row.estimated_show_start_local, endLocal: row.estimated_show_end_local, timeZone: row.estimated_show_timezone }) ?? "Belum diketahui"}. Wajib dikonfirmasi bersama jam kedatangan dan perjalanan sebelum komitmen booking.</p>
 
         <section className="mb-7 border border-black/10 bg-white">
           <div className="border-b border-black/10 px-5 py-4">

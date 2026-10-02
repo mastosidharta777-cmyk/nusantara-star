@@ -4,11 +4,15 @@ import { createClient } from "@supabase/supabase-js";
 
 import type { BuyerBriefContact } from "@/lib/brief-persistence";
 import type { StructuredBrief } from "@/lib/talent-engine/types";
+import type { EstimatedShowTime } from "@/lib/estimated-show-time";
 
 type ContinuationRow = {
   id: string;
   event_type: string | null;
   event_date: string | null;
+  estimated_show_start_local: string | null;
+  estimated_show_end_local: string | null;
+  estimated_show_timezone: string | null;
   city: string | null;
   venue: string | null;
   audience_size: number | null;
@@ -38,12 +42,12 @@ export function isBriefReference(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-export async function loadBriefContinuation(briefId: string): Promise<{ brief: StructuredBrief; contact: BuyerBriefContact } | null> {
+export async function loadBriefContinuation(briefId: string): Promise<{ brief: StructuredBrief; contact: BuyerBriefContact; estimatedShowTime: EstimatedShowTime } | null> {
   if (!isBriefReference(briefId)) return null;
 
   const { data, error } = await getServerClient()
     .from("briefs")
-    .select("id,event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,source_text,field_evidence,buyer_name,buyer_company,buyer_whatsapp,buyer_email")
+    .select("id,event_type,event_date,estimated_show_start_local,estimated_show_end_local,estimated_show_timezone,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,source_text,field_evidence,buyer_name,buyer_company,buyer_whatsapp,buyer_email")
     .eq("id", briefId)
     .eq("request_mode", "discovery")
     .maybeSingle();
@@ -54,6 +58,11 @@ export async function loadBriefContinuation(briefId: string): Promise<{ brief: S
   if (!row.buyer_name || !row.buyer_whatsapp || !row.buyer_email) return null;
 
   return {
+    estimatedShowTime: {
+      startLocal: row.estimated_show_start_local,
+      endLocal: row.estimated_show_end_local,
+      timeZone: row.estimated_show_timezone,
+    },
     brief: {
       eventType: row.event_type,
       eventDate: row.event_date,

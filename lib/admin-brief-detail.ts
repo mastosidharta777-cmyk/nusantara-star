@@ -14,6 +14,9 @@ type BriefRow = {
   id: string;
   event_type: string | null;
   event_date: string | null;
+  estimated_show_start_local: string | null;
+  estimated_show_end_local: string | null;
+  estimated_show_timezone: string | null;
   city: string | null;
   venue: string | null;
   audience_size: number | null;
@@ -185,7 +188,7 @@ export async function loadAdminBriefDetail(id: string) {
   const [{ data, error }, persistedMatchesResult, availabilityRequestsResult, buyerSelectionResult, commercialTermsResult, bookingResult] = await Promise.all([
     supabase
       .from("briefs")
-      .select("id,event_type,event_date,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,source_text,field_evidence,request_mode,requested_talent_id,status,created_at")
+      .select("id,event_type,event_date,estimated_show_start_local,estimated_show_end_local,estimated_show_timezone,city,venue,audience_size,talent_category,genre_style,budget_min,budget_max,performance_duration_minutes,event_vibe,special_requirements,source_text,field_evidence,request_mode,requested_talent_id,status,created_at")
       .eq("id", id)
       .single(),
     supabase

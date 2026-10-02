@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { AvailabilityResponseActions } from "@/components/availability-response-actions";
 import { loadAvailabilityResponseDetail } from "@/lib/availability-response-detail";
 import { verifyAccessToken } from "@/lib/signed-access";
+import { formatEstimatedShowTime } from "@/lib/estimated-show-time";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export default async function TalentConfirmationPage({ params, searchParams }: {
           <div className="grid gap-4 sm:grid-cols-2">
             <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Acara</p><p className="mt-2 font-semibold">{brief.event_type ?? "—"}</p></div>
             <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Tanggal</p><p className="mt-2 font-semibold">{brief.event_date ?? "—"}</p></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Perkiraan jam tampil dari buyer</p><p className="mt-2 font-semibold">{formatEstimatedShowTime({ startLocal: brief.estimated_show_start_local, endLocal: brief.estimated_show_end_local, timeZone: brief.estimated_show_timezone }) ?? "Belum diinformasikan"}</p></div>
             <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Kota</p><p className="mt-2 font-semibold">{brief.city ?? "—"}</p></div>
             <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Lokasi / Venue</p><p className="mt-2 font-semibold">{brief.venue ?? "Belum diinformasikan"}</p></div>
             <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/40">Kategori</p><p className="mt-2 font-semibold">{brief.talent_category ?? "—"}</p></div>
