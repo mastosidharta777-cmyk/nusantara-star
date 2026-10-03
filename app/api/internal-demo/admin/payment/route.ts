@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { commercialIntegrityReady } from "@/lib/commercial-integrity";
+import { lateTransferReconciliationReady } from "@/lib/booking-reservation-readiness";
 
 export const runtime = "nodejs";
 
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null);
     const action = typeof body?.action === "string" ? body.action : "";
     const bookingId = typeof body?.bookingId === "string" ? body.bookingId : "";
-    if (!bookingId || !["create_next_buyer_payment", "mark_paid"].includes(action)) return NextResponse.json({ error: "Invalid payment action" }, { status: 400 });
+    if (!bookingId || !["create_next_buyer_payment", "mark_paid", "accept_late_transfer", "reject_late_transfer"].includes(action)) return NextResponse.json({ error: "Invalid payment action" }, { status: 400 });
 
     const supabase = getServerClient();
     const { data: booking, error: bookingError } = await supabase
@@ -42,6 +43,27 @@ export async function POST(request: Request) {
     if (!buyerTermsAccepted) return NextResponse.json({ error: "Buyer terms must be accepted before buyer payment security starts" }, { status: 409 });
 
     const integrityReady = await commercialIntegrityReady(supabase);
+
+    if (action === "accept_late_transfer" || action === "reject_late_transfer") {
+      if (!integrityReady) return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
+      if (!(await lateTransferReconciliationReady(supabase))) return NextResponse.json({ error: "Late-transfer reconciliation cutover is not complete" }, { status: 503 });
+      if (process.env.VERCEL_ENV && request.headers.get("x-ns-admin-verified") !== "1") return NextResponse.json({ error: "Verified admin identity is required" }, { status: 401 });
+      const reconciledBy = request.headers.get("x-ns-admin-user")?.trim() || (!process.env.VERCEL_ENV ? "local-development-admin" : "");
+      const paymentId = typeof body?.paymentId === "string" ? body.paymentId : "";
+      const reconciliationNote = typeof body?.reconciliationNote === "string" ? body.reconciliationNote.trim() : "";
+      if (!paymentId || reconciledBy.length < 3 || reconciliationNote.length < 10) return NextResponse.json({ error: "Payment, identitas admin, dan catatan keputusan minimal 10 karakter wajib tersedia" }, { status: 400 });
+      if (action === "accept_late_transfer") {
+        const { data, error } = await supabase.rpc("ns_accept_late_buyer_transfer_v1", { p_booking_id: bookingId, p_payment_id: paymentId, p_reconciled_by: reconciledBy, p_reconciliation_note: reconciliationNote });
+        if (error) return NextResponse.json({ error: error.message }, { status: 409 });
+        return NextResponse.json({ ok: true, payment: data, paymentStatus: "paid", bookingStatus: booking.status });
+      }
+      const returnProvider = typeof body?.returnProvider === "string" ? body.returnProvider.trim() : "";
+      const returnReference = typeof body?.returnReference === "string" ? body.returnReference.trim() : "";
+      if (returnProvider.length < 2 || returnReference.length < 3) return NextResponse.json({ error: "Bukti pengembalian dana wajib tersedia" }, { status: 400 });
+      const { data, error } = await supabase.rpc("ns_reject_late_buyer_transfer_v1", { p_booking_id: bookingId, p_payment_id: paymentId, p_reconciled_by: reconciledBy, p_reconciliation_note: reconciliationNote, p_return_provider: returnProvider, p_return_reference: returnReference, p_returned_at: new Date().toISOString() });
+      if (error) return NextResponse.json({ error: error.message }, { status: 409 });
+      return NextResponse.json({ ok: true, payment: data, paymentStatus: "refunded", bookingStatus: booking.status });
+    }
 
     if (action === "create_next_buyer_payment") {
       if (!integrityReady) return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
