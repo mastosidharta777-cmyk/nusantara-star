@@ -42,6 +42,12 @@ type Payment = {
   request_issued_at?: string | null;
   request_due_date?: string | null;
   payment_instructions_snapshot?: Record<string, unknown> | null;
+  request_expires_at?: string | null;
+  receipt_timing?: "on_time" | "late" | null;
+  reconciliation_status?: "pending" | "accepted" | "rejected" | null;
+  reconciliation_note?: string | null;
+  reconciled_at?: string | null;
+  reconciled_by?: string | null;
 };
 
 const BUYER_PAYMENT_TYPES = new Set(["buyer_deposit", "buyer_balance", "buyer_full_payment"]);
@@ -96,6 +102,9 @@ export function AdminBookingActions({
 
   const [paymentProvider, setPaymentProvider] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
+  const [reconciliationNote, setReconciliationNote] = useState("");
+  const [returnProvider, setReturnProvider] = useState("");
+  const [returnReference, setReturnReference] = useState("");
 
   const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
   const [providerName, setProviderName] = useState("");
@@ -138,6 +147,11 @@ export function AdminBookingActions({
         setPaymentProvider("");
         setPaymentReference("");
       }
+      if (action === "accept_late_transfer" || action === "reject_late_transfer") {
+        setReconciliationNote("");
+        setReturnProvider("");
+        setReturnReference("");
+      }
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Aksi pembayaran gagal");
@@ -157,6 +171,7 @@ export function AdminBookingActions({
     .filter((payment) => payment.status === "paid" && Boolean(payment.provider?.trim()) && Boolean(payment.provider_reference?.trim()))
     .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
   const pendingPayment = buyerPayments.find((payment) => payment.status === "pending");
+  const pendingLateReconciliation = Boolean(pendingPayment?.receipt_timing === "late" && pendingPayment.reconciliation_status === "pending");
   const fullyPaid = Boolean(booking?.buyer_price && paidTotal >= Number(booking.buyer_price));
   const requestFormReady = Boolean(providerName.trim() && destination.trim());
 
@@ -216,29 +231,51 @@ export function AdminBookingActions({
           <p className="text-sm font-semibold">{paymentTypeLabel(pendingPayment.payment_type)} · {money(pendingPayment.amount)}</p>
           <p className="mt-1 text-xs text-black/45">Reference: {pendingPayment.request_reference ?? "—"} · Jatuh tempo: {dueLabel(pendingPayment.request_due_date)}</p>
         </div>
-        <span className="w-fit border border-black/15 px-2 py-1 text-xs font-semibold uppercase">Menunggu pembayaran</span>
+        <span className="w-fit border border-black/15 px-2 py-1 text-xs font-semibold uppercase">{pendingLateReconciliation ? "Menunggu rekonsiliasi" : "Menunggu pembayaran"}</span>
       </div>
-      <div className="mt-4">
-        <SecureAccessLinkButton scope="buyer_payment" subjectId={pendingPayment.id} label="Buat link Payment Request buyer" delivery="copy" />
-      </div>
-      <div className="mt-5 border-t border-black/10 pt-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/45">Verifikasi uang masuk</p>
-        <p className="mt-1 text-xs leading-5 text-black/45">
-          Isi hanya setelah transaksi benar-benar terlihat pada bank/provider. Bukti transfer dari buyer saja tidak mengubah status menjadi paid.
-        </p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <input value={paymentProvider} onChange={(event) => setPaymentProvider(event.target.value)} placeholder="Bank / provider penerima" className="border border-black/15 p-2 text-sm" />
-          <input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Referensi transaksi aktual" className="border border-black/15 p-2 text-sm" />
+
+      {pendingLateReconciliation ? (
+        <div className="mt-5 border-t border-black/10 pt-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/45">Transfer masuk setelah cutoff</p>
+          <p className="mt-1 text-xs leading-5 text-black/45">Uang sudah terverifikasi masuk, tetapi tidak mengamankan booking otomatis. Admin harus menerima transfer atau mengembalikan penuh dan menolaknya.</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="border border-black/10 bg-[#f5f3ee] p-3 text-xs"><span className="text-black/45">Provider masuk</span><br /><strong>{pendingPayment.provider ?? "—"}</strong></div>
+            <div className="border border-black/10 bg-[#f5f3ee] p-3 text-xs"><span className="text-black/45">Referensi masuk</span><br /><strong>{pendingPayment.provider_reference ?? "—"}</strong></div>
+          </div>
+          <textarea value={reconciliationNote} onChange={(event) => setReconciliationNote(event.target.value)} rows={2} placeholder="Alasan keputusan rekonsiliasi (min. 10 karakter)" className="mt-3 w-full border border-black/15 p-2 text-sm" />
+          <button type="button" onClick={() => paymentAction("accept_late_transfer", pendingPayment.id, { reconciliationNote: reconciliationNote.trim() })} disabled={busy !== null || reconciliationNote.trim().length < 10} className="mt-3 bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+            {busy === "accept_late_transfer" ? "Menerima…" : "Terima transfer terlambat"}
+          </button>
+          <div className="mt-5 border-t border-black/10 pt-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/45">Atau kembalikan dan tolak</p>
+            <p className="mt-1 text-xs leading-5 text-black/45">Penolakan baru selesai setelah bukti pengembalian dana penuh dicatat.</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <input value={returnProvider} onChange={(event) => setReturnProvider(event.target.value)} placeholder="Provider/bank pengembalian" className="border border-black/15 p-2 text-sm" />
+              <input value={returnReference} onChange={(event) => setReturnReference(event.target.value)} placeholder="Referensi transaksi pengembalian" className="border border-black/15 p-2 text-sm" />
+            </div>
+            <button type="button" onClick={() => paymentAction("reject_late_transfer", pendingPayment.id, { reconciliationNote: reconciliationNote.trim(), returnProvider: returnProvider.trim(), returnReference: returnReference.trim() })} disabled={busy !== null || reconciliationNote.trim().length < 10 || returnProvider.trim().length < 2 || returnReference.trim().length < 3} className="mt-3 border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40">
+              {busy === "reject_late_transfer" ? "Mencatat pengembalian…" : "Dana sudah dikembalikan · Tolak transfer"}
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => paymentAction("mark_paid", pendingPayment.id, { provider: paymentProvider.trim(), providerReference: paymentReference.trim() })}
-          disabled={busy !== null || !paymentProvider.trim() || !paymentReference.trim()}
-          className="mt-3 bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
-        >
-          {busy === "mark_paid" ? "Memverifikasi…" : "Verifikasi pembayaran masuk"}
-        </button>
-      </div>
+      ) : (
+        <>
+          <div className="mt-4">
+            <SecureAccessLinkButton scope="buyer_payment" subjectId={pendingPayment.id} label="Buat link Payment Request buyer" delivery="copy" />
+          </div>
+          <div className="mt-5 border-t border-black/10 pt-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/45">Verifikasi uang masuk</p>
+            <p className="mt-1 text-xs leading-5 text-black/45">Isi hanya setelah transaksi benar-benar terlihat pada bank/provider. Bukti transfer dari buyer saja tidak mengubah status menjadi paid.</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <input value={paymentProvider} onChange={(event) => setPaymentProvider(event.target.value)} placeholder="Bank / provider penerima" className="border border-black/15 p-2 text-sm" />
+              <input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Referensi transaksi aktual" className="border border-black/15 p-2 text-sm" />
+            </div>
+            <button type="button" onClick={() => paymentAction("mark_paid", pendingPayment.id, { provider: paymentProvider.trim(), providerReference: paymentReference.trim() })} disabled={busy !== null || !paymentProvider.trim() || !paymentReference.trim()} className="mt-3 bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+              {busy === "mark_paid" ? "Memverifikasi…" : "Verifikasi pembayaran masuk"}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   ) : null;
 
