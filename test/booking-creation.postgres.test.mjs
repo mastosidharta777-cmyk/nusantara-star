@@ -16,6 +16,7 @@ before(async () => {
   await db.exec(await file('../supabase-booking-schedule-hold-foundation-v1.sql'));
   await db.exec(await file('../supabase-payment-request-cutoff-v1.sql'));
   await db.exec(await file('../supabase-booking-reservation-security-v1.sql'));
+  await db.exec(await file('../supabase-late-transfer-reconciliation-v1.sql'));
 });
 after(async () => { if (db) await db.close(); });
 
@@ -422,4 +423,77 @@ test('pre-security abandonment revokes buyer links and releases only a zero-mone
     from bookings b join booking_schedule_reservations r on r.booking_id=b.id
     join payments p on p.booking_id=b.id where b.id=$1`, [pending.bookingId])).rows[0];
   assert.deepEqual(unchanged, { booking: 'pending_security', reservation: 'held', payment: 'pending' });
+});
+
+
+async function agePaymentRequest(paymentId) {
+  await db.exec('alter table payments disable trigger trg_protect_payment_request_snapshot_v1');
+  await db.exec('alter table payments disable trigger trg_guard_buyer_payment_cutoff_v1');
+  try {
+    await db.query("update payments set request_expires_at=now()-interval '1 minute' where id=$1", [paymentId]);
+  } finally {
+    await db.exec('alter table payments enable trigger trg_guard_buyer_payment_cutoff_v1');
+    await db.exec('alter table payments enable trigger trg_protect_payment_request_snapshot_v1');
+  }
+}
+
+async function seedSecuredWithBalance() {
+  const buyerSchedule = [
+    { milestone_type: 'booking_fee', sequence_no: 1, calculation_type: 'fixed_amount', amount: 200000, due_basis: 'booking_date', due_offset_days: 0 },
+    { milestone_type: 'balance', sequence_no: 2, calculation_type: 'remaining_balance', due_basis: 'invoice_date', due_offset_days: 1 },
+  ];
+  const s = await seed({ buyerSchedule });
+  const b = await create(s);
+  await db.query('select ns_accept_buyer_terms_v1($1)', [b.bookingId]);
+  await db.query("update payment_milestones set status='paid' where booking_id=$1 and party='buyer' and sequence_no=1", [b.bookingId]);
+  await db.query('select ns_record_manual_booking_security_v1($1,$2,$3,$4,$5,$6)',
+    [b.bookingId, 'approved_po_credit', 'FIXTURE-POST-SECURITY', 1000000,
+      'Fixture verified post-security payment approval.', reviewer]);
+  await db.query('select ns_secure_booking_v1($1)', [b.bookingId]);
+  const request = (await db.query('select ns_create_buyer_payment_request_v1($1,$2::jsonb) as p',
+    [b.bookingId, JSON.stringify({ method:'bank_transfer',provider_name:'Fixture Bank',destination:'123456' })])).rows[0].p;
+  return { s, b, request };
+}
+
+test('post-security balance request can be issued and late acceptance never auto-secures a transition', async () => {
+  const { b, request } = await seedSecuredWithBalance();
+  assert.equal(request.amount, 800000);
+  await agePaymentRequest(request.id);
+  const recorded = (await db.query('select ns_record_buyer_payment_v1($1,$2,$3,$4,now()) as r',
+    [b.bookingId, request.id, 'Fixture Bank', 'LATE-ACCEPT-1'])).rows[0].r;
+  assert.equal(recorded.status, 'pending_reconciliation');
+  const accepted = (await db.query('select ns_accept_late_buyer_transfer_v1($1,$2,$3,$4) as r',
+    [b.bookingId, request.id, reviewer, 'Verified late balance accepted by finance.'])).rows[0].r;
+  assert.equal(accepted.reconciliationStatus, 'accepted');
+  assert.equal(accepted.bookingSecured, false);
+  assert.equal((await db.query('select status from bookings where id=$1',[b.bookingId])).rows[0].status, 'secured');
+  const retry = (await db.query('select ns_accept_late_buyer_transfer_v1($1,$2,$3,$4) as r',
+    [b.bookingId, request.id, reviewer, 'Verified late balance accepted by finance.'])).rows[0].r;
+  assert.equal(retry.alreadyReconciled, true);
+  await assert.rejects(db.query('select ns_accept_late_buyer_transfer_v1($1,$2,$3,$4)',
+    [b.bookingId, request.id, reviewer, 'Different acceptance decision note must fail.']), /retry audit differs/);
+});
+
+test('late rejection requires full return evidence, is idempotent, and permits a fresh request', async () => {
+  const { b, request } = await seedSecuredWithBalance();
+  await agePaymentRequest(request.id);
+  await db.query('select ns_record_buyer_payment_v1($1,$2,$3,$4,now())',
+    [b.bookingId, request.id, 'Fixture Bank', 'LATE-REJECT-1']);
+  const rejected = (await db.query('select ns_reject_late_buyer_transfer_v1($1,$2,$3,$4,$5,$6,now()) as r',
+    [b.bookingId, request.id, reviewer, 'Late balance rejected and fully returned.', 'Fixture Bank', 'RETURN-1'])).rows[0].r;
+  assert.equal(rejected.reconciliationStatus, 'rejected');
+  assert.equal(rejected.bookingSecured, false);
+  const payment = (await db.query('select status,reconciliation_status from payments where id=$1',[request.id])).rows[0];
+  assert.deepEqual(payment, { status:'refunded', reconciliation_status:'rejected' });
+  const returned = (await db.query('select amount,provider_reference from buyer_payment_returns where payment_id=$1',[request.id])).rows[0];
+  assert.deepEqual(returned, { amount:800000, provider_reference:'RETURN-1' });
+  const retry = (await db.query('select ns_reject_late_buyer_transfer_v1($1,$2,$3,$4,$5,$6,now()) as r',
+    [b.bookingId, request.id, reviewer, 'Late balance rejected and fully returned.', 'Fixture Bank', 'RETURN-1'])).rows[0].r;
+  assert.equal(retry.alreadyReconciled, true);
+  await assert.rejects(db.query('select ns_reject_late_buyer_transfer_v1($1,$2,$3,$4,$5,$6,now())',
+    [b.bookingId, request.id, reviewer, 'Late balance rejected and fully returned.', 'Fixture Bank', 'DIFFERENT']), /retry audit differs/);
+  const replacement = (await db.query('select ns_create_buyer_payment_request_v1($1,$2::jsonb) as p',
+    [b.bookingId, JSON.stringify({ method:'bank_transfer',provider_name:'Fixture Bank',destination:'123456' })])).rows[0].p;
+  assert.notEqual(replacement.id, request.id);
+  assert.equal(replacement.amount, 800000);
 });
