@@ -148,6 +148,12 @@ type PaymentRecord = {
   request_issued_at: string | null;
   request_due_date: string | null;
   payment_instructions_snapshot: Record<string, unknown> | null;
+  request_expires_at: string | null;
+  receipt_timing: "on_time" | "late" | null;
+  reconciliation_status: "pending" | "accepted" | "rejected" | null;
+  reconciliation_note: string | null;
+  reconciled_at: string | null;
+  reconciled_by: string | null;
   created_at: string;
 };
 
@@ -223,7 +229,7 @@ export async function loadAdminBriefDetail(id: string) {
     const [paymentResult, milestoneResult] = await Promise.all([
       supabase
         .from("payments")
-        .select("id,payment_milestone_id,payment_type,amount,currency,provider,provider_reference,status,paid_at,request_reference,request_issued_at,request_due_date,payment_instructions_snapshot,created_at")
+        .select("id,payment_milestone_id,payment_type,amount,currency,provider,provider_reference,status,paid_at,request_reference,request_issued_at,request_due_date,request_expires_at,payment_instructions_snapshot,receipt_timing,reconciliation_status,reconciliation_note,reconciled_at,reconciled_by,created_at")
         .eq("booking_id", booking.id)
         .order("created_at", { ascending: true }),
       supabase
