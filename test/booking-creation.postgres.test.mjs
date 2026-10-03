@@ -450,14 +450,19 @@ async function seedSecuredWithBalance() {
     [b.bookingId, 'approved_po_credit', 'FIXTURE-POST-SECURITY', 1000000,
       'Fixture verified post-security payment approval.', reviewer]);
   await db.query('select ns_secure_booking_v1($1)', [b.bookingId]);
-  const request = (await db.query('select ns_create_buyer_payment_request_v1($1,$2::jsonb) as p',
-    [b.bookingId, JSON.stringify({ method:'bank_transfer',provider_name:'Fixture Bank',destination:'123456' })])).rows[0].p;
+  await db.query('select ns_create_buyer_payment_request_v1($1,$2::jsonb)',
+    [b.bookingId, JSON.stringify({ method:'bank_transfer',provider_name:'Fixture Bank',destination:'123456' })]);
+  const request = (await db.query(`select p.id,p.amount,p.status,p.request_expires_at
+    from payments p join payment_milestones m on m.id=p.payment_milestone_id
+    where p.booking_id=$1 and m.party='buyer' and m.sequence_no=2
+    order by p.created_at desc limit 1`, [b.bookingId])).rows[0];
+  if (!request) throw new Error('Post-security balance request was not persisted');
   return { s, b, request };
 }
 
 test('post-security balance request can be issued and late acceptance never auto-secures a transition', async () => {
   const { b, request } = await seedSecuredWithBalance();
-  assert.equal(request.amount, 800000);
+  assert.equal(Number(request.amount), 800000);
   await agePaymentRequest(request.id);
   const recorded = (await db.query('select ns_record_buyer_payment_v1($1,$2,$3,$4,now()) as r',
     [b.bookingId, request.id, 'Fixture Bank', 'LATE-ACCEPT-1'])).rows[0].r;
@@ -492,8 +497,12 @@ test('late rejection requires full return evidence, is idempotent, and permits a
   assert.equal(retry.alreadyReconciled, true);
   await assert.rejects(db.query('select ns_reject_late_buyer_transfer_v1($1,$2,$3,$4,$5,$6,now())',
     [b.bookingId, request.id, reviewer, 'Late balance rejected and fully returned.', 'Fixture Bank', 'DIFFERENT']), /retry audit differs/);
-  const replacement = (await db.query('select ns_create_buyer_payment_request_v1($1,$2::jsonb) as p',
-    [b.bookingId, JSON.stringify({ method:'bank_transfer',provider_name:'Fixture Bank',destination:'123456' })])).rows[0].p;
+  await db.query('select ns_create_buyer_payment_request_v1($1,$2::jsonb)',
+    [b.bookingId, JSON.stringify({ method:'bank_transfer',provider_name:'Fixture Bank',destination:'123456' })]);
+  const replacement = (await db.query(`select id,amount from payments
+    where booking_id=$1 and payment_milestone_id=(
+      select id from payment_milestones where booking_id=$1 and party='buyer' and sequence_no=2
+    ) order by created_at desc limit 1`, [b.bookingId])).rows[0];
   assert.notEqual(replacement.id, request.id);
-  assert.equal(replacement.amount, 800000);
+  assert.equal(Number(replacement.amount), 800000);
 });
