@@ -430,7 +430,7 @@ async function agePaymentRequest(paymentId) {
   await db.exec('alter table payments disable trigger trg_protect_payment_request_snapshot_v1');
   await db.exec('alter table payments disable trigger trg_guard_buyer_payment_cutoff_v1');
   try {
-    await db.query("update payments set request_expires_at=now()-interval '1 minute' where id=$1", [paymentId]);
+    await db.query("update payments set request_issued_at=now()-interval '2 minutes', request_expires_at=now()-interval '1 minute' where id=$1", [paymentId]);
   } finally {
     await db.exec('alter table payments enable trigger trg_guard_buyer_payment_cutoff_v1');
     await db.exec('alter table payments enable trigger trg_protect_payment_request_snapshot_v1');
