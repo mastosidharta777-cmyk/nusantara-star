@@ -81,6 +81,7 @@ export async function POST(request: Request) {
           request_reference: paymentRow.request_reference,
           request_issued_at: paymentRow.request_issued_at,
           request_due_date: paymentRow.request_due_date,
+          request_expires_at: paymentRow.request_expires_at,
           payment_instructions_snapshot: paymentRow.payment_instructions_snapshot,
         },
         source: "ns_create_buyer_payment_request_v1",
@@ -103,7 +104,9 @@ export async function POST(request: Request) {
       p_paid_at: new Date().toISOString(),
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 409 });
-    return NextResponse.json({ ok: true, payment: data, paymentStatus: "paid", bookingStatus: booking.status });
+    const result = data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : null;
+    const paymentStatus = result?.status === "pending_reconciliation" ? "pending_reconciliation" : "paid";
+    return NextResponse.json({ ok: true, payment: data, paymentStatus, bookingStatus: booking.status });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown error";
     console.error("Payment action failed", detail);

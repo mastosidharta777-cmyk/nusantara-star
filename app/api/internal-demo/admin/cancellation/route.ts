@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { commercialIntegrityReady } from "@/lib/commercial-integrity";
+import { bookingReservationSecurityReady } from "@/lib/booking-reservation-readiness";
 
 export const runtime = "nodejs";
 
@@ -100,11 +101,43 @@ export async function POST(request: Request) {
     }
 
     if (action === "finalize_case") {
+      if (!(await bookingReservationSecurityReady(supabase))) {
+        return NextResponse.json({ error: "Reservation-backed cancellation cutover is not complete" }, { status: 503 });
+      }
       const caseId = text(body?.caseId);
-      if (!caseId) return NextResponse.json({ error: "ID kasus pembatalan wajib diisi" }, { status: 400 });
-      const { data, error } = await supabase.rpc("ns_finalize_cancellation_v1", { p_case_id: caseId });
+      const releaseNote = text(body?.releaseNote);
+      const releasedBy = request.headers.get("x-ns-admin-user")?.trim()
+        || (process.env.VERCEL_ENV ? "" : "local-development-admin");
+      if (!caseId || releaseNote.length < 10 || releasedBy.length < 3) {
+        return NextResponse.json({ error: "ID kasus, keputusan pelepasan, dan identitas admin wajib diisi" }, { status: 400 });
+      }
+      const { data, error } = await supabase.rpc("ns_finalize_cancellation_v1", {
+        p_case_id: caseId,
+        p_released_by: releasedBy,
+        p_release_note: releaseNote,
+      });
       if (error) return NextResponse.json({ error: error.message }, { status: 409 });
       return NextResponse.json({ ok: true, cancellationCase: data });
+    }
+
+    if (action === "abandon_pending_booking") {
+      if (!(await bookingReservationSecurityReady(supabase))) {
+        return NextResponse.json({ error: "Reservation-backed cancellation cutover is not complete" }, { status: 503 });
+      }
+      const bookingId = text(body?.bookingId);
+      const reason = text(body?.reason);
+      const abandonedBy = request.headers.get("x-ns-admin-user")?.trim()
+        || (process.env.VERCEL_ENV ? "" : "local-development-admin");
+      if (!bookingId || reason.length < 10 || abandonedBy.length < 3) {
+        return NextResponse.json({ error: "ID booking, alasan, dan identitas admin wajib diisi" }, { status: 400 });
+      }
+      const { data, error } = await supabase.rpc("ns_abandon_pending_booking_v1", {
+        p_booking_id: bookingId,
+        p_abandoned_by: abandonedBy,
+        p_reason: reason,
+      });
+      if (error) return NextResponse.json({ error: error.message }, { status: 409 });
+      return NextResponse.json({ ok: true, abandonment: data });
     }
 
     return NextResponse.json({ error: "Aksi pembatalan tidak dikenal" }, { status: 400 });

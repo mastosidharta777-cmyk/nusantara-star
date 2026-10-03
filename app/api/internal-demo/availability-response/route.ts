@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import { verifyAccessToken } from "@/lib/signed-access";
 import { parseEstimatedShowTime } from "@/lib/estimated-show-time";
+import { parseManagerDutyWindow } from "@/lib/manager-duty-window";
 
 export const runtime = "nodejs";
 type ResponseStatus = "confirmed" | "tentative" | "unavailable" | "no_response";
@@ -57,7 +58,26 @@ export async function POST(request: Request) {
     }
 
     const supabase = getServerClient();
-    const { data, error } = await supabase.rpc("ns_record_availability_response_v2", {
+    let duty: ReturnType<typeof parseManagerDutyWindow> | null = null;
+    if (status === "confirmed") {
+      const { data: availabilityRequest, error: requestError } = await supabase.from("availability_requests").select("brief_id").eq("id", requestId).maybeSingle();
+      if (requestError || !availabilityRequest) return NextResponse.json({ error: "Availability request not found" }, { status: 404 });
+      const { data: brief, error: briefError } = await supabase.from("briefs").select("event_date").eq("id", availabilityRequest.brief_id).maybeSingle();
+      if (briefError || !brief?.event_date) return NextResponse.json({ error: "Event date not found" }, { status: 409 });
+      try {
+        duty = parseManagerDutyWindow({
+          startLocal: typeof body?.dutyStartLocal === "string" ? body.dutyStartLocal : "",
+          endLocal: typeof body?.dutyEndLocal === "string" ? body.dutyEndLocal : "",
+          location: typeof body?.dutyLocation === "string" ? body.dutyLocation : "",
+          eventDate: brief.event_date,
+          showStartLocal: showTime.startLocal ?? "",
+          showEndLocal: showTime.endLocal ?? "",
+        });
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid duty window" }, { status: 400 });
+      }
+    }
+    const { data, error } = await supabase.rpc("ns_record_availability_response_v3", {
       p_request_id: requestId,
       p_status: status,
       p_event_fee: eventFee,
@@ -69,6 +89,9 @@ export async function POST(request: Request) {
       p_show_start_local: showTime.startLocal,
       p_show_end_local: showTime.endLocal,
       p_show_timezone: showTime.timeZone,
+      p_duty_start_local: duty?.startLocal ?? null,
+      p_duty_end_local: duty?.endLocal ?? null,
+      p_duty_location: duty?.location ?? null,
     });
     if (error) {
       const message = error.message || "Availability response failed";

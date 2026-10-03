@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { commercialIntegrityReady } from "@/lib/commercial-integrity";
-import { buildBuyerTermsSnapshot } from "@/lib/buyer-terms-snapshot";
+import { bookingCreationReady, bookingReservationSecurityReady } from "@/lib/booking-reservation-readiness";
 import { requiredInitialBuyerSecurity, type BuyerMilestone } from "@/lib/secure-booking";
 
 export const runtime = "nodejs";
@@ -36,125 +36,33 @@ export async function POST(request: Request) {
     if (existingError) throw new Error(existingError.message);
 
     if (action === "create_booking") {
-      if (existing) return NextResponse.json({ ok: true, existing: true, bookingId: existing.id, status: existing.status });
-
-      const [{ data: brief, error: briefError }, { data: selection, error: selectionError }, { data: deal, error: dealError }] = await Promise.all([
-        supabase.from("briefs").select("id,status,event_type,event_date,venue,city").eq("id", briefId).single(),
-        supabase.from("buyer_selections").select("talent_id,status").eq("brief_id", briefId).eq("status", "selected").single(),
-        supabase.from("deals").select("id,proposal_item_id,talent_id,talent_offer_id,status,buyer_price,talent_payable,direct_costs,taxes_and_payment_fees,buyer_payment_schedule,talent_payment_schedule,funding_gap_status,talent_terms_status,buyer_terms_status,unresolved_issues,exception_status,cancellation_terms,rider_notes,special_conditions").eq("brief_id", briefId).single(),
-      ]);
-      if (briefError || !brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
-      if (selectionError || !selection) return NextResponse.json({ error: "Buyer selection not found" }, { status: 409 });
-      if (dealError || !deal) return NextResponse.json({ error: "Locked deal not found" }, { status: 409 });
-      if (brief.status !== "buyer_selected") return NextResponse.json({ error: "Buyer terms process can only start from the buyer-selected stage" }, { status: 409 });
-      if (deal.status !== "locked") return NextResponse.json({ error: "Deal must be locked before booking security starts" }, { status: 409 });
-      if (!brief.event_date) return NextResponse.json({ error: "Event date is required before booking" }, { status: 409 });
-      if (selection.talent_id !== deal.talent_id) return NextResponse.json({ error: "Selected talent does not match locked deal" }, { status: 409 });
-      if (deal.talent_terms_status !== "confirmed") return NextResponse.json({ error: "Talent terms must be confirmed before buyer terms start" }, { status: 409 });
-      if (deal.buyer_terms_status !== "recommended") return NextResponse.json({ error: "Buyer terms are not in a clean pre-acceptance state" }, { status: 409 });
-      if (deal.funding_gap_status !== "safe") return NextResponse.json({ error: "Funding gap must be resolved before buyer terms start" }, { status: 409 });
-      const unresolvedIssues = Array.isArray(deal.unresolved_issues) ? deal.unresolved_issues : [];
-      if (unresolvedIssues.length > 0 && deal.exception_status !== "approved") return NextResponse.json({ error: "Deal still has unresolved issues without an approved exception" }, { status: 409 });
-      if (!deal.cancellation_terms?.trim()) return NextResponse.json({ error: "Cancellation terms are required before buyer terms start" }, { status: 409 });
-
-      const [{ data: offer, error: offerError }, { data: proposalItem, error: itemError }, { data: talent, error: talentError }] = await Promise.all([
-        supabase.from("talent_offers").select("brief_id,talent_id,status,availability_status,quote_valid_until,show_start_local,show_end_local,show_timezone").eq("id", deal.talent_offer_id).single(),
-        supabase.from("proposal_items").select("id,talent_id,buyer_price,currency,price_breakdown,included_costs,excluded_costs,show_start_local,show_end_local,show_timezone").eq("id", deal.proposal_item_id).single(),
-        supabase.from("talents").select("id,name").eq("id", deal.talent_id).single(),
-      ]);
-      if (offerError || !offer || offer.brief_id !== briefId || offer.talent_id !== deal.talent_id || offer.status !== "confirmed" || offer.availability_status !== "confirmed" || !offer.quote_valid_until || new Date(offer.quote_valid_until).getTime() <= Date.now()) {
-        return NextResponse.json({ error: "Talent offer requires reconfirmation before booking security starts" }, { status: 409 });
+      if (!(await bookingCreationReady(supabase))) {
+        return NextResponse.json({ error: "Pembuatan booking dengan reservasi belum tersedia" }, { status: 503 });
       }
-      if (itemError || !proposalItem || proposalItem.talent_id !== deal.talent_id) return NextResponse.json({ error: "Selected proposal snapshot is missing or inconsistent" }, { status: 409 });
-      if (!proposalItem.show_start_local || !proposalItem.show_end_local || !proposalItem.show_timezone
-        || proposalItem.show_start_local !== offer.show_start_local
-        || proposalItem.show_end_local !== offer.show_end_local
-        || proposalItem.show_timezone !== offer.show_timezone) {
-        return NextResponse.json({ error: "Confirmed show time changed or is missing; reconfirm offer and issue a revised proposal" }, { status: 409 });
+      if (process.env.VERCEL_ENV && request.headers.get("x-ns-admin-verified") !== "1") {
+        return NextResponse.json({ error: "Verified admin identity is required" }, { status: 401 });
       }
-      if (talentError || !talent) return NextResponse.json({ error: "Selected talent could not be loaded" }, { status: 409 });
-
-      const buyerSchedule = Array.isArray(deal.buyer_payment_schedule) ? deal.buyer_payment_schedule : [];
-      const talentSchedule = Array.isArray(deal.talent_payment_schedule) ? deal.talent_payment_schedule : [];
-      if (!buyerSchedule.length || !talentSchedule.length) return NextResponse.json({ error: "Locked deal has incomplete payment schedules" }, { status: 409 });
-
-      const buyerTermsSnapshot = buildBuyerTermsSnapshot({
-        deal: {
-          id: deal.id,
-          proposal_item_id: deal.proposal_item_id,
-          buyer_price: Number(deal.buyer_price),
-          direct_costs: deal.direct_costs == null ? 0 : Number(deal.direct_costs),
-          taxes_and_payment_fees: deal.taxes_and_payment_fees == null ? 0 : Number(deal.taxes_and_payment_fees),
-          buyer_payment_schedule: buyerSchedule,
-          cancellation_terms: deal.cancellation_terms,
-          rider_notes: deal.rider_notes,
-          special_conditions: deal.special_conditions,
-        },
-        brief: {
-          id: brief.id,
-          event_type: brief.event_type,
-          event_date: brief.event_date,
-          city: brief.city,
-          venue: brief.venue,
-        },
-        talent: { id: talent.id, name: talent.name },
-        proposalItem: {
-          id: proposalItem.id,
-          buyer_price: Number(proposalItem.buyer_price),
-          currency: proposalItem.currency,
-          price_breakdown: proposalItem.price_breakdown,
-          included_costs: proposalItem.included_costs,
-          excluded_costs: proposalItem.excluded_costs,
-          show_start_local: proposalItem.show_start_local,
-          show_end_local: proposalItem.show_end_local,
-          show_timezone: proposalItem.show_timezone,
-        },
-        offerValidUntil: offer.quote_valid_until,
+      const reviewer = request.headers.get("x-ns-admin-user")?.trim()
+        || (!process.env.VERCEL_ENV ? "local-development-admin" : "");
+      const travelSummary = typeof body?.travelSummary === "string" ? body.travelSummary.trim() : "";
+      const nearbySummary = typeof body?.nearbySummary === "string" ? body.nearbySummary.trim() : "";
+      const expectedDealId = typeof body?.dealId === "string" ? body.dealId : "";
+      const cutoff = typeof body?.holdExpiresAt === "string" ? body.holdExpiresAt : "";
+      if (!reviewer) return NextResponse.json({ error: "Verified admin identity is required" }, { status: 401 });
+      if (!expectedDealId || body?.reviewConfirmed !== "true" || travelSummary.length < 10 || nearbySummary.length < 10
+        || !Number.isFinite(Date.parse(cutoff)) || Date.parse(cutoff) <= Date.now()) {
+        return NextResponse.json({ error: "Lengkapi pemeriksaan perjalanan, jadwal lain, dan batas waktu hold" }, { status: 400 });
+      }
+      const { data, error } = await supabase.rpc("ns_create_booking_with_hold_v1", {
+        p_brief_id: briefId,
+        p_expected_deal_id: expectedDealId,
+        p_hold_expires_at: cutoff,
+        p_travel_summary: travelSummary,
+        p_nearby_commitments_summary: nearbySummary,
+        p_reviewed_by: reviewer,
       });
-
-      const { data: booking, error: bookingError } = await supabase
-        .from("bookings")
-        .insert({
-          brief_id: briefId,
-          deal_id: deal.id,
-          talent_id: selection.talent_id,
-          event_date: brief.event_date,
-          venue: brief.venue,
-          city: brief.city,
-          buyer_price: deal.buyer_price,
-          talent_payable: deal.talent_payable,
-          direct_cost: deal.direct_costs ?? 0,
-          status: "pending_security",
-          financial_security_status: "pending",
-          buyer_terms_snapshot: buyerTermsSnapshot,
-        })
-        .select("id,status")
-        .single();
-      if (bookingError || !booking) throw new Error(bookingError?.message ?? "Booking creation failed");
-
-      const toMilestones = (party: "buyer" | "talent", schedule: Array<Record<string, unknown>>) => schedule.map((row, index) => ({
-        booking_id: booking.id,
-        party,
-        milestone_type: row.milestone_type,
-        sequence_no: index + 1,
-        calculation_type: row.calculation_type,
-        percentage: row.percentage ?? null,
-        amount: row.amount ?? null,
-        due_basis: row.due_basis,
-        due_offset_days: row.due_offset_days ?? 0,
-        custom_due_date: row.custom_due_date ?? null,
-        refundable: row.refundable ?? null,
-        cancellation_note: row.cancellation_note ?? null,
-        status: "planned",
-        notes: row.notes ?? null,
-      }));
-      const milestones = [...toMilestones("buyer", buyerSchedule), ...toMilestones("talent", talentSchedule)];
-      const { error: milestoneError } = await supabase.from("payment_milestones").insert(milestones);
-      if (milestoneError) {
-        await supabase.from("bookings").delete().eq("id", booking.id);
-        throw new Error(`Deal payment schedule could not be snapshotted: ${milestoneError.message}`);
-      }
-      return NextResponse.json({ ok: true, bookingId: booking.id, status: booking.status, source: "locked_deal" });
+      if (error) return NextResponse.json({ error: error.message }, { status: 409 });
+      return NextResponse.json({ ok: true, ...data });
     }
 
     if (!existing) return NextResponse.json({ error: "Booking not found" }, { status: 404 });
@@ -163,8 +71,14 @@ export async function POST(request: Request) {
     if (action === "set_security") {
       const securityType = typeof body?.securityType === "string" ? body.securityType : "";
       const reference = typeof body?.reference === "string" ? body.reference.trim() : "";
+      const approvedAmount = Number(body?.approvedAmount ?? 0);
+      const evidenceNote = typeof body?.evidenceNote === "string" ? body.evidenceNote.trim() : "";
       if (!["approved_po_credit", "authorized_exception"].includes(securityType)) return NextResponse.json({ error: "Invalid manual financial security type" }, { status: 400 });
       if (!reference) return NextResponse.json({ error: "Manual financial security reference is required" }, { status: 409 });
+      if (!Number.isSafeInteger(approvedAmount) || approvedAmount < 0 || (securityType === "approved_po_credit" && approvedAmount === 0)) {
+        return NextResponse.json({ error: "Approved PO/credit amount is invalid" }, { status: 400 });
+      }
+      if (evidenceNote.length < 10) return NextResponse.json({ error: "Manual security evidence note is required" }, { status: 400 });
       if (!existing.buyer_terms_accepted_at
         || existing.buyer_terms_accepted_deal_id !== existing.deal_id
         || existing.buyer_terms_acceptance_source !== "signed_buyer_link"
@@ -176,21 +90,35 @@ export async function POST(request: Request) {
       if (dealError || !deal) return NextResponse.json({ error: "Deal not found" }, { status: 404 });
       if (deal.buyer_terms_status !== "accepted") return NextResponse.json({ error: "Buyer terms acceptance is not synchronized with the locked deal" }, { status: 409 });
       if (securityType === "authorized_exception" && deal.exception_status !== "approved") return NextResponse.json({ error: "Commercial exception is not approved" }, { status: 409 });
-      const { data: changed, error } = await supabase
-        .from("bookings")
-        .update({ financial_security_type: securityType, financial_security_status: "satisfied", financial_security_reference: reference, updated_at: new Date().toISOString() })
-        .eq("id", existing.id)
-        .eq("status", "pending_security")
-        .select("id")
-        .maybeSingle();
-      if (error) throw new Error(error.message);
-      if (!changed) return NextResponse.json({ error: "Booking changed before financial security was recorded" }, { status: 409 });
-      return NextResponse.json({ ok: true, securityType, securityStatus: "satisfied" });
+      if (!(await bookingReservationSecurityReady(supabase))) {
+        return NextResponse.json({ error: "Reservation-backed booking security cutover is not complete" }, { status: 503 });
+      }
+      if (process.env.VERCEL_ENV && request.headers.get("x-ns-admin-verified") !== "1") {
+        return NextResponse.json({ error: "Verified admin identity is required" }, { status: 401 });
+      }
+      const adminUser = request.headers.get("x-ns-admin-user")?.trim()
+        || (!process.env.VERCEL_ENV ? "local-development-admin" : "");
+      const adminRole = request.headers.get("x-ns-admin-role")?.trim()
+        || (!process.env.VERCEL_ENV ? "admin" : "");
+      if (!adminUser || !adminRole) return NextResponse.json({ error: "Verified admin identity is required" }, { status: 401 });
+      const { data: result, error } = await supabase.rpc("ns_record_manual_booking_security_v1", {
+        p_booking_id: existing.id,
+        p_security_type: securityType,
+        p_reference: reference,
+        p_approved_amount: approvedAmount,
+        p_evidence_note: evidenceNote,
+        p_recorded_by: `${adminUser}:${adminRole}`,
+      });
+      if (error) return NextResponse.json({ error: error.message }, { status: 409 });
+      return NextResponse.json({ ok: true, security: result });
     }
 
     if (action !== "secure_booking") return NextResponse.json({ error: "Invalid booking action" }, { status: 400 });
     if (!(await commercialIntegrityReady(supabase))) {
       return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
+    }
+    if (!(await bookingReservationSecurityReady(supabase))) {
+      return NextResponse.json({ error: "Reservation-backed booking security cutover is not complete" }, { status: 503 });
     }
 
     const { data: acceptanceEvidence, error: acceptanceError } = await supabase

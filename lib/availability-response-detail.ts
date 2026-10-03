@@ -30,7 +30,7 @@ export async function loadAvailabilityResponseDetail(id: string) {
       .single(),
     supabase
       .from("talent_offers")
-      .select("id,status,availability_status,event_fee,currency,included_costs,excluded_costs,payment_terms,rider_exceptions,quote_valid_until,show_start_local,show_end_local,show_timezone,confirmation_source,confirmed_at,updated_at")
+      .select("id,status,availability_status,event_fee,currency,included_costs,excluded_costs,payment_terms,rider_exceptions,quote_valid_until,show_start_local,show_end_local,show_timezone,duty_start_at,duty_end_at,duty_location,confirmation_source,confirmed_at,updated_at")
       .eq("availability_request_id", request.id)
       .maybeSingle(),
   ]);

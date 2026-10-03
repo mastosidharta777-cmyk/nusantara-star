@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 
 import { commercialIntegrityReady } from "@/lib/commercial-integrity";
+import { bookingCreationReady } from "@/lib/booking-reservation-readiness";
 import { signAccessToken, type SignedAccessScope } from "@/lib/signed-access";
 import { categoryAllowedForSupply, isSupplyType } from "@/lib/supply-onboarding";
 
@@ -62,6 +63,9 @@ export async function POST(request: Request) {
       if (proposalExpiry < expiresAt) expiresAt = proposalExpiry;
       path = `/id/proposal/${encodeURIComponent(subjectId)}`;
     } else if (scope === "buyer_terms") {
+      if (!(await bookingCreationReady(supabase))) {
+        return NextResponse.json({ error: "Reservasi booking belum siap untuk persetujuan buyer" }, { status: 503 });
+      }
       if (!(await commercialIntegrityReady(supabase))) {
         return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
       }
@@ -85,6 +89,14 @@ export async function POST(request: Request) {
       const offerExpiry = new Date(offer.quote_valid_until);
       if (!Number.isFinite(offerExpiry.getTime()) || offerExpiry.getTime() <= Date.now()) return NextResponse.json({ error: "Talent offer has expired" }, { status: 409 });
       if (offerExpiry < expiresAt) expiresAt = offerExpiry;
+      const { data: hold, error: holdError } = await supabase.from("booking_schedule_reservations")
+        .select("hold_expires_at,offer_valid_until").eq("booking_id", subjectId).eq("deal_id", booking.deal_id).eq("status", "held").maybeSingle();
+      const holdExpiry = hold ? new Date(hold.hold_expires_at) : null;
+      if (holdError || !hold || !holdExpiry || !Number.isFinite(holdExpiry.getTime()) || holdExpiry.getTime() <= Date.now()
+        || new Date(hold.offer_valid_until).getTime() !== offerExpiry.getTime()) {
+        return NextResponse.json({ error: "Hold sudah tidak berlaku; konfirmasi ulang sebelum mengirim syarat" }, { status: 409 });
+      }
+      if (holdExpiry < expiresAt) expiresAt = holdExpiry;
       path = `/id/terms/${encodeURIComponent(subjectId)}`;
     } else if (scope === "buyer_payment") {
       if (!(await commercialIntegrityReady(supabase))) {
@@ -117,7 +129,17 @@ export async function POST(request: Request) {
         && JSON.stringify(booking.buyer_terms_accepted_snapshot ?? null) === JSON.stringify(booking.buyer_terms_snapshot)
       );
       if (!acceptanceValid) return NextResponse.json({ error: "Buyer terms acceptance is not valid for this payment request" }, { status: 409 });
-      expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const requestSnapshot = payment.request_snapshot && typeof payment.request_snapshot === "object" && !Array.isArray(payment.request_snapshot)
+        ? payment.request_snapshot as Record<string, unknown>
+        : null;
+      const requestCutoff = typeof requestSnapshot?.expires_at === "string" ? new Date(requestSnapshot.expires_at) : null;
+      if (!requestCutoff || !Number.isFinite(requestCutoff.getTime())) {
+        return NextResponse.json({ error: "Payment request has no immutable cutoff and must be reissued after reservation cutover" }, { status: 409 });
+      }
+      if (requestCutoff.getTime() <= Date.now()) {
+        return NextResponse.json({ error: "Payment request has expired; reconcile any late transfer before reissuing" }, { status: 409 });
+      }
+      expiresAt = requestCutoff;
       path = `/id/payment/${encodeURIComponent(subjectId)}`;
     } else if (scope === "buyer_advance" || scope === "talent_advance") {
       const { data: booking, error: bookingError } = await supabase
