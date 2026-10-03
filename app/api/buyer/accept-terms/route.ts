@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { commercialIntegrityReady } from "@/lib/commercial-integrity";
+import { bookingCreationReady } from "@/lib/booking-reservation-readiness";
 import { verifyAccessToken } from "@/lib/signed-access";
 
 export const runtime = "nodejs";
@@ -21,7 +22,7 @@ export async function POST(request: Request) {
     if (!bookingId || !verifyAccessToken(accessToken, "buyer_terms", bookingId)) return NextResponse.json({ error: "Link persetujuan tidak valid atau sudah kedaluwarsa" }, { status: 401 });
 
     const supabase = getServerClient();
-    if (!(await commercialIntegrityReady(supabase))) {
+    if (!(await commercialIntegrityReady(supabase)) || !(await bookingCreationReady(supabase))) {
       return NextResponse.json({ error: "Sistem persetujuan sedang menunggu cutover database" }, { status: 503 });
     }
     const { data, error } = await supabase.rpc("ns_accept_buyer_terms_v1", { p_booking_id: bookingId });

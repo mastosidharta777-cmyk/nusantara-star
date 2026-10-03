@@ -3,7 +3,8 @@ import Link from "next/link";
 import { formatEstimatedShowTime } from "@/lib/estimated-show-time";
 import { notFound } from "next/navigation";
 
-import { AdminBookingActions } from "@/components/admin-booking-actions";
+import { AdminBookingActions, type BookingDutyReview } from "@/components/admin-booking-actions";
+import { bookingCreationReady } from "@/lib/booking-reservation-readiness";
 import { AdminBuyerPriorityFallback } from "@/components/admin-buyer-priority-fallback";
 import { AdminDealReview } from "@/components/admin-deal-review";
 import { AdminDealSheetForm } from "@/components/admin-deal-sheet-form";
@@ -69,6 +70,20 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
     loadBuyerPriorityState(row.id),
   ]);
   const dealLocked = deal?.status === "locked";
+  let dutyReview: BookingDutyReview | null = null;
+  if (!booking && dealLocked && deal && await bookingCreationReady(supabase)) {
+    const [itemResult, offerResult] = await Promise.all([
+      supabase.from("proposal_items").select("duty_start_at,duty_end_at,duty_location,show_timezone").eq("id", deal.proposal_item_id).single(),
+      supabase.from("talent_offers").select("quote_valid_until").eq("id", deal.talent_offer_id).single(),
+    ]);
+    const item = itemResult.data;
+    const offer = offerResult.data;
+    if (!itemResult.error && !offerResult.error && item?.duty_start_at && item.duty_end_at && item.duty_location
+      && ["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"].includes(item.show_timezone) && offer?.quote_valid_until) {
+      dutyReview = { dealId: deal.id, startAt: item.duty_start_at, endAt: item.duty_end_at,
+        location: item.duty_location, timeZone: item.show_timezone, offerValidUntil: offer.quote_valid_until };
+    }
+  }
   const [operations, showAdvance, bookingRecoveryCase, recoveryBriefCase] = await Promise.all([
     loadOperationsData(booking?.id ?? null),
     loadShowAdvanceData(booking?.id ?? null),
@@ -165,7 +180,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
           </details>
         ) : null}
 
-        {selectedTalent && dealLocked ? <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} /> : null}
+        {selectedTalent && dealLocked ? <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} dutyReview={dutyReview} /> : null}
         {booking && dealLocked ? <AdminPaymentMilestones bookingId={booking.id} milestones={paymentMilestones} /> : null}
         {booking && dealLocked && showAdvance && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminShowAdvance bookingId={booking.id} bookingStatus={booking.status} data={showAdvance} /> : null}
         {booking && dealLocked && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminOperations booking={booking} checklist={operations.checklist} incidents={operations.incidents} postShowConfirmations={operations.postShowConfirmations} settlements={operations.settlements} advanceConfirmed={advanceConfirmed} currentAdvanceRevision={currentAdvanceRevision} recoveryBlockingIncidentId={recoveryBlockingIncidentId} /> : null}

@@ -76,6 +76,12 @@ export async function GET() {
         included_costs: "Performance fee",
         payment_terms: "50% booking, balance before show",
         quote_valid_until: quoteValidUntil,
+        show_start_local: "19:00",
+        show_end_local: "20:00",
+        show_timezone: "Asia/Jakarta",
+        duty_start_at: `${eventDate}T10:00:00Z`,
+        duty_end_at: `${eventDate}T15:00:00Z`,
+        duty_location: "Jakarta priority smoke venue",
         confirmation_source: "manager_portal",
         confirmed_at: new Date().toISOString(),
       });

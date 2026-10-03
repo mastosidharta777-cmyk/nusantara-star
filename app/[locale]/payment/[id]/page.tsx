@@ -14,14 +14,14 @@ function money(value: number, locale: "id" | "en") {
   }).format(value);
 }
 
-function dateLabel(value: string | null | undefined, locale: "id" | "en") {
+function dateLabel(value: string | null | undefined, locale: "id" | "en", timeZone = "Asia/Jakarta") {
   if (!value) return "—";
   const date = new Date(value.length === 10 ? `${value}T00:00:00+07:00` : value);
   if (!Number.isFinite(date.getTime())) return value;
   return new Intl.DateTimeFormat(locale === "id" ? "id-ID" : "en-US", {
     dateStyle: "long",
     ...(value.length === 10 ? {} : { timeStyle: "short" as const }),
-    timeZone: "Asia/Jakarta",
+    timeZone,
   }).format(date);
 }
 
@@ -51,8 +51,10 @@ export default async function BuyerPaymentPage({
   const isId = locale === "id";
   const { payment, snapshot, instructions } = data;
   const isPaid = payment.status === "paid";
-  const dueEnd = new Date(`${payment.request_due_date}T23:59:59+07:00`).getTime();
-  const overdue = !isPaid && Number.isFinite(dueEnd) && dueEnd < Date.now();
+  const eventTimeZone = snapshot.event_timezone ?? "Asia/Jakarta";
+  const cutoff = snapshot.expires_at ?? `${payment.request_due_date}T23:59:59+07:00`;
+  const cutoffMs = Date.parse(cutoff);
+  const expired = !isPaid && Number.isFinite(cutoffMs) && cutoffMs < Date.now();
   const destinationIsUrl = /^https?:\/\//i.test(instructions.destination);
 
   return (
@@ -66,8 +68,8 @@ export default async function BuyerPaymentPage({
             </h1>
             <p className="mt-4 text-sm text-black/55">{payment.request_reference}</p>
           </div>
-          <span className={`w-fit border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${isPaid ? "border-emerald-700/25 bg-emerald-50 text-emerald-900" : overdue ? "border-red-700/20 bg-red-50 text-red-800" : "border-black/15 bg-white"}`}>
-            {isPaid ? (isId ? "Terverifikasi dibayar" : "Verified paid") : overdue ? (isId ? "Lewat jatuh tempo" : "Past due") : (isId ? "Menunggu pembayaran" : "Awaiting payment")}
+          <span className={`w-fit border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${isPaid ? "border-emerald-700/25 bg-emerald-50 text-emerald-900" : expired ? "border-red-700/20 bg-red-50 text-red-800" : "border-black/15 bg-white"}`}>
+            {isPaid ? (isId ? "Terverifikasi dibayar" : "Verified paid") : expired ? (isId ? "Link kedaluwarsa" : "Link expired") : (isId ? "Menunggu pembayaran" : "Awaiting payment")}
           </span>
         </div>
 
@@ -75,7 +77,7 @@ export default async function BuyerPaymentPage({
           {[
             [isId ? "Talent" : "Talent", snapshot.event.talent_name ?? "—"],
             [isId ? "Acara" : "Event", snapshot.event.event_type ?? "—"],
-            [isId ? "Tanggal acara" : "Event date", dateLabel(snapshot.event.event_date ?? null, locale)],
+            [isId ? "Tanggal acara" : "Event date", dateLabel(snapshot.event.event_date ?? null, locale, eventTimeZone)],
             [isId ? "Kota" : "City", snapshot.event.city ?? "—"],
           ].map(([label, value]) => (
             <div key={label} className="border border-black/10 bg-white p-4">
@@ -91,12 +93,16 @@ export default async function BuyerPaymentPage({
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <div className="border border-black/10 p-3 text-sm">
               <span className="text-black/45">{isId ? "Diterbitkan" : "Issued"}</span><br />
-              <strong>{dateLabel(payment.request_issued_at, locale)}</strong>
+              <strong>{dateLabel(payment.request_issued_at, locale, eventTimeZone)}</strong>
             </div>
             <div className="border border-black/10 p-3 text-sm">
               <span className="text-black/45">{isId ? "Jatuh tempo" : "Due date"}</span><br />
-              <strong>{dateLabel(payment.request_due_date, locale)}</strong>
+              <strong>{dateLabel(payment.request_due_date, locale, eventTimeZone)}</strong>
             </div>
+          </div>
+          <div className="mt-3 border border-black/10 p-3 text-sm">
+            <span className="text-black/45">{isId ? "Batas pembayaran" : "Payment cutoff"}</span><br />
+            <strong>{dateLabel(cutoff, locale, eventTimeZone)} ({eventTimeZone})</strong>
           </div>
           {snapshot.milestone.cancellation_note ? (
             <p className="mt-4 text-xs leading-5 text-black/50">{snapshot.milestone.cancellation_note}</p>
@@ -105,7 +111,12 @@ export default async function BuyerPaymentPage({
 
         <section className="mt-5 border border-black/10 bg-white p-5 md:p-6">
           <h2 className="text-xl font-semibold">{isId ? "Instruksi pembayaran" : "Payment instructions"}</h2>
-          <div className="mt-4 space-y-4 text-sm leading-6">
+          {expired ? (
+            <div className="mt-4 border border-red-700/20 bg-red-50 p-4 text-sm leading-6 text-red-900">
+              <p className="font-semibold">{isId ? "Permintaan ini sudah kedaluwarsa." : "This payment request has expired."}</p>
+              <p className="mt-1">{isId ? "Instruksi dinonaktifkan. Jangan melakukan transfer baru; hubungi Nusantara Star untuk rekonsiliasi atau permintaan baru." : "Instructions are disabled. Do not send a new transfer; contact Nusantara Star for reconciliation or a new request."}</p>
+            </div>
+          ) : <div className="mt-4 space-y-4 text-sm leading-6">
             <p>
               <span className="text-black/45">{isId ? "Metode:" : "Method:"}</span><br />
               {instructions.method === "bank_transfer" ? (isId ? "Transfer bank" : "Bank transfer") : instructions.method === "payment_link" ? "Payment link" : (isId ? "Metode lain" : "Other method")}
@@ -121,16 +132,18 @@ export default async function BuyerPaymentPage({
               ) : <p className="mt-1 break-all font-semibold">{instructions.destination}</p>}
             </div>
             {instructions.notes ? <p><span className="text-black/45">{isId ? "Catatan:" : "Notes:"}</span><br />{instructions.notes}</p> : null}
-          </div>
+          </div>}
         </section>
 
         <section className="mt-5 border border-black/10 bg-white p-5 text-sm leading-6 md:p-6">
           {isPaid ? (
             <>
               <p className="font-semibold">{isId ? "Pembayaran sudah diverifikasi oleh Nusantara Star." : "Payment has been verified by Nusantara Star."}</p>
-              <p className="mt-2 text-black/55">{isId ? "Tanggal verifikasi" : "Verified at"}: {dateLabel(payment.paid_at, locale)}</p>
+              <p className="mt-2 text-black/55">{isId ? "Tanggal verifikasi" : "Verified at"}: {dateLabel(payment.paid_at, locale, eventTimeZone)}</p>
               {payment.provider_reference ? <p className="text-black/55">{isId ? "Referensi transaksi" : "Transaction reference"}: {payment.provider_reference}</p> : null}
             </>
+          ) : expired ? (
+            <p className="font-semibold">{isId ? "Transfer setelah batas waktu tidak mengamankan booking secara otomatis dan harus direkonsiliasi oleh admin." : "A transfer after the cutoff does not secure the booking automatically and requires admin reconciliation."}</p>
           ) : (
             <>
               <p className="font-semibold">{isId ? "Pembayaran belum dianggap diterima sampai diverifikasi." : "Payment is not considered received until verified."}</p>

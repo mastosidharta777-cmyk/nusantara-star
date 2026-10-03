@@ -104,7 +104,7 @@ export async function GET() {
       .single();
     if (requestRowError) throw new Error(requestRowError.message);
 
-    const { data: responseData, error: responseError } = await supabase.rpc("ns_record_availability_response_v1", {
+    const { data: responseData, error: responseError } = await supabase.rpc("ns_record_availability_response_v3", {
       p_request_id: actionPayload.availabilityRequestId,
       p_status: "confirmed",
       p_event_fee: 12500000,
@@ -113,6 +113,12 @@ export async function GET() {
       p_payment_terms: "Event-specific manager-confirmed terms",
       p_rider_exceptions: null,
       p_quote_valid_until: "2026-10-15T12:00:00.000Z",
+      p_show_start_local: "19:00",
+      p_show_end_local: "20:00",
+      p_show_timezone: "Asia/Jakarta",
+      p_duty_start_local: `${eventDate}T17:00`,
+      p_duty_end_local: `${eventDate}T22:00`,
+      p_duty_location: "Preview QA Venue, Jakarta",
     });
     if (responseError) throw new Error(responseError.message);
 

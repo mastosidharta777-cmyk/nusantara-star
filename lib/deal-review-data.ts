@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 export type DealReviewRow = {
   id: string;
   brief_id: string;
+  proposal_item_id: string;
+  talent_offer_id: string;
   status: "draft" | "review_required" | "approved" | "locked";
   buyer_price: number;
   talent_payable: number;
@@ -33,7 +35,7 @@ export async function loadDealReviewData(briefId: string) {
   const supabase = getServerClient();
   const { data, error } = await supabase
     .from("deals")
-    .select("id,brief_id,status,buyer_price,talent_payable,direct_costs,taxes_and_payment_fees,contribution,booking_reference_date,invoice_reference_date,direct_cost_due_date,tax_fee_due_date,funding_gap_amount,funding_gap_status,talent_terms_status,buyer_terms_status,unresolved_issues,exception_status,exception_reason")
+    .select("id,brief_id,proposal_item_id,talent_offer_id,status,buyer_price,talent_payable,direct_costs,taxes_and_payment_fees,contribution,booking_reference_date,invoice_reference_date,direct_cost_due_date,tax_fee_due_date,funding_gap_amount,funding_gap_status,talent_terms_status,buyer_terms_status,unresolved_issues,exception_status,exception_reason")
     .eq("brief_id", briefId)
     .maybeSingle();
   if (error) {

@@ -104,7 +104,11 @@ export async function GET() {
     });
     if (refund.error) throw new Error(refund.error.message);
 
-    const finalized = await supabase.rpc("ns_finalize_cancellation_v1", { p_case_id: caseId });
+    const finalized = await supabase.rpc("ns_finalize_cancellation_v1", {
+      p_case_id: caseId,
+      p_released_by: "cancellation-smoke",
+      p_release_note: "Smoke financial reconciliation completed; release original reservation.",
+    });
     if (finalized.error) throw new Error(finalized.error.message);
 
     const [{ data: finalBooking }, { data: finalBrief }, { data: finalCase }] = await Promise.all([

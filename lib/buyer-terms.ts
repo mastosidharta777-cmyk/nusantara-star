@@ -27,7 +27,7 @@ export async function loadBuyerTerms(bookingId: string) {
     .select("id,brief_id,deal_id,talent_id,status,event_date,venue,city,buyer_price,talent_payable,direct_cost,buyer_terms_accepted_at,buyer_terms_accepted_deal_id,buyer_terms_acceptance_source,buyer_terms_snapshot,buyer_terms_accepted_snapshot")
     .eq("id", bookingId)
     .maybeSingle();
-  if (bookingError || !booking || !booking.deal_id) return null;
+  if (bookingError || !booking || !booking.deal_id || booking.status === "cancelled") return null;
 
   const { data: deal, error: dealError } = await supabase
     .from("deals")

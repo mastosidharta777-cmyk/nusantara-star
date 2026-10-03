@@ -38,7 +38,7 @@ export async function GET() {
 
     const quoteValidUntil = new Date(Date.now() + 7 * 86400000).toISOString();
     const talentTerms = "Talent requires full payment before show";
-    const { data: offer, error: offerError } = await supabase.from("talent_offers").insert({ availability_request_id: requestRow.id, brief_id: briefId, talent_id: talentId, status: "confirmed", availability_status: "confirmed", event_fee: 10000000, currency: "IDR", included_costs: "Performance fee", payment_terms: talentTerms, quote_valid_until: quoteValidUntil, show_start_local: "19:00", show_end_local: "20:00", show_timezone: "Asia/Jakarta", confirmation_source: "manager_portal", confirmed_at: new Date().toISOString() }).select("id").single();
+    const { data: offer, error: offerError } = await supabase.from("talent_offers").insert({ availability_request_id: requestRow.id, brief_id: briefId, talent_id: talentId, status: "confirmed", availability_status: "confirmed", event_fee: 10000000, currency: "IDR", included_costs: "Performance fee", payment_terms: talentTerms, quote_valid_until: quoteValidUntil, show_start_local: "19:00", show_end_local: "20:00", show_timezone: "Asia/Jakarta", duty_start_at: `${eventDate}T10:00:00Z`, duty_end_at: `${eventDate}T15:00:00Z`, duty_location: "Jakarta event venue", confirmation_source: "manager_portal", confirmed_at: new Date().toISOString() }).select("id").single();
     if (offerError || !offer) throw new Error(offerError?.message ?? "Offer seed failed");
 
     const candidateResponse = await loadCandidates(new Request(`http://internal/api/internal-demo/admin/proposal-sent?briefId=${briefId}`));
@@ -53,7 +53,7 @@ export async function GET() {
     const sendBody = await sendResponse.json();
     if (!sendResponse.ok) throw new Error(sendBody?.detail ?? sendBody?.error ?? "Proposal route failed");
 
-    const { data: proposalItem, error: itemError } = await supabase.from("proposal_items").select("buyer_price,payment_terms,why_fit_snapshot,media_snapshot,talent_offer_id,show_start_local,show_end_local,show_timezone").eq("brief_id", briefId).single();
+    const { data: proposalItem, error: itemError } = await supabase.from("proposal_items").select("buyer_price,payment_terms,why_fit_snapshot,media_snapshot,talent_offer_id,show_start_local,show_end_local,show_timezone,duty_start_at,duty_end_at,duty_location").eq("brief_id", briefId).single();
     if (itemError || !proposalItem) throw new Error(itemError?.message ?? "Proposal item missing");
     const buyerView = await loadBuyerProposal(briefId);
     const buyerItem = buyerView?.talents?.[0];
@@ -64,10 +64,11 @@ export async function GET() {
     const mediaSnapshotShape = Array.isArray(proposalItem.media_snapshot);
     const buyerPayloadNoTalentFee = buyerItem ? !("event_fee" in buyerItem) : false;
     const confirmedTimeSnapshotted = proposalItem.show_start_local === "19:00:00" && proposalItem.show_end_local === "20:00:00" && proposalItem.show_timezone === "Asia/Jakarta" && buyerItem?.confirmed_show_time === "19:00–20:00 WIB";
+    const dutyPrivateAndSnapshotted = new Date(proposalItem.duty_start_at ?? "").toISOString() === `${eventDate}T10:00:00.000Z` && new Date(proposalItem.duty_end_at ?? "").toISOString() === `${eventDate}T15:00:00.000Z` && proposalItem.duty_location === "Jakarta event venue" && Boolean(buyerItem && !("duty_start_at" in buyerItem) && !("duty_location" in buyerItem));
 
     return NextResponse.json({
-      ok: candidateLoaded && belowFeeRejected && buyerPriceSeparated && paymentTermsSeparated && whyFitSnapshot && mediaSnapshotShape && buyerPayloadNoTalentFee && confirmedTimeSnapshotted,
-      checks: { candidateLoaded, belowFeeRejected, buyerPriceSeparated, paymentTermsSeparated, whyFitSnapshot, mediaSnapshotShape, buyerPayloadNoTalentFee, confirmedTimeSnapshotted },
+      ok: candidateLoaded && belowFeeRejected && buyerPriceSeparated && paymentTermsSeparated && whyFitSnapshot && mediaSnapshotShape && buyerPayloadNoTalentFee && confirmedTimeSnapshotted && dutyPrivateAndSnapshotted,
+      checks: { candidateLoaded, belowFeeRejected, buyerPriceSeparated, paymentTermsSeparated, whyFitSnapshot, mediaSnapshotShape, buyerPayloadNoTalentFee, confirmedTimeSnapshotted, dutyPrivateAndSnapshotted },
       proposal: { status: sendBody.status, buyerPrice: buyerItem?.buyer_price ?? null },
       cleanup: "automatic",
     });

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { formatDutyLocal, parseManagerDutyWindow } from "@/lib/manager-duty-window";
 
 type ResponseStatus = "confirmed" | "unavailable";
 type ExistingOffer = {
@@ -15,8 +16,11 @@ type ExistingOffer = {
   show_start_local: string | null;
   show_end_local: string | null;
   show_timezone: string | null;
+  duty_start_at: string | null;
+  duty_end_at: string | null;
+  duty_location: string | null;
 } | null;
-type Props = { requestId: string; currentStatus: string; existingOffer: ExistingOffer; suggestedTimezone?: string | null; accessToken?: string | null };
+type Props = { requestId: string; currentStatus: string; eventDate: string | null; existingOffer: ExistingOffer; suggestedTimezone?: string | null; accessToken?: string | null };
 
 function toLocalDateTime(value: string | null | undefined) {
   if (!value) return "";
@@ -33,7 +37,7 @@ function initialStatus(currentStatus: string, existingOffer: ExistingOffer): Res
   return "";
 }
 
-export function AvailabilityResponseActions({ requestId, currentStatus, existingOffer, suggestedTimezone, accessToken }: Props) {
+export function AvailabilityResponseActions({ requestId, currentStatus, eventDate, existingOffer, suggestedTimezone, accessToken }: Props) {
   const router = useRouter();
   const [status, setStatus] = useState<ResponseStatus | "">(initialStatus(currentStatus, existingOffer));
   const [eventFee, setEventFee] = useState(existingOffer?.event_fee ? String(existingOffer.event_fee) : "");
@@ -45,6 +49,9 @@ export function AvailabilityResponseActions({ requestId, currentStatus, existing
   const [showStart, setShowStart] = useState(existingOffer?.show_start_local?.slice(0, 5) ?? "");
   const [showEnd, setShowEnd] = useState(existingOffer?.show_end_local?.slice(0, 5) ?? "");
   const [showTimezone, setShowTimezone] = useState(existingOffer?.show_timezone ?? suggestedTimezone ?? "");
+  const [dutyStart, setDutyStart] = useState(formatDutyLocal(existingOffer?.duty_start_at, existingOffer?.show_timezone));
+  const [dutyEnd, setDutyEnd] = useState(formatDutyLocal(existingOffer?.duty_end_at, existingOffer?.show_timezone));
+  const [dutyLocation, setDutyLocation] = useState(existingOffer?.duty_location ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,6 +73,14 @@ export function AvailabilityResponseActions({ requestId, currentStatus, existing
       setError("Isi jam mulai, jam selesai, dan zona waktu tampil yang sudah disetujui.");
       return;
     }
+    if (status === "confirmed") {
+      try {
+        parseManagerDutyWindow({ startLocal: dutyStart, endLocal: dutyEnd, location: dutyLocation, eventDate: eventDate ?? "", showStartLocal: showStart, showEndLocal: showEnd });
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Waktu bertugas tidak valid.");
+        return;
+      }
+    }
 
     setBusy(true);
     try {
@@ -84,6 +99,9 @@ export function AvailabilityResponseActions({ requestId, currentStatus, existing
           showStartLocal: status === "confirmed" ? showStart : null,
           showEndLocal: status === "confirmed" ? showEnd : null,
           showTimezone: status === "confirmed" ? showTimezone : null,
+          dutyStartLocal: status === "confirmed" ? dutyStart : null,
+          dutyEndLocal: status === "confirmed" ? dutyEnd : null,
+          dutyLocation: status === "confirmed" ? dutyLocation.trim() : null,
           accessToken,
         }),
       });
@@ -122,6 +140,12 @@ export function AvailabilityResponseActions({ requestId, currentStatus, existing
             <label className="text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-black/45">Zona waktu acara *</span><select value={showTimezone} onChange={(e) => setShowTimezone(e.target.value)} className="w-full border border-black/20 bg-white px-3 py-2"><option value="">Pilih zona</option><option value="Asia/Jakarta">WIB</option><option value="Asia/Makassar">WITA</option><option value="Asia/Jayapura">WIT</option></select></label>
           </div>
           <p className="text-xs text-black/50">Jam ini adalah komitmen tampil, bukan waktu kedatangan, soundcheck, atau jaminan tidak ada acara lain di hari yang sama. Jika selesai lebih awal dari mulai, sistem menafsirkan selesai pada hari berikutnya.</p>
+          <div className="grid gap-4 border-t border-black/10 pt-4 sm:grid-cols-2">
+            <label className="text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-black/45">Mulai bertugas, termasuk persiapan *</span><input type="datetime-local" value={dutyStart} onChange={(e) => setDutyStart(e.target.value)} className="w-full border border-black/20 px-3 py-2" /></label>
+            <label className="text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-black/45">Selesai bertugas / bebas berangkat *</span><input type="datetime-local" value={dutyEnd} onChange={(e) => setDutyEnd(e.target.value)} className="w-full border border-black/20 px-3 py-2" /></label>
+          </div>
+          <label className="text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-black/45">Lokasi komitmen kerja *</span><input value={dutyLocation} onChange={(e) => setDutyLocation(e.target.value)} placeholder="Nama venue dan kota yang dikonfirmasi" className="w-full border border-black/20 px-3 py-2" /></label>
+          <p className="text-xs text-black/50">Gunakan zona waktu acara di atas. Blok bertugas harus mencakup seluruh jam tampil. Tim Nusantara Star masih akan memeriksa jadwal lain dan perjalanan sebelum menerima booking.</p>
           <label className="text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-black/45">Fee untuk Acara Ini (Rp) *</span><input type="number" min="1" value={eventFee} onChange={(e) => setEventFee(e.target.value)} className="w-full border border-black/20 px-3 py-2" /></label>
           <label className="text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-black/45">Ketentuan Pembayaran</span><textarea value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} className="min-h-20 w-full border border-black/20 px-3 py-2" /></label>
           <div className="grid gap-4 sm:grid-cols-2">

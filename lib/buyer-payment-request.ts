@@ -9,7 +9,7 @@ type PaymentInstructions = {
 };
 
 type PaymentRequestSnapshot = {
-  schema_version: 1;
+  schema_version: 1 | 2;
   request_reference: string;
   booking_id: string;
   deal_id: string;
@@ -19,6 +19,9 @@ type PaymentRequestSnapshot = {
   amount: number;
   issued_at: string;
   due_date: string;
+  expires_at?: string;
+  event_timezone?: "Asia/Jakarta" | "Asia/Makassar" | "Asia/Jayapura";
+  booking_schedule_reservation_id?: string;
   milestone: {
     sequence_no: number;
     milestone_type: string;
@@ -70,11 +73,16 @@ function parseInstructions(value: unknown): PaymentInstructions | null {
 }
 
 function parseSnapshot(value: unknown): PaymentRequestSnapshot | null {
-  if (!isObject(value) || value.schema_version !== 1 || !isObject(value.milestone) || !isObject(value.event) || !isObject(value.accepted_terms_snapshot)) return null;
+  if (!isObject(value) || ![1, 2].includes(Number(value.schema_version)) || !isObject(value.milestone) || !isObject(value.event) || !isObject(value.accepted_terms_snapshot)) return null;
   if (typeof value.request_reference !== "string" || typeof value.booking_id !== "string" || typeof value.deal_id !== "string" || typeof value.payment_milestone_id !== "string") return null;
   if (typeof value.payment_type !== "string" || typeof value.currency !== "string" || typeof value.issued_at !== "string" || typeof value.due_date !== "string") return null;
   const amount = Number(value.amount);
   if (!Number.isSafeInteger(amount) || amount <= 0) return null;
+  if (value.schema_version === 2) {
+    if (typeof value.expires_at !== "string" || !Number.isFinite(Date.parse(value.expires_at))) return null;
+    if (!["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"].includes(String(value.event_timezone))) return null;
+    if (typeof value.booking_schedule_reservation_id !== "string") return null;
+  }
   return value as unknown as PaymentRequestSnapshot;
 }
 
@@ -97,7 +105,7 @@ export async function loadBuyerPaymentRequest(paymentId: string) {
     .select("id,deal_id,buyer_terms_accepted_at,buyer_terms_accepted_deal_id,buyer_terms_acceptance_source,buyer_terms_snapshot,buyer_terms_accepted_snapshot,status")
     .eq("id", payment.booking_id)
     .maybeSingle();
-  if (bookingError || !booking || !booking.deal_id) return null;
+  if (bookingError || !booking || !booking.deal_id || booking.status === "cancelled") return null;
 
   const accepted = Boolean(
     booking.buyer_terms_accepted_at

@@ -5,6 +5,16 @@ import { useState } from "react";
 
 import { SecureAccessLinkButton } from "@/components/secure-access-link-button";
 import { bookingStatusLabel } from "@/lib/ui-language";
+import { formatDutyLocal } from "@/lib/manager-duty-window";
+
+export type BookingDutyReview = {
+  dealId: string;
+  startAt: string;
+  endAt: string;
+  location: string;
+  timeZone: string;
+  offerValidUntil: string;
+};
 
 type Booking = {
   id: string;
@@ -60,18 +70,29 @@ export function AdminBookingActions({
   talentName,
   booking,
   payments,
+  dutyReview = null,
 }: {
   briefId: string;
   talentName: string;
   booking: Booking;
   payments: Payment[];
+  dutyReview?: BookingDutyReview | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [securityType, setSecurityType] = useState("approved_po_credit");
+  const [approvedAmount, setApprovedAmount] = useState("");
+  const [securityEvidenceNote, setSecurityEvidenceNote] = useState("");
   const [reference, setReference] = useState("");
+  const [travelSummary, setTravelSummary] = useState("");
+  const [nearbySummary, setNearbySummary] = useState("");
+  const [holdCutoffLocal, setHoldCutoffLocal] = useState("");
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const reviewZoneOffset = dutyReview?.timeZone === "Asia/Jakarta" ? "+07:00"
+    : dutyReview?.timeZone === "Asia/Makassar" ? "+08:00" : "+09:00";
+  const holdCutoff = holdCutoffLocal ? `${holdCutoffLocal}:00${reviewZoneOffset}` : "";
 
   const [paymentProvider, setPaymentProvider] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
@@ -233,10 +254,30 @@ export function AdminBookingActions({
 
       {!booking ? (
         <div className="mt-5">
-          <p className="text-sm text-black/60">Buat booking dengan status menunggu persetujuan terms dan jaminan pembayaran. Belum terjamin.</p>
-          <button type="button" onClick={() => bookingAction("create_booking")} disabled={busy !== null} className="mt-3 bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
-            {busy ? "Memproses…" : "Buat booking menunggu jaminan"}
-          </button>
+          {dutyReview ? (
+            <>
+              <p className="text-sm text-black/60">Periksa jadwal dan perjalanan sebelum menahan slot. Booking menunggu persetujuan buyer dan jaminan pembayaran.</p>
+              <p className="mt-2 text-sm">Blok kerja: {formatDutyLocal(dutyReview.startAt, dutyReview.timeZone).replace("T", " ")} – {formatDutyLocal(dutyReview.endAt, dutyReview.timeZone).replace("T", " ")} ({dutyReview.timeZone}). Lokasi: {dutyReview.location}.</p>
+              <p className="mt-1 text-xs text-black/60">Penawaran berlaku hingga {formatDutyLocal(dutyReview.offerValidUntil, dutyReview.timeZone).replace("T", " ")}. Batas hold harus sebelum mulai bertugas dan tidak melewati masa penawaran.</p>
+              <div className="mt-3 grid gap-3">
+                <label className="text-sm">Jadwal sebelum/sesudah, termasuk komitmen di luar aplikasi
+                  <textarea value={nearbySummary} onChange={(e) => setNearbySummary(e.target.value)} placeholder="Tuliskan komitmen yang diperiksa, atau konfirmasi tidak ada setelah pengecekan." className="mt-1 w-full border border-black/15 p-2" />
+                </label>
+                <label className="text-sm">Bukti kelayakan perjalanan dan waktu persiapan
+                  <textarea value={travelSummary} onChange={(e) => setTravelSummary(e.target.value)} placeholder="Asal/tujuan, waktu perjalanan, jeda, dan sumber konfirmasi." className="mt-1 w-full border border-black/15 p-2" />
+                </label>
+                <label className="text-sm">Batas hold ({dutyReview.timeZone})
+                  <input type="datetime-local" value={holdCutoffLocal} onChange={(e) => setHoldCutoffLocal(e.target.value)} className="ml-2 border border-black/15 p-2" />
+                </label>
+                <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={reviewConfirmed} onChange={(e) => setReviewConfirmed(e.target.checked)} />Saya sudah memeriksa blok kerja, jadwal lain, dan perjalanan; semuanya layak.</label>
+              </div>
+              <button type="button" onClick={() => bookingAction("create_booking", {
+                dealId: dutyReview.dealId, holdExpiresAt: holdCutoff, travelSummary, nearbySummary, reviewConfirmed: String(reviewConfirmed),
+              })} disabled={busy !== null || !reviewConfirmed || !holdCutoffLocal || travelSummary.trim().length < 10 || nearbySummary.trim().length < 10} className="mt-3 bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                {busy ? "Memproses…" : "Buat booking dan tahan slot"}
+              </button>
+            </>
+          ) : <p className="text-sm text-black/60">Pembuatan booking belum tersedia. Pastikan blok kerja dan lokasi dikonfirmasi manajer serta reservasi siap digunakan.</p>}
         </div>
       ) : (
         <>
@@ -267,13 +308,27 @@ export function AdminBookingActions({
                 <div className="mt-4 border border-black/10 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-black/45">Alternatif tanpa transfer awal</p>
                   <p className="mt-1 text-xs leading-5 text-black/45">Gunakan hanya jika memang ada PO/kredit yang disetujui atau pengecualian komersial yang berwenang.</p>
-                  <div className="mt-3 grid gap-2 md:grid-cols-[220px_1fr_auto]">
+                  <div className="mt-3 grid gap-2 md:grid-cols-2">
                     <select value={securityType} onChange={(event) => setSecurityType(event.target.value)} className="border border-black/15 p-2 text-sm">
                       <option value="approved_po_credit">PO/Kredit disetujui</option>
                       <option value="authorized_exception">Pengecualian berwenang</option>
                     </select>
                     <input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Referensi PO / otorisasi pengecualian" className="border border-black/15 p-2 text-sm" />
-                    <button type="button" onClick={() => bookingAction("set_security", { securityType, reference: reference.trim() })} disabled={busy !== null || !reference.trim()} className="border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40">Simpan jaminan</button>
+                    {securityType === "approved_po_credit" ? (
+                      <input inputMode="numeric" value={approvedAmount} onChange={(event) => setApprovedAmount(event.target.value.replace(/\D/g, ""))} placeholder="Nilai PO/kredit disetujui (IDR)" className="border border-black/15 p-2 text-sm" />
+                    ) : null}
+                    <input value={securityEvidenceNote} onChange={(event) => setSecurityEvidenceNote(event.target.value)} placeholder="Catatan bukti/otorisasi (min. 10 karakter)" className="border border-black/15 p-2 text-sm" />
+                    <button
+                      type="button"
+                      onClick={() => bookingAction("set_security", {
+                        securityType,
+                        reference: reference.trim(),
+                        approvedAmount: securityType === "approved_po_credit" ? approvedAmount : "0",
+                        evidenceNote: securityEvidenceNote.trim(),
+                      })}
+                      disabled={busy !== null || !reference.trim() || securityEvidenceNote.trim().length < 10 || (securityType === "approved_po_credit" && !approvedAmount)}
+                      className="border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40"
+                    >Simpan jaminan</button>
                   </div>
                 </div>
               ) : null}
