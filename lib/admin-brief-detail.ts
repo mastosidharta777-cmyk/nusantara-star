@@ -157,6 +157,19 @@ type PaymentRecord = {
   created_at: string;
 };
 
+export type BuyerPaymentCompletion = {
+  bookingId: string;
+  currency: string;
+  buyerPrice: number;
+  verifiedPaidTotal: number;
+  totalMilestones: number;
+  settledMilestones: number;
+  openMilestones: number;
+  obligationsSettled: boolean;
+  fullyPaid: boolean;
+  source: string;
+};
+
 type PaymentMilestone = {
   id: string;
   party: "buyer" | "talent";
@@ -225,8 +238,9 @@ export async function loadAdminBriefDetail(id: string) {
   const booking = (bookingResult.data ?? null) as BookingRecord | null;
   let payments: PaymentRecord[] = [];
   let paymentMilestones: PaymentMilestone[] = [];
+  let buyerPaymentCompletion: BuyerPaymentCompletion | null = null;
   if (booking) {
-    const [paymentResult, milestoneResult] = await Promise.all([
+    const [paymentResult, milestoneResult, completionResult] = await Promise.all([
       supabase
         .from("payments")
         .select("id,payment_milestone_id,payment_type,amount,currency,provider,provider_reference,status,paid_at,request_reference,request_issued_at,request_due_date,request_expires_at,payment_instructions_snapshot,receipt_timing,reconciliation_status,reconciliation_note,reconciled_at,reconciled_by,created_at")
@@ -238,11 +252,14 @@ export async function loadAdminBriefDetail(id: string) {
         .eq("booking_id", booking.id)
         .order("party", { ascending: true })
         .order("sequence_no", { ascending: true }),
+      supabase.rpc("ns_buyer_payment_completion_v1", { p_booking_id: booking.id }),
     ]);
     if (paymentResult.error) throw new Error(paymentResult.error.message);
     if (milestoneResult.error) throw new Error(milestoneResult.error.message);
+    if (completionResult.error) throw new Error(completionResult.error.message);
     payments = (paymentResult.data ?? []) as PaymentRecord[];
     paymentMilestones = (milestoneResult.data ?? []) as PaymentMilestone[];
+    buyerPaymentCompletion = completionResult.data as BuyerPaymentCompletion;
   }
 
   const row = data as BriefRow;
@@ -395,6 +412,7 @@ export async function loadAdminBriefDetail(id: string) {
     booking,
     payments,
     paymentMilestones,
+    buyerPaymentCompletion,
     matchSnapshot: {
       source: usesPersistedSnapshot ? ("persisted" as const) : ("legacy_live_fallback" as const),
       engineVersion,
