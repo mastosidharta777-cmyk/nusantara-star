@@ -1,5 +1,7 @@
 "use client";
 
+import type { BuyerPaymentCompletion } from "@/lib/admin-brief-detail";
+
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -76,12 +78,14 @@ export function AdminBookingActions({
   talentName,
   booking,
   payments,
+  buyerPaymentCompletion,
   dutyReview = null,
 }: {
   briefId: string;
   talentName: string;
   booking: Booking;
   payments: Payment[];
+  buyerPaymentCompletion: BuyerPaymentCompletion | null;
   dutyReview?: BookingDutyReview | null;
 }) {
   const router = useRouter();
@@ -167,12 +171,10 @@ export function AdminBookingActions({
   );
 
   const buyerPayments = payments.filter((payment) => BUYER_PAYMENT_TYPES.has(payment.payment_type ?? ""));
-  const paidTotal = buyerPayments
-    .filter((payment) => payment.status === "paid" && Boolean(payment.provider?.trim()) && Boolean(payment.provider_reference?.trim()))
-    .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+  const paidTotal = Number(buyerPaymentCompletion?.verifiedPaidTotal ?? 0);
   const pendingPayment = buyerPayments.find((payment) => payment.status === "pending");
   const pendingLateReconciliation = Boolean(pendingPayment?.receipt_timing === "late" && pendingPayment.reconciliation_status === "pending");
-  const fullyPaid = Boolean(booking?.buyer_price && paidTotal >= Number(booking.buyer_price));
+  const fullyPaid = buyerPaymentCompletion?.fullyPaid === true;
   const requestFormReady = Boolean(providerName.trim() && destination.trim());
 
   const requestForm = booking ? (

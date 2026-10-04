@@ -17,6 +17,7 @@ before(async () => {
   await db.exec(await file('../supabase-payment-request-cutoff-v1.sql'));
   await db.exec(await file('../supabase-booking-reservation-security-v1.sql'));
   await db.exec(await file('../supabase-late-transfer-reconciliation-v1.sql'));
+  await db.exec(await file('../supabase-buyer-payment-completion-v1.sql'));
 });
 after(async () => { if (db) await db.close(); });
 
@@ -445,10 +446,15 @@ async function seedSecuredWithBalance() {
   const s = await seed({ buyerSchedule });
   const b = await create(s);
   await db.query('select ns_accept_buyer_terms_v1($1)', [b.bookingId]);
-  await db.query("update payment_milestones set status='paid' where booking_id=$1 and party='buyer' and sequence_no=1", [b.bookingId]);
-  await db.query('select ns_record_manual_booking_security_v1($1,$2,$3,$4,$5,$6)',
-    [b.bookingId, 'approved_po_credit', 'FIXTURE-POST-SECURITY', 1000000,
-      'Fixture verified post-security payment approval.', reviewer]);
+  await db.query('select ns_create_buyer_payment_request_v1($1,$2::jsonb)',
+    [b.bookingId, JSON.stringify({ method:'bank_transfer',provider_name:'Fixture Bank',destination:'123456' })]);
+  const deposit = (await db.query(`select p.id,p.amount
+    from payments p join payment_milestones m on m.id=p.payment_milestone_id
+    where p.booking_id=$1 and m.party='buyer' and m.sequence_no=1
+    order by p.created_at desc limit 1`, [b.bookingId])).rows[0];
+  if (!deposit) throw new Error('Booking-fee request was not persisted');
+  await db.query('select ns_record_buyer_payment_v1($1,$2,$3,$4,now())',
+    [b.bookingId, deposit.id, 'Fixture Bank', 'DEPOSIT-ON-TIME-1']);
   await db.query('select ns_secure_booking_v1($1)', [b.bookingId]);
   await db.query('select ns_create_buyer_payment_request_v1($1,$2::jsonb)',
     [b.bookingId, JSON.stringify({ method:'bank_transfer',provider_name:'Fixture Bank',destination:'123456' })]);
@@ -505,4 +511,66 @@ test('late rejection requires full return evidence, is idempotent, and permits a
     ) order by created_at desc limit 1`, [b.bookingId])).rows[0];
   assert.notEqual(replacement.id, request.id);
   assert.equal(Number(replacement.amount), 800000);
+});
+
+
+async function completion(bookingId) {
+  return (await db.query('select ns_buyer_payment_completion_v1($1) as r', [bookingId])).rows[0].r;
+}
+
+test('buyer completion stays false after DP and becomes fully paid only after verified balance', async () => {
+  const { b, request } = await seedSecuredWithBalance();
+  let state = await completion(b.bookingId);
+  assert.equal(state.fullyPaid, false);
+  assert.equal(state.obligationsSettled, false);
+  assert.equal(Number(state.verifiedPaidTotal), 200000);
+
+  await db.query('select ns_record_buyer_payment_v1($1,$2,$3,$4,now())',
+    [b.bookingId, request.id, 'Fixture Bank', 'BALANCE-ON-TIME-1']);
+  state = await completion(b.bookingId);
+  assert.equal(state.fullyPaid, true);
+  assert.equal(state.obligationsSettled, true);
+  assert.equal(Number(state.verifiedPaidTotal), 1000000);
+  assert.equal(Number(state.openMilestones), 0);
+});
+
+test('late transfer does not count as paid until accepted reconciliation', async () => {
+  const { b, request } = await seedSecuredWithBalance();
+  await agePaymentRequest(request.id);
+  await db.query('select ns_record_buyer_payment_v1($1,$2,$3,$4,now())',
+    [b.bookingId, request.id, 'Fixture Bank', 'BALANCE-LATE-PENDING']);
+  let state = await completion(b.bookingId);
+  assert.equal(state.fullyPaid, false);
+  assert.equal(Number(state.verifiedPaidTotal), 200000);
+  assert.equal(Number(state.openMilestones), 1);
+
+  await db.query('select ns_accept_late_buyer_transfer_v1($1,$2,$3,$4)',
+    [b.bookingId, request.id, reviewer, 'Verified late balance accepted for completion test.']);
+  state = await completion(b.bookingId);
+  assert.equal(state.fullyPaid, true);
+  assert.equal(Number(state.verifiedPaidTotal), 1000000);
+});
+
+test('rejected late transfer never counts toward buyer fully paid', async () => {
+  const { b, request } = await seedSecuredWithBalance();
+  await agePaymentRequest(request.id);
+  await db.query('select ns_record_buyer_payment_v1($1,$2,$3,$4,now())',
+    [b.bookingId, request.id, 'Fixture Bank', 'BALANCE-LATE-REJECTED']);
+  await db.query('select ns_reject_late_buyer_transfer_v1($1,$2,$3,$4,$5,$6,now())',
+    [b.bookingId, request.id, reviewer, 'Late balance returned in full for completion test.', 'Fixture Bank', 'RETURN-COMPLETION-1']);
+  const state = await completion(b.bookingId);
+  assert.equal(state.fullyPaid, false);
+  assert.equal(state.obligationsSettled, false);
+  assert.equal(Number(state.verifiedPaidTotal), 200000);
+  assert.equal(Number(state.openMilestones), 1);
+});
+
+test('waived buyer obligation is settled but is never reported as fully paid cash', async () => {
+  const { b, request } = await seedSecuredWithBalance();
+  await db.query("update payment_milestones set status='waived' where booking_id=$1 and party='buyer' and sequence_no=2", [b.bookingId]);
+  const state = await completion(b.bookingId);
+  assert.equal(state.obligationsSettled, true);
+  assert.equal(state.fullyPaid, false);
+  assert.equal(Number(state.verifiedPaidTotal), 200000);
+  assert.equal(Number(state.openMilestones), 0);
 });

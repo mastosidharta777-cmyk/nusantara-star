@@ -64,7 +64,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
     .single();
   if (buyerContactError) throw new Error(`Buyer contact load failed: ${buyerContactError.message}`);
 
-  const { row, matches, selectedTalent, talentPolicyTemplates, proposalDealDefaults, commercialTerms, booking, payments, paymentMilestones } = detail;
+  const { row, matches, selectedTalent, talentPolicyTemplates, proposalDealDefaults, commercialTerms, booking, payments, paymentMilestones, buyerPaymentCompletion } = detail;
   const [deal, buyerPriority] = await Promise.all([
     selectedTalent ? loadDealReviewData(row.id) : Promise.resolve(null),
     loadBuyerPriorityState(row.id),
@@ -180,7 +180,7 @@ export default async function AdminBriefDetailPage({ params }: { params: Promise
           </details>
         ) : null}
 
-        {selectedTalent && dealLocked ? <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} dutyReview={dutyReview} /> : null}
+        {selectedTalent && dealLocked ? <AdminBookingActions briefId={row.id} talentName={selectedTalent.name} booking={booking} payments={payments} buyerPaymentCompletion={buyerPaymentCompletion} dutyReview={dutyReview} /> : null}
         {booking && dealLocked ? <AdminPaymentMilestones bookingId={booking.id} milestones={paymentMilestones} /> : null}
         {booking && dealLocked && showAdvance && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminShowAdvance bookingId={booking.id} bookingStatus={booking.status} data={showAdvance} /> : null}
         {booking && dealLocked && ["secured", "pre_show", "incident", "completed"].includes(booking.status) ? <AdminOperations booking={booking} checklist={operations.checklist} incidents={operations.incidents} postShowConfirmations={operations.postShowConfirmations} settlements={operations.settlements} advanceConfirmed={advanceConfirmed} currentAdvanceRevision={currentAdvanceRevision} recoveryBlockingIncidentId={recoveryBlockingIncidentId} /> : null}
