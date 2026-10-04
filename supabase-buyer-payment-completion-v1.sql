@@ -70,24 +70,14 @@ begin
     'totalMilestones',v_total_milestones,
     'settledMilestones',v_settled_milestones,
     'openMilestones',v_open_milestones,
+    'obligationsSettled',v_total_milestones > 0 and v_open_milestones = 0,
     'fullyPaid',
       v_total_milestones > 0
       and v_open_milestones = 0
+      and v_paid >= v_required
       and not exists (
         select 1 from public.payment_milestones x
-        where x.booking_id=b.id and x.party='buyer'
-          and x.status not in ('paid','waived','cancelled')
-          and not exists (
-            select 1 from public.payments p
-            where p.payment_milestone_id=x.id and p.booking_id=b.id
-              and p.payment_type in ('buyer_deposit','buyer_balance','buyer_full_payment')
-              and p.status='paid'
-              and nullif(trim(p.provider),'') is not null
-              and nullif(trim(p.provider_reference),'') is not null
-              and nullif(trim(p.evidence_key),'') is not null
-              and ((p.receipt_timing='on_time' and p.reconciliation_status is null)
-                   or (p.receipt_timing='late' and p.reconciliation_status='accepted'))
-          )
+        where x.booking_id=b.id and x.party='buyer' and x.status in ('waived','cancelled')
       ),
     'source','derived_from_locked_buyer_milestones_and_verified_payments'
   );
