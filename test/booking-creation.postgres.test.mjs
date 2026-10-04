@@ -446,10 +446,15 @@ async function seedSecuredWithBalance() {
   const s = await seed({ buyerSchedule });
   const b = await create(s);
   await db.query('select ns_accept_buyer_terms_v1($1)', [b.bookingId]);
-  await db.query("update payment_milestones set status='paid' where booking_id=$1 and party='buyer' and sequence_no=1", [b.bookingId]);
-  await db.query('select ns_record_manual_booking_security_v1($1,$2,$3,$4,$5,$6)',
-    [b.bookingId, 'approved_po_credit', 'FIXTURE-POST-SECURITY', 1000000,
-      'Fixture verified post-security payment approval.', reviewer]);
+  await db.query('select ns_create_buyer_payment_request_v1($1,$2::jsonb)',
+    [b.bookingId, JSON.stringify({ method:'bank_transfer',provider_name:'Fixture Bank',destination:'123456' })]);
+  const deposit = (await db.query(`select p.id,p.amount
+    from payments p join payment_milestones m on m.id=p.payment_milestone_id
+    where p.booking_id=$1 and m.party='buyer' and m.sequence_no=1
+    order by p.created_at desc limit 1`, [b.bookingId])).rows[0];
+  if (!deposit) throw new Error('Booking-fee request was not persisted');
+  await db.query('select ns_record_buyer_payment_v1($1,$2,$3,$4,now())',
+    [b.bookingId, deposit.id, 'Fixture Bank', 'DEPOSIT-ON-TIME-1']);
   await db.query('select ns_secure_booking_v1($1)', [b.bookingId]);
   await db.query('select ns_create_buyer_payment_request_v1($1,$2::jsonb)',
     [b.bookingId, JSON.stringify({ method:'bank_transfer',provider_name:'Fixture Bank',destination:'123456' })]);
@@ -562,7 +567,6 @@ test('rejected late transfer never counts toward buyer fully paid', async () => 
 
 test('waived buyer obligation is settled but is never reported as fully paid cash', async () => {
   const { b, request } = await seedSecuredWithBalance();
-  await db.query("update payments set status='cancelled' where id=$1", [request.id]);
   await db.query("update payment_milestones set status='waived' where booking_id=$1 and party='buyer' and sequence_no=2", [b.bookingId]);
   const state = await completion(b.bookingId);
   assert.equal(state.obligationsSettled, true);
