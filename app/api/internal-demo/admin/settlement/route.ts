@@ -16,22 +16,22 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
     const bookingId = typeof body?.bookingId === "string" ? body.bookingId : "";
-    const amount = Number(body?.amount ?? 0);
+    const paymentMilestoneId = typeof body?.paymentMilestoneId === "string" ? body.paymentMilestoneId : "";
     const provider = typeof body?.provider === "string" ? body.provider.trim() : "";
     const providerReference = typeof body?.providerReference === "string" ? body.providerReference.trim() : "";
     const idempotencyKey = typeof body?.idempotencyKey === "string" ? body.idempotencyKey.trim() : "";
     const notes = typeof body?.notes === "string" && body.notes.trim() ? body.notes.trim() : null;
-    if (!bookingId || !Number.isSafeInteger(amount) || amount <= 0 || !providerReference || !idempotencyKey) {
-      return NextResponse.json({ error: "Booking, amount, payment evidence, and idempotency key are required" }, { status: 400 });
+    if (!bookingId || !paymentMilestoneId || !providerReference || !idempotencyKey) {
+      return NextResponse.json({ error: "Booking, talent milestone, payment evidence, and idempotency key are required" }, { status: 400 });
     }
 
     const supabase = getServerClient();
     if (!(await commercialIntegrityReady(supabase))) {
       return NextResponse.json({ error: "Commercial integrity database cutover is not complete" }, { status: 503 });
     }
-    const { data, error } = await supabase.rpc("ns_record_talent_settlement_v1", {
+    const { data, error } = await supabase.rpc("ns_record_talent_milestone_settlement_v1", {
       p_booking_id: bookingId,
-      p_amount: amount,
+      p_payment_milestone_id: paymentMilestoneId,
       p_provider: provider,
       p_provider_reference: providerReference,
       p_idempotency_key: idempotencyKey,
