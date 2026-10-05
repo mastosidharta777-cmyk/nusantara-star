@@ -8,6 +8,8 @@ test("talent settlement is bound to exact locked milestone and backend-derived a
   assert.match(sql, /party='talent'/);
   assert.match(sql, /ns_record_talent_milestone_settlement_v1/);
   assert.match(sql, /event_completion.*completed/s);
+  assert.match(sql, /event_date\/custom_date define the contractual deadline/);
+  assert.doesNotMatch(sql, /current_date < b\.event_date \+ m\.due_offset_days/);
   assert.match(sql, /uq_talent_settlement_paid_milestone/);
 });
 
