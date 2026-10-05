@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { SecureAccessLinkButton } from "@/components/secure-access-link-button";
-import type { OperationsChecklistItem, OperationsIncident, OperationsPostShowConfirmation, TalentSettlement } from "@/lib/operations-data";
+import type { OperationsChecklistItem, OperationsIncident, OperationsPostShowConfirmation, TalentMilestone, TalentSettlement } from "@/lib/operations-data";
 import { bookingStatusLabel } from "@/lib/ui-language";
 
 type Booking = {
@@ -70,6 +70,7 @@ export function AdminOperations({
   incidents,
   postShowConfirmations,
   settlements,
+  talentMilestones,
   advanceConfirmed,
   currentAdvanceRevision,
   recoveryBlockingIncidentId,
@@ -79,6 +80,7 @@ export function AdminOperations({
   incidents: OperationsIncident[];
   postShowConfirmations: OperationsPostShowConfirmation[];
   settlements: TalentSettlement[];
+  talentMilestones: TalentMilestone[];
   advanceConfirmed: boolean;
   currentAdvanceRevision: number | null;
   recoveryBlockingIncidentId: string | null;
@@ -91,7 +93,7 @@ export function AdminOperations({
   const [incidentDetails, setIncidentDetails] = useState("");
   const [resolutionNotes, setResolutionNotes] = useState<Record<string, string>>({});
   const [completionOverrideReason, setCompletionOverrideReason] = useState("");
-  const [settlementAmount, setSettlementAmount] = useState("");
+  const [settlementMilestoneId, setSettlementMilestoneId] = useState("");
   const [settlementProvider, setSettlementProvider] = useState("");
   const [settlementReference, setSettlementReference] = useState("");
 
@@ -134,9 +136,8 @@ export function AdminOperations({
   }
 
   async function recordSettlement() {
-    const amount = Number(settlementAmount);
-    if (!Number.isSafeInteger(amount) || amount <= 0) {
-      setError("Nominal pembayaran tidak valid");
+    if (!settlementMilestoneId) {
+      setError("Pilih termin pembayaran talent");
       return;
     }
     if (!settlementReference.trim()) {
@@ -147,13 +148,13 @@ export function AdminOperations({
     setBusy("settlement");
     setError(null);
     try {
-      const key = `${booking.id}:${settlementReference.trim()}:${amount}`;
+      const key = `${booking.id}:${settlementMilestoneId}:${settlementReference.trim()}`;
       const response = await fetch("/api/internal-demo/admin/settlement", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           bookingId: booking.id,
-          amount,
+          paymentMilestoneId: settlementMilestoneId,
           provider: settlementProvider,
           providerReference: settlementReference,
           idempotencyKey: key,
@@ -161,7 +162,7 @@ export function AdminOperations({
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.detail ?? body?.error ?? "Pencatatan pembayaran gagal");
-      setSettlementAmount("");
+      setSettlementMilestoneId("");
       setSettlementProvider("");
       setSettlementReference("");
       router.refresh();
@@ -466,7 +467,12 @@ export function AdminOperations({
 
         {["secured", "pre_show", "completed"].includes(booking.status) && remaining > 0 ? (
           <div className="mt-3 grid gap-2 md:grid-cols-4">
-            <input type="number" min="1" step="1" value={settlementAmount} onChange={(event) => setSettlementAmount(event.target.value)} placeholder="Nominal" className="border border-black/15 p-2 text-sm" />
+            <select value={settlementMilestoneId} onChange={(event) => setSettlementMilestoneId(event.target.value)} className="border border-black/15 px-3 py-2 text-sm">
+                  <option value="">Pilih termin talent</option>
+                  {talentMilestones.filter((m) => m.status === "planned" || m.status === "due").map((m) => (
+                    <option key={m.id} value={m.id}>Termin {m.sequence_no} · {m.milestone_type.replaceAll("_", " ")}</option>
+                  ))}
+                </select>
             <input value={settlementProvider} onChange={(event) => setSettlementProvider(event.target.value)} placeholder="Bank/penyedia" className="border border-black/15 p-2 text-sm" />
             <input value={settlementReference} onChange={(event) => setSettlementReference(event.target.value)} placeholder="Bukti/referensi transfer" className="border border-black/15 p-2 text-sm" />
             <button onClick={recordSettlement} disabled={busy !== null} className="border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40">Catat dibayar</button>
