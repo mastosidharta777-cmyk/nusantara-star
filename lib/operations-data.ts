@@ -59,8 +59,22 @@ export type OperationsPostShowConfirmation = {
   confirmed_at: string;
 };
 
+export type TalentMilestone = {
+  id: string;
+  milestone_type: string;
+  sequence_no: number;
+  calculation_type: string;
+  percentage: number | null;
+  amount: number | null;
+  due_basis: string;
+  due_offset_days: number;
+  custom_due_date: string | null;
+  status: "planned" | "due" | "paid" | "waived" | "cancelled";
+};
+
 export type TalentSettlement = {
   id: string;
+  payment_milestone_id: string | null;
   amount: number;
   currency: string;
   provider: string | null;
@@ -84,11 +98,12 @@ export async function loadOperationsData(bookingId: string | null) {
       incidents: [] as OperationsIncident[],
       postShowConfirmations: [] as OperationsPostShowConfirmation[],
       settlements: [] as TalentSettlement[],
+      talentMilestones: [] as TalentMilestone[],
     };
   }
 
   const supabase = getServerClient();
-  const [checklistResult, confirmationResult, incidentsResult, evidenceResult, postShowResult, settlementsResult] = await Promise.all([
+  const [checklistResult, confirmationResult, incidentsResult, evidenceResult, postShowResult, settlementsResult, talentMilestonesResult] = await Promise.all([
     supabase
       .from("pre_show_checklist_items")
       .select("id,checkpoint_code,item_key,label,due_date,status,notes,completed_at,required_parties,advance_revision_no")
@@ -118,9 +133,15 @@ export async function loadOperationsData(bookingId: string | null) {
       .order("confirmed_at", { ascending: true }),
     supabase
       .from("talent_settlements")
-      .select("id,amount,currency,provider,provider_reference,status,paid_at,notes")
+      .select("id,payment_milestone_id,amount,currency,provider,provider_reference,status,paid_at,notes")
       .eq("booking_id", bookingId)
       .order("paid_at", { ascending: true }),
+    supabase
+      .from("payment_milestones")
+      .select("id,milestone_type,sequence_no,calculation_type,percentage,amount,due_basis,due_offset_days,custom_due_date,status")
+      .eq("booking_id", bookingId)
+      .eq("party", "talent")
+      .order("sequence_no", { ascending: true }),
   ]);
 
   if (checklistResult.error) throw new Error(checklistResult.error.message);
@@ -129,6 +150,7 @@ export async function loadOperationsData(bookingId: string | null) {
   if (evidenceResult.error) throw new Error(evidenceResult.error.message);
   if (postShowResult.error) throw new Error(postShowResult.error.message);
   if (settlementsResult.error) throw new Error(settlementsResult.error.message);
+  if (talentMilestonesResult.error) throw new Error(talentMilestonesResult.error.message);
 
   const confirmations = (confirmationResult.data ?? []) as OperationsTaskConfirmation[];
   const checklist = (checklistResult.data ?? []).map((item) => ({
@@ -169,5 +191,6 @@ export async function loadOperationsData(bookingId: string | null) {
     incidents,
     postShowConfirmations: (postShowResult.data ?? []) as OperationsPostShowConfirmation[],
     settlements: (settlementsResult.data ?? []) as TalentSettlement[],
+    talentMilestones: (talentMilestonesResult.data ?? []) as TalentMilestone[],
   };
 }
