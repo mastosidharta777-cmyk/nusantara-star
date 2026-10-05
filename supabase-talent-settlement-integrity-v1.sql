@@ -72,12 +72,8 @@ begin
   if m.due_basis='event_completion' and b.status<>'completed' then
     raise exception 'Talent milestone is not due until event completion';
   end if;
-  if m.due_basis='event_date' and current_date < b.event_date + m.due_offset_days then
-    raise exception 'Talent milestone is not due yet';
-  end if;
-  if m.due_basis='custom_date' and current_date < m.custom_due_date then
-    raise exception 'Talent milestone is not due yet';
-  end if;
+  -- event_date/custom_date define the contractual deadline (e.g. H-14/H-7/H-3),
+  -- not a minimum payment date. Early payout is valid; overdue status is monitored separately.
 
   insert into public.talent_settlements(
     booking_id,payment_milestone_id,amount,currency,provider,provider_reference,idempotency_key,status,paid_at,notes
