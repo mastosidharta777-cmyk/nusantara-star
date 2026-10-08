@@ -12,6 +12,11 @@ export const SUPPLY_CATEGORIES: Record<SupplyType, readonly string[]> = {
 
 export type SupplyServiceOption = { id: string; label: string };
 export const OTHER_SUPPLY_SERVICE_ID = "other";
+// Deliberately narrow V1 pilot. Other professional services keep custom quotation.
+export const RATE_CARD_SERVICE_IDS = ["songwriter_topliner", "recording_engineer", "mixing_engineer", "mastering_engineer"] as const;
+export function isRateCardServiceId(value: unknown): value is (typeof RATE_CARD_SERVICE_IDS)[number] {
+  return typeof value === "string" && (RATE_CARD_SERVICE_IDS as readonly string[]).includes(value);
+}
 const makeOptions = (items: readonly (readonly [string, string])[]): readonly SupplyServiceOption[] => [...items.map(([id, label]) => ({ id, label })), { id: OTHER_SUPPLY_SERVICE_ID, label: "Lainnya" }];
 export const SUPPLY_SERVICE_OPTIONS: Record<NonTalentSupplyType, readonly SupplyServiceOption[]> = {
   professional: makeOptions([
