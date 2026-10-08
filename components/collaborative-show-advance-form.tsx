@@ -117,6 +117,12 @@ export function CollaborativeShowAdvanceForm({
   const area = "mt-1 min-h-20 w-full border border-black/15 bg-white p-2 text-sm";
   const reviewed = data.reviewed;
   const fullyConfirmed = data.fullyConfirmed;
+  const selectedRider = a?.rider_version_id
+    ? data.approvedRiders.find((rider) => rider.id === a.rider_version_id) ?? null
+    : null;
+  const riderLabel = selectedRider
+    ? `v${selectedRider.version_no} · ${selectedRider.source_filename ?? "Rider approved"}`
+    : "Tidak ada rider terpilih";
 
   return (
     <main className="min-h-screen bg-[#f5f3ee] px-5 py-10 text-[#171713] md:px-10 md:py-16">
@@ -244,9 +250,13 @@ export function CollaborativeShowAdvanceForm({
                 {busy === "save" ? "Menyimpan…" : data.partySubmitted ? "Simpan perubahan saya" : "Simpan & kirim bagian saya"}
               </button>
               {reviewed && data.partySubmitted && !data.partyConfirmed ? (
-                <button type="button" onClick={() => act("confirm")} disabled={busy !== null} className="border border-black px-4 py-2 text-sm font-semibold disabled:opacity-40">
-                  {busy === "confirm" ? "Mengonfirmasi…" : "Confirm revision final"}
-                </button>
+                <div className="w-full border border-black/10 bg-[#f8f7f3] p-4 text-xs leading-5 text-black/65">
+                  <p><strong>Rider pada revision ini:</strong> {riderLabel}.</p>
+                  <p className="mt-1">Dengan konfirmasi final, Anda mengakui Show Advance revision {a?.revision_no}, termasuk rider yang tercantum di atas. Perubahan setelah ini membuat revision baru dan wajib direview serta dikonfirmasi ulang.</p>
+                  <button type="button" onClick={() => act("confirm")} disabled={busy !== null} className="mt-3 border border-black px-4 py-2 text-sm font-semibold text-black disabled:opacity-40">
+                    {busy === "confirm" ? "Mengonfirmasi…" : "Konfirmasi revision + rider"}
+                  </button>
+                </div>
               ) : null}
             </div>
           ) : (
@@ -265,6 +275,7 @@ export function CollaborativeShowAdvanceForm({
               <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Onsite PIC</span><br />{a.onsite_pic_name ?? "—"} · {a.onsite_pic_phone ?? "—"}</div>
               <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Talent PIC</span><br />{a.talent_pic_name ?? "—"} · {a.talent_pic_phone ?? "—"}</div>
               <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Personnel / lineup</span><br />{a.personnel_count ?? "—"} orang<br />{a.lineup_notes ?? "—"}</div>
+              <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Final rider</span><br /><strong>{riderLabel}</strong></div>
               <div className="border border-black/10 p-3 text-sm"><span className="text-black/45">Operational notes</span><br />{a.talent_operational_notes ?? "—"}</div>
             </div>
           </section>
